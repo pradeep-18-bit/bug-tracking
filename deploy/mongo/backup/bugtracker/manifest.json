@@ -1,0 +1,309 @@
+{
+  "database": "bugtracker",
+  "exportedAt": "2026-04-01T09:33:33.965Z",
+  "collections": [
+    {
+      "name": "comments",
+      "file": "comments.json",
+      "count": 4,
+      "indexes": [
+        {
+          "key": {
+            "_id": 1
+          },
+          "name": "_id_"
+        },
+        {
+          "key": {
+            "issueId": 1
+          },
+          "name": "issueId_1"
+        },
+        {
+          "key": {
+            "userId": 1
+          },
+          "name": "userId_1"
+        },
+        {
+          "key": {
+            "issueId": 1,
+            "createdAt": 1
+          },
+          "name": "issueId_1_createdAt_1"
+        }
+      ]
+    },
+    {
+      "name": "issues",
+      "file": "issues.json",
+      "count": 6,
+      "indexes": [
+        {
+          "key": {
+            "_id": 1
+          },
+          "name": "_id_"
+        },
+        {
+          "key": {
+            "projectId": 1
+          },
+          "name": "projectId_1"
+        },
+        {
+          "key": {
+            "assignedTo": 1
+          },
+          "name": "assignedTo_1"
+        },
+        {
+          "key": {
+            "projectId": 1,
+            "status": 1,
+            "priority": 1
+          },
+          "name": "projectId_1_status_1_priority_1"
+        },
+        {
+          "key": {
+            "assignee": 1
+          },
+          "name": "assignee_1"
+        },
+        {
+          "key": {
+            "reporter": 1
+          },
+          "name": "reporter_1"
+        },
+        {
+          "key": {
+            "teamId": 1
+          },
+          "name": "teamId_1"
+        },
+        {
+          "key": {
+            "dueAt": 1
+          },
+          "name": "dueAt_1"
+        },
+        {
+          "key": {
+            "dependsOnIssueId": 1
+          },
+          "name": "dependsOnIssueId_1"
+        },
+        {
+          "key": {
+            "projectId": 1,
+            "teamId": 1,
+            "status": 1,
+            "priority": 1
+          },
+          "name": "projectId_1_teamId_1_status_1_priority_1"
+        },
+        {
+          "key": {
+            "projectId": 1,
+            "dueAt": 1
+          },
+          "name": "projectId_1_dueAt_1"
+        }
+      ]
+    },
+    {
+      "name": "projects",
+      "file": "projects.json",
+      "count": 5,
+      "indexes": [
+        {
+          "key": {
+            "_id": 1
+          },
+          "name": "_id_"
+        },
+        {
+          "key": {
+            "createdBy": 1
+          },
+          "name": "createdBy_1"
+        },
+        {
+          "key": {
+            "createdBy": 1,
+            "createdAt": -1
+          },
+          "name": "createdBy_1_createdAt_-1"
+        },
+        {
+          "key": {
+            "workspaceId": 1
+          },
+          "name": "workspaceId_1"
+        },
+        {
+          "key": {
+            "workspaceId": 1,
+            "createdAt": -1
+          },
+          "name": "workspaceId_1_createdAt_-1"
+        },
+        {
+          "key": {
+            "workspaceId": 1,
+            "createdBy": 1,
+            "createdAt": -1
+          },
+          "name": "workspaceId_1_createdBy_1_createdAt_-1"
+        },
+        {
+          "key": {
+            "isCompleted": 1
+          },
+          "name": "isCompleted_1"
+        }
+      ]
+    },
+    {
+      "name": "projectteams",
+      "file": "projectteams.json",
+      "count": 1,
+      "indexes": [
+        {
+          "key": {
+            "_id": 1
+          },
+          "name": "_id_"
+        },
+        {
+          "key": {
+            "projectId": 1
+          },
+          "name": "projectId_1"
+        },
+        {
+          "key": {
+            "teamId": 1
+          },
+          "name": "teamId_1"
+        },
+        {
+          "key": {
+            "projectId": 1,
+            "teamId": 1
+          },
+          "name": "projectId_1_teamId_1",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "teammembers",
+      "file": "teammembers.json",
+      "count": 9,
+      "indexes": [
+        {
+          "key": {
+            "_id": 1
+          },
+          "name": "_id_"
+        },
+        {
+          "key": {
+            "teamId": 1
+          },
+          "name": "teamId_1"
+        },
+        {
+          "key": {
+            "userId": 1
+          },
+          "name": "userId_1"
+        },
+        {
+          "key": {
+            "teamId": 1,
+            "userId": 1
+          },
+          "name": "teamId_1_userId_1",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "teams",
+      "file": "teams.json",
+      "count": 1,
+      "indexes": [
+        {
+          "key": {
+            "_id": 1
+          },
+          "name": "_id_"
+        },
+        {
+          "key": {
+            "workspaceId": 1
+          },
+          "name": "workspaceId_1"
+        },
+        {
+          "key": {
+            "createdBy": 1
+          },
+          "name": "createdBy_1"
+        },
+        {
+          "key": {
+            "workspaceId": 1,
+            "createdAt": -1
+          },
+          "name": "workspaceId_1_createdAt_-1"
+        },
+        {
+          "key": {
+            "workspaceId": 1,
+            "name": 1
+          },
+          "name": "workspaceId_1_name_1"
+        }
+      ]
+    },
+    {
+      "name": "users",
+      "file": "users.json",
+      "count": 61,
+      "indexes": [
+        {
+          "key": {
+            "_id": 1
+          },
+          "name": "_id_"
+        },
+        {
+          "key": {
+            "email": 1
+          },
+          "name": "email_1",
+          "unique": true
+        },
+        {
+          "key": {
+            "employeeId": 1
+          },
+          "name": "employeeId_1",
+          "unique": true,
+          "sparse": true
+        },
+        {
+          "key": {
+            "workspaceId": 1
+          },
+          "name": "workspaceId_1"
+        }
+      ]
+    }
+  ]
+}

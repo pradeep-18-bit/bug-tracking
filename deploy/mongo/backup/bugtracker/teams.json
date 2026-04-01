@@ -1,0 +1,16 @@
+[
+  {
+    "_id": {
+      "$oid": "69cca5c7064b75d4d5fa0372"
+    },
+    "name": "Team-2",
+    "description": "working on pirnav website",
+    "workspaceId": "legacy-workspace",
+    "createdBy": {
+      "$oid": "69ca5c35e2b46f4be783a88c"
+    },
+    "createdAt": {
+      "$date": "2026-04-01T04:57:43.404Z"
+    }
+  }
+]

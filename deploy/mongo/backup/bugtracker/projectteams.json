@@ -1,0 +1,16 @@
+[
+  {
+    "_id": {
+      "$oid": "69ccad2e05e88740726119b5"
+    },
+    "projectId": {
+      "$oid": "69cbaee1bd1ac6caee62b574"
+    },
+    "teamId": {
+      "$oid": "69cca5c7064b75d4d5fa0372"
+    },
+    "createdAt": {
+      "$date": "2026-04-01T05:29:18.266Z"
+    }
+  }
+]

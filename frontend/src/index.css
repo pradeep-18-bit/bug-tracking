@@ -1,0 +1,126 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 221 83% 96%;
+    --accent-foreground: 221 83% 40%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+    --radius: 1.35rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply min-h-screen bg-background text-foreground antialiased;
+    font-family: "Manrope", sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(191, 219, 254, 0.55), transparent 28%),
+      radial-gradient(circle at top right, rgba(224, 231, 255, 0.7), transparent 30%),
+      linear-gradient(180deg, rgba(248, 250, 252, 1), rgba(239, 246, 255, 1) 48%, rgba(238, 242, 255, 1));
+    background-attachment: fixed;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+    background-size: 96px 96px;
+    mask-image: radial-gradient(circle at center, black 45%, transparent 85%);
+  }
+
+  #root {
+    @apply min-h-screen;
+  }
+
+  @keyframes page-shell-enter {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes avatar-pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.92);
+    }
+
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+}
+
+@layer components {
+  .app-panel {
+    @apply rounded-[28px] border border-gray-200 bg-white shadow-md;
+  }
+
+  .app-panel-strong {
+    @apply rounded-[32px] border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-md;
+  }
+
+  .field-select {
+    @apply flex h-11 w-full rounded-2xl border border-gray-300 bg-white px-4 py-2 text-sm text-gray-900 shadow-sm transition placeholder:text-gray-400 focus-visible:border-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .stats-tile {
+    @apply app-panel p-5 transition duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg;
+  }
+
+  .surface-highlight {
+    @apply border border-blue-200 bg-blue-50;
+  }
+
+  .page-shell-enter {
+    animation: page-shell-enter 220ms ease-out both;
+  }
+
+  .interactive-card {
+    @apply transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-lg;
+  }
+
+  .interactive-button {
+    @apply transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-lg;
+  }
+
+  .avatar-pop-in {
+    animation: avatar-pop-in 180ms ease-out both;
+  }
+}

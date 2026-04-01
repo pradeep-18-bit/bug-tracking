@@ -1,0 +1,134 @@
+[
+  {
+    "_id": {
+      "$oid": "69cb59896c874f4f87a2df92"
+    },
+    "title": "Admin assigned dev task",
+    "description": "Verify developer issue visibility",
+    "type": "Task",
+    "status": "TODO",
+    "priority": "High",
+    "projectId": {
+      "$oid": "69cb59896c874f4f87a2df8c"
+    },
+    "assignee": {
+      "$oid": "69cb59896c874f4f87a2df84"
+    },
+    "reporter": {
+      "$oid": "69ca5c35e2b46f4be783a88c"
+    },
+    "createdAt": {
+      "$date": "2026-03-31T05:20:09.345Z"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "69cb59896c874f4f87a2dfa2"
+    },
+    "title": "Tester reported bug",
+    "description": "Verify tester can report bugs",
+    "type": "Bug",
+    "status": "DONE",
+    "priority": "Medium",
+    "projectId": {
+      "$oid": "69cb59896c874f4f87a2df8c"
+    },
+    "assignee": {
+      "$oid": "69cb59896c874f4f87a2df87"
+    },
+    "reporter": {
+      "$oid": "69cb59896c874f4f87a2df87"
+    },
+    "createdAt": {
+      "$date": "2026-03-31T05:20:09.656Z"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "69cb5c12818bd16a732b39db"
+    },
+    "title": "fix the issue in home page",
+    "description": "home page bug",
+    "type": "Bug",
+    "status": "DONE",
+    "priority": "High",
+    "projectId": {
+      "$oid": "69cb4977ca7aa5aa59054e31"
+    },
+    "assignee": {
+      "$oid": "69cb48c9ca7aa5aa59054e1c"
+    },
+    "reporter": {
+      "$oid": "69ca5c35e2b46f4be783a88c"
+    },
+    "createdAt": {
+      "$date": "2026-03-31T05:30:58.980Z"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "69cb6745d8fb2dbdbd910785"
+    },
+    "title": "home page issue",
+    "description": "",
+    "type": "Bug",
+    "status": "DONE",
+    "priority": "High",
+    "projectId": {
+      "$oid": "69cb61fe818bd16a732b3aab"
+    },
+    "assignee": {
+      "$oid": "69cb5a88681f865b8f8d940f"
+    },
+    "reporter": {
+      "$oid": "69ca5c35e2b46f4be783a88c"
+    },
+    "createdAt": {
+      "$date": "2026-03-31T06:18:45.132Z"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "69cb6791d8fb2dbdbd9107b6"
+    },
+    "title": "content font issue",
+    "description": "",
+    "type": "Bug",
+    "status": "DONE",
+    "priority": "Medium",
+    "projectId": {
+      "$oid": "69cb61fe818bd16a732b3aab"
+    },
+    "assignee": {
+      "$oid": "69cb5a88681f865b8f8d940f"
+    },
+    "reporter": {
+      "$oid": "69ca5c35e2b46f4be783a88c"
+    },
+    "createdAt": {
+      "$date": "2026-03-31T06:20:01.603Z"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "69cbb151bd1ac6caee62b600"
+    },
+    "title": "home page layout issues",
+    "description": "arey loudly fix the isssue",
+    "type": "Bug",
+    "status": "DONE",
+    "priority": "High",
+    "projectId": {
+      "$oid": "69cbaee1bd1ac6caee62b574"
+    },
+    "assignee": {
+      "$oid": "69cb9e56bd1ac6caee62b3e8"
+    },
+    "reporter": {
+      "$oid": "69ca5c35e2b46f4be783a88c"
+    },
+    "createdAt": {
+      "$date": "2026-03-31T11:34:41.894Z"
+    }
+  }
+]
