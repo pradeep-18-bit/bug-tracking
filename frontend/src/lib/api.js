@@ -266,7 +266,28 @@ export const createComment = async (payload) => {
 
 export const fetchReports = async (filters = {}) => {
   const response = await api.get("/reports", {
-    params: buildParams(filters),
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const fetchProjectReports = async (filters = {}) => {
+  const response = await api.get("/reports/projects", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const fetchUserReports = async (filters = {}) => {
+  const response = await api.get("/reports/users", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const fetchTeamReports = async (filters = {}) => {
+  const response = await api.get("/reports/team", {
+    params: buildParams(normalizeIssueFilters(filters)),
   });
   return response.data;
 };

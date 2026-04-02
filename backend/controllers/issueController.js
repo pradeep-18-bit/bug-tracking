@@ -411,6 +411,39 @@ const ensureDependencyIssueForProject = async ({
   };
 };
 
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const parseDateFilterInput = (value, label, { endOfDay = false } = {}) => {
+  if (value === null || value === "" || typeof value === "undefined") {
+    return {
+      value: null,
+    };
+  }
+
+  const parsedValue = new Date(value);
+
+  if (Number.isNaN(parsedValue.getTime())) {
+    return {
+      error: {
+        status: 400,
+        message: `Invalid ${label}`,
+      },
+    };
+  }
+
+  if (typeof value === "string" && DATE_ONLY_PATTERN.test(value.trim())) {
+    if (endOfDay) {
+      parsedValue.setHours(23, 59, 59, 999);
+    } else {
+      parsedValue.setHours(0, 0, 0, 0);
+    }
+  }
+
+  return {
+    value: parsedValue,
+  };
+};
+
 const buildIssueQueryFromRequest = async (
   req,
   res,
@@ -442,14 +475,24 @@ const buildIssueQueryFromRequest = async (
   }
 
   if (req.query.status && req.query.status !== "all") {
-    const statusFilterResult = parseIssueStatusInput(req.query.status, "");
+    const normalizedStatusFilter = normalizeIssueStatus(req.query.status);
 
-    if (statusFilterResult.error) {
-      res.status(statusFilterResult.error.status);
-      throw new Error(statusFilterResult.error.message);
+    if (normalizedStatusFilter === "OPEN") {
+      query.status = {
+        $ne: ISSUE_STATUS.DONE,
+      };
+    } else if (normalizedStatusFilter === "CLOSED") {
+      query.status = ISSUE_STATUS.DONE;
+    } else {
+      const statusFilterResult = parseIssueStatusInput(req.query.status, "");
+
+      if (statusFilterResult.error) {
+        res.status(statusFilterResult.error.status);
+        throw new Error(statusFilterResult.error.message);
+      }
+
+      query.status = statusFilterResult.value;
     }
-
-    query.status = statusFilterResult.value;
   }
 
   if (req.query.priority && req.query.priority !== "all") {
@@ -475,6 +518,48 @@ const buildIssueQueryFromRequest = async (
       { title: searchExpression },
       { description: searchExpression },
     ];
+  }
+
+  if (
+    (req.query.dateFrom && req.query.dateFrom !== "all") ||
+    (req.query.dateTo && req.query.dateTo !== "all")
+  ) {
+    const dateFromResult = parseDateFilterInput(
+      req.query.dateFrom,
+      "start date"
+    );
+    const dateToResult = parseDateFilterInput(req.query.dateTo, "end date", {
+      endOfDay: true,
+    });
+
+    if (dateFromResult.error) {
+      res.status(dateFromResult.error.status);
+      throw new Error(dateFromResult.error.message);
+    }
+
+    if (dateToResult.error) {
+      res.status(dateToResult.error.status);
+      throw new Error(dateToResult.error.message);
+    }
+
+    if (
+      dateFromResult.value &&
+      dateToResult.value &&
+      dateFromResult.value > dateToResult.value
+    ) {
+      res.status(400);
+      throw new Error("Start date must be before the end date");
+    }
+
+    query.createdAt = {};
+
+    if (dateFromResult.value) {
+      query.createdAt.$gte = dateFromResult.value;
+    }
+
+    if (dateToResult.value) {
+      query.createdAt.$lte = dateToResult.value;
+    }
   }
 
   if (forceOwnAssignee) {
@@ -546,77 +631,282 @@ const statusLabelMap = {
   [ISSUE_STATUS.DONE]: "Done",
 };
 
-const priorityOrder = ["Low", "Medium", "High"];
+const priorityOrder = ["High", "Medium", "Low"];
 const statusOrder = [
   ISSUE_STATUS.TODO,
   ISSUE_STATUS.IN_PROGRESS,
   ISSUE_STATUS.DONE,
 ];
 
-const getReports = asyncHandler(async (req, res) => {
-  const query = await buildIssueQueryFromRequest(req, res, {
-    forceOwnAssignee: !isAdmin(req.user),
+const uniqueObjectIds = (values = []) => {
+  const uniqueIds = new Map();
+
+  values.filter(Boolean).forEach((value) => {
+    uniqueIds.set(String(value), value);
   });
 
-  const [totalIssues, issuesByStatusRaw, issuesByPriorityRaw, issuesPerProjectRaw] =
-    await Promise.all([
-      Issue.countDocuments(query),
-      Issue.aggregate([
-        { $match: query },
-        {
-          $group: {
-            _id: "$status",
-            count: { $sum: 1 },
-          },
-        },
-      ]),
-      Issue.aggregate([
-        { $match: query },
-        {
-          $group: {
-            _id: "$priority",
-            count: { $sum: 1 },
-          },
-        },
-      ]),
-      Issue.aggregate([
-        { $match: query },
-        {
-          $group: {
-            _id: "$projectId",
-            count: { $sum: 1 },
-          },
-        },
-      ]),
-    ]);
+  return Array.from(uniqueIds.values());
+};
 
-  const statusCountMap = issuesByStatusRaw.reduce((map, item) => {
-    const canonicalStatus = getCanonicalIssueStatus(item._id, ISSUE_STATUS.TODO);
-    map.set(canonicalStatus, (map.get(canonicalStatus) || 0) + item.count);
+const getNormalizedReportIssues = (issues = []) =>
+  issues.map((issue) => ({
+    ...issue,
+    status: getCanonicalIssueStatus(issue.status, ISSUE_STATUS.TODO),
+  }));
+
+const createStatusCountMap = (issues = []) =>
+  issues.reduce((map, issue) => {
+    const status = getCanonicalIssueStatus(issue.status, ISSUE_STATUS.TODO);
+    map.set(status, (map.get(status) || 0) + 1);
     return map;
   }, new Map());
-  const priorityCountMap = new Map(
-    issuesByPriorityRaw.map((item) => [item._id, item.count])
+
+const createPriorityCountMap = (issues = []) =>
+  issues.reduce((map, issue) => {
+    if (!issue.priority) {
+      return map;
+    }
+
+    map.set(issue.priority, (map.get(issue.priority) || 0) + 1);
+    return map;
+  }, new Map());
+
+const buildSummaryMetrics = (issues = []) =>
+  issues.reduce(
+    (summary, issue) => {
+      const status = getCanonicalIssueStatus(issue.status, ISSUE_STATUS.TODO);
+
+      summary.totalIssues += 1;
+
+      if (status === ISSUE_STATUS.DONE) {
+        summary.closedIssues += 1;
+      } else {
+        summary.openIssues += 1;
+      }
+
+      if (status === ISSUE_STATUS.IN_PROGRESS) {
+        summary.inProgressIssues += 1;
+      }
+
+      return summary;
+    },
+    {
+      totalIssues: 0,
+      openIssues: 0,
+      inProgressIssues: 0,
+      closedIssues: 0,
+    }
   );
 
-  const projectIds = issuesPerProjectRaw
-    .map((item) => item._id)
-    .filter((projectId) => Boolean(projectId));
-  const projects = projectIds.length
-    ? await Project.find({
-        _id: {
-          $in: projectIds,
+const createEntityBucket = (base = {}) => ({
+  total: 0,
+  open: 0,
+  inProgress: 0,
+  closed: 0,
+  completionRate: 0,
+  ...base,
+});
+
+const incrementEntityBucket = (bucket, issue) => {
+  const status = getCanonicalIssueStatus(issue.status, ISSUE_STATUS.TODO);
+
+  bucket.total += 1;
+
+  if (status === ISSUE_STATUS.DONE) {
+    bucket.closed += 1;
+  } else {
+    bucket.open += 1;
+  }
+
+  if (status === ISSUE_STATUS.IN_PROGRESS) {
+    bucket.inProgress += 1;
+  }
+
+  bucket.completionRate = bucket.total
+    ? Math.round((bucket.closed / bucket.total) * 100)
+    : 0;
+};
+
+const sortEntityBuckets = (left, right) =>
+  right.total - left.total ||
+  right.closed - left.closed ||
+  right.inProgress - left.inProgress ||
+  left.name.localeCompare(right.name);
+
+const loadReportIssues = async (query) =>
+  getNormalizedReportIssues(
+    await Issue.find(query)
+      .select("status priority projectId teamId assignee createdAt")
+      .lean()
+  );
+
+const buildProjectReportBuckets = async (issues, workspaceId) => {
+  const projectIds = uniqueObjectIds(issues.map((issue) => issue.projectId));
+
+  if (!projectIds.length) {
+    return [];
+  }
+
+  const projects = await Project.find({
+    _id: {
+      $in: projectIds,
+    },
+    workspaceId: normalizeWorkspaceId(workspaceId),
+  })
+    .select("name isCompleted workspaceId")
+    .lean();
+  const projectsById = new Map(
+    projects.map((project) => [String(project._id), project])
+  );
+  const bucketsById = new Map();
+
+  issues.forEach((issue) => {
+    if (!issue.projectId) {
+      return;
+    }
+
+    const projectId = String(issue.projectId);
+    const project = projectsById.get(projectId);
+
+    if (!project) {
+      return;
+    }
+
+    const bucket =
+      bucketsById.get(projectId) ||
+      createEntityBucket({
+        projectId,
+        name: project.name,
+        isCompleted: Boolean(project.isCompleted),
+      });
+
+    incrementEntityBucket(bucket, issue);
+    bucketsById.set(projectId, bucket);
+  });
+
+  return Array.from(bucketsById.values()).sort(sortEntityBuckets);
+};
+
+const buildUserReportBuckets = async (issues, workspaceId) => {
+  const assigneeIds = uniqueObjectIds(issues.map((issue) => issue.assignee));
+
+  if (!assigneeIds.length) {
+    return [];
+  }
+
+  const users = await User.find({
+    _id: {
+      $in: assigneeIds,
+    },
+    workspaceId: normalizeWorkspaceId(workspaceId),
+  })
+    .select("name email role workspaceId")
+    .lean();
+  const usersById = new Map(users.map((user) => [String(user._id), user]));
+  const bucketsById = new Map();
+
+  issues.forEach((issue) => {
+    if (!issue.assignee) {
+      return;
+    }
+
+    const assigneeId = String(issue.assignee);
+    const assignee = usersById.get(assigneeId);
+
+    if (!assignee) {
+      return;
+    }
+
+    const bucket =
+      bucketsById.get(assigneeId) ||
+      createEntityBucket({
+        assigneeId,
+        name: assignee.name,
+        email: assignee.email,
+        role: assignee.role,
+      });
+
+    incrementEntityBucket(bucket, issue);
+    bucketsById.set(assigneeId, bucket);
+  });
+
+  return Array.from(bucketsById.values()).sort(sortEntityBuckets);
+};
+
+const buildTeamReportBuckets = async (issues, workspaceId) => {
+  const teamIds = uniqueObjectIds(issues.map((issue) => issue.teamId));
+
+  if (!teamIds.length) {
+    return [];
+  }
+
+  const [teams, teamMemberCounts] = await Promise.all([
+    Team.find({
+      _id: {
+        $in: teamIds,
+      },
+      workspaceId: normalizeWorkspaceId(workspaceId),
+    })
+      .select("name workspaceId")
+      .lean(),
+    TeamMember.aggregate([
+      {
+        $match: {
+          teamId: {
+            $in: teamIds,
+          },
         },
-      })
-        .select("name")
-        .lean()
-    : [];
-  const projectNameMap = new Map(
-    projects.map((project) => [String(project._id), project.name])
+      },
+      {
+        $group: {
+          _id: "$teamId",
+          count: {
+            $sum: 1,
+          },
+        },
+      },
+    ]),
+  ]);
+  const teamsById = new Map(teams.map((team) => [String(team._id), team]));
+  const teamMemberCountMap = new Map(
+    teamMemberCounts.map((item) => [String(item._id), item.count])
   );
+  const bucketsById = new Map();
 
-  res.status(200).json({
-    totalIssues,
+  issues.forEach((issue) => {
+    if (!issue.teamId) {
+      return;
+    }
+
+    const teamId = String(issue.teamId);
+    const team = teamsById.get(teamId);
+
+    if (!team) {
+      return;
+    }
+
+    const bucket =
+      bucketsById.get(teamId) ||
+      createEntityBucket({
+        teamId,
+        name: team.name,
+        memberCount: teamMemberCountMap.get(teamId) || 0,
+      });
+
+    incrementEntityBucket(bucket, issue);
+    bucketsById.set(teamId, bucket);
+  });
+
+  return Array.from(bucketsById.values()).sort(sortEntityBuckets);
+};
+
+const buildReportsPayload = async (issues, workspaceId) => {
+  const statusCountMap = createStatusCountMap(issues);
+  const priorityCountMap = createPriorityCountMap(issues);
+  const issuesPerProject = await buildProjectReportBuckets(issues, workspaceId);
+
+  return {
+    ...buildSummaryMetrics(issues),
     issuesByStatus: statusOrder.map((status) => ({
       key: status,
       label: statusLabelMap[status] || status,
@@ -627,13 +917,60 @@ const getReports = asyncHandler(async (req, res) => {
       label: priority,
       count: priorityCountMap.get(priority) || 0,
     })),
-    issuesPerProject: issuesPerProjectRaw
-      .map((item) => ({
-        projectId: String(item._id),
-        name: projectNameMap.get(String(item._id)) || "Unknown project",
-        count: item.count,
-      }))
-      .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name)),
+    issuesPerProject: issuesPerProject.map((project) => ({
+      projectId: project.projectId,
+      name: project.name,
+      count: project.total,
+      open: project.open,
+      inProgress: project.inProgress,
+      closed: project.closed,
+      completionRate: project.completionRate,
+      isCompleted: project.isCompleted,
+    })),
+  };
+};
+
+const getReports = asyncHandler(async (req, res) => {
+  const query = await buildIssueQueryFromRequest(req, res, {
+    forceOwnAssignee: !isAdmin(req.user),
+  });
+  const issues = await loadReportIssues(query);
+
+  res.status(200).json(
+    await buildReportsPayload(issues, req.user.workspaceId)
+  );
+});
+
+const getProjectReports = asyncHandler(async (req, res) => {
+  const query = await buildIssueQueryFromRequest(req, res, {
+    forceOwnAssignee: !isAdmin(req.user),
+  });
+  const issues = await loadReportIssues(query);
+
+  res.status(200).json({
+    projects: await buildProjectReportBuckets(issues, req.user.workspaceId),
+  });
+});
+
+const getUserReports = asyncHandler(async (req, res) => {
+  const query = await buildIssueQueryFromRequest(req, res, {
+    forceOwnAssignee: !isAdmin(req.user),
+  });
+  const issues = await loadReportIssues(query);
+
+  res.status(200).json({
+    users: await buildUserReportBuckets(issues, req.user.workspaceId),
+  });
+});
+
+const getTeamReports = asyncHandler(async (req, res) => {
+  const query = await buildIssueQueryFromRequest(req, res, {
+    forceOwnAssignee: !isAdmin(req.user),
+  });
+  const issues = await loadReportIssues(query);
+
+  res.status(200).json({
+    teams: await buildTeamReportBuckets(issues, req.user.workspaceId),
   });
 });
 
@@ -979,6 +1316,9 @@ module.exports = {
   getIssues,
   getMyIssues,
   getReports,
+  getProjectReports,
+  getUserReports,
+  getTeamReports,
   createIssue,
   updateIssue,
   deleteIssue,

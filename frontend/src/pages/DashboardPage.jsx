@@ -60,7 +60,18 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
-const STATUS_CHART_COLORS = ["#3b82f6", "#f59e0b", "#10b981"];
+const STATUS_CHART_COLORS = ["#5b7cff", "#a855f7", "#22c55e"];
+const TREND_LINE_GRADIENT = {
+  start: "#22d3ee",
+  end: "#6366f1",
+};
+const CHART_GRID_COLOR = "rgba(148, 163, 184, 0.18)";
+const DASHBOARD_PANEL_CLASS =
+  "overflow-hidden rounded-[16px] border border-white/55 bg-white/58 shadow-[0_22px_55px_-32px_rgba(15,23,42,0.38)] backdrop-blur-2xl";
+const DASHBOARD_CHART_SHELL_CLASS =
+  "rounded-[16px] border border-white/50 bg-[linear-gradient(180deg,rgba(255,255,255,0.34),rgba(255,255,255,0.18))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] backdrop-blur-2xl";
+const DASHBOARD_SUBPANEL_CLASS =
+  "rounded-[14px] border border-white/55 bg-white/48 p-4 shadow-[0_16px_36px_-26px_rgba(15,23,42,0.34)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_40px_-24px_rgba(15,23,42,0.38)]";
 
 const startOfDay = (value) => {
   const date = new Date(value);
@@ -180,8 +191,8 @@ const DashboardChartTooltip = ({ active, payload, label }) => {
   }
 
   return (
-    <div className="rounded-[20px] border border-white/70 bg-white/90 px-4 py-3 text-sm text-slate-700 shadow-[0_24px_60px_-30px_rgba(15,23,42,0.45)] backdrop-blur-xl">
-      {label ? <p className="font-semibold text-slate-900">{label}</p> : null}
+    <div className="rounded-[16px] border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-white/80 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
+      {label ? <p className="font-semibold text-white">{label}</p> : null}
       <div className="mt-2 space-y-1.5">
         {payload.map((entry) => (
           <div key={entry.dataKey} className="flex items-center justify-between gap-4">
@@ -192,7 +203,7 @@ const DashboardChartTooltip = ({ active, payload, label }) => {
               />
               <span>{entry.name}</span>
             </span>
-            <span className="font-semibold text-slate-900">{entry.value}</span>
+            <span className="font-semibold text-white">{entry.value}</span>
           </div>
         ))}
       </div>
@@ -453,7 +464,7 @@ const DashboardPage = () => {
         title: "Teams",
         value: stats.teamsCount,
         icon: Users2,
-        tone: "blue",
+        tone: "cyan",
         helperText: "Workspace teams",
         trend: {
           direction: "flat",
@@ -555,7 +566,7 @@ const DashboardPage = () => {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-white/60 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(239,246,255,0.9),rgba(238,242,255,0.88))] shadow-[0_24px_70px_-36px_rgba(15,23,42,0.42)] backdrop-blur-xl">
+      <Card className="overflow-hidden rounded-[16px] border-white/60 bg-[linear-gradient(135deg,rgba(255,255,255,0.82),rgba(239,246,255,0.72),rgba(238,242,255,0.64))] shadow-[0_24px_70px_-36px_rgba(15,23,42,0.42)] backdrop-blur-2xl">
         <CardContent className="relative p-4 sm:p-5">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.16),transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(129,140,248,0.14),transparent_34%)]" />
           <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -592,7 +603,7 @@ const DashboardPage = () => {
                   <div
                     key={item.key}
                     className={cn(
-                      "rounded-[24px] border bg-white/80 px-4 py-3 shadow-sm backdrop-blur",
+                      "rounded-[16px] border bg-white/56 px-4 py-3 shadow-[0_16px_34px_-24px_rgba(15,23,42,0.28)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_42px_-24px_rgba(15,23,42,0.34)]",
                       item.toneClassName
                     )}
                   >
@@ -609,165 +620,14 @@ const DashboardPage = () => {
         </CardContent>
       </Card>
 
-      <section className="grid gap-5 xl:grid-cols-2">
-        <Card className="overflow-hidden border-white/60 bg-white/82 shadow-[0_24px_70px_-36px_rgba(15,23,42,0.32)] backdrop-blur-xl">
-          <CardHeader className="border-b border-slate-200/80 p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle>Issues by Status</CardTitle>
-                <CardDescription>
-                  A quick visual split of queued, active, and completed work.
-                </CardDescription>
-              </div>
-              <Badge className="border border-rose-100 bg-rose-50 text-rose-700 hover:bg-rose-50">
-                {stats.highPriorityPending} pending high
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="p-5">
-            {isLoading ? (
-              <Skeleton className="h-[300px] w-full rounded-[28px]" />
-            ) : issues.length ? (
-              <div className="grid gap-4 lg:grid-cols-[1fr_0.92fr] lg:items-center">
-                <div className="h-[260px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Tooltip content={<DashboardChartTooltip />} />
-                      <Pie
-                        data={issuesByStatus}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={58}
-                        outerRadius={100}
-                        paddingAngle={4}
-                      >
-                        {issuesByStatus.map((entry, index) => (
-                          <Cell
-                            key={entry.key}
-                            fill={STATUS_CHART_COLORS[index % STATUS_CHART_COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-
-                <div className="space-y-3">
-                  {issuesByStatus.map((entry, index) => (
-                    <div
-                      key={entry.key}
-                      className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.86),rgba(255,255,255,0.96))] p-4 transition duration-200 hover:border-slate-300"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <span
-                            className="h-3 w-3 rounded-full"
-                            style={{
-                              background:
-                                STATUS_CHART_COLORS[index % STATUS_CHART_COLORS.length],
-                            }}
-                          />
-                          <span className="text-sm font-medium text-slate-700">
-                            {entry.name}
-                          </span>
-                        </div>
-                        <span className="text-lg font-semibold text-slate-950">
-                          {entry.value}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="flex h-[300px] items-center justify-center rounded-[28px] border border-dashed border-slate-200 bg-slate-50/80 px-6 text-center text-sm leading-6 text-slate-500">
-                Status distribution appears here once the workspace has issue activity.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="overflow-hidden border-white/60 bg-white/82 shadow-[0_24px_70px_-36px_rgba(15,23,42,0.32)] backdrop-blur-xl">
-          <CardHeader className="border-b border-slate-200/80 p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle>Issues Trend</CardTitle>
-                <CardDescription>
-                  Issue creation over the last 7 days for a quick pulse on incoming work.
-                </CardDescription>
-              </div>
-              <Badge className="border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-50">
-                {totalIssuesTrend.label}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4 p-5">
-            {isLoading ? (
-              <Skeleton className="h-[300px] w-full rounded-[28px]" />
-            ) : issues.length ? (
-              <>
-                <div className="h-[248px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={issuesTrendData}
-                      margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
-                    >
-                      <CartesianGrid
-                        stroke="#e2e8f0"
-                        strokeDasharray="4 4"
-                        vertical={false}
-                      />
-                      <XAxis dataKey="label" tickLine={false} axisLine={false} />
-                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                      <Tooltip content={<DashboardChartTooltip />} />
-                      <Line
-                        type="monotone"
-                        dataKey="issues"
-                        name="Issues"
-                        stroke="#2563eb"
-                        strokeWidth={3}
-                        dot={{ r: 4, strokeWidth: 0, fill: "#2563eb" }}
-                        activeDot={{ r: 6 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[22px] border border-slate-200 bg-slate-50/75 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                      Weekly Change
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-slate-950">
-                      {totalIssuesTrend.label}
-                    </p>
-                  </div>
-                  <div className="rounded-[22px] border border-slate-200 bg-slate-50/75 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                      Most Active Project
-                    </p>
-                    <p className="mt-2 truncate text-sm font-semibold text-slate-950">
-                      {mostActiveProject?.name || "No project yet"}
-                    </p>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex h-[300px] items-center justify-center rounded-[28px] border border-dashed border-slate-200 bg-slate-50/80 px-6 text-center text-sm leading-6 text-slate-500">
-                Trend lines appear here once issues begin flowing into the workspace.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </section>
-
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {isLoading ? (
           <>
-            <Skeleton className="h-[150px] w-full rounded-[28px]" />
-            <Skeleton className="h-[150px] w-full rounded-[28px]" />
-            <Skeleton className="h-[150px] w-full rounded-[28px]" />
-            <Skeleton className="h-[150px] w-full rounded-[28px]" />
+            <Skeleton className="h-[162px] w-full rounded-[16px]" />
+            <Skeleton className="h-[162px] w-full rounded-[16px]" />
+            <Skeleton className="h-[162px] w-full rounded-[16px]" />
+            <Skeleton className="h-[162px] w-full rounded-[16px]" />
+            <Skeleton className="h-[162px] w-full rounded-[16px]" />
           </>
         ) : (
           statCards.map((card) => (
@@ -787,8 +647,174 @@ const DashboardPage = () => {
         )}
       </section>
 
-      <Card className="overflow-hidden border-white/60 bg-white/82 shadow-[0_24px_70px_-36px_rgba(15,23,42,0.32)] backdrop-blur-xl">
-        <CardHeader className="border-b border-slate-200/80">
+      <section className="grid gap-5 xl:grid-cols-2">
+        <Card className={DASHBOARD_PANEL_CLASS}>
+          <CardHeader className="border-b border-white/45 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle>Issues by Status</CardTitle>
+                <CardDescription>
+                  A quick visual split of queued, active, and completed work.
+                </CardDescription>
+              </div>
+              <Badge className="rounded-full border border-white/45 bg-white/62 text-rose-600 shadow-sm backdrop-blur-xl hover:bg-white/62">
+                {stats.highPriorityPending} pending high
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-5">
+            {isLoading ? (
+              <Skeleton className="h-[320px] w-full rounded-[16px]" />
+            ) : issues.length ? (
+              <div className="grid gap-4 lg:grid-cols-[1fr_0.92fr] lg:items-center">
+                <div className={cn(DASHBOARD_CHART_SHELL_CLASS, "h-[284px]")}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Tooltip content={<DashboardChartTooltip />} />
+                      <Pie
+                        data={issuesByStatus}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={68}
+                        outerRadius={108}
+                        paddingAngle={5}
+                      >
+                        {issuesByStatus.map((entry, index) => (
+                          <Cell
+                            key={entry.key}
+                            fill={STATUS_CHART_COLORS[index % STATUS_CHART_COLORS.length]}
+                          />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="space-y-3">
+                  {issuesByStatus.map((entry, index) => (
+                    <div
+                      key={entry.key}
+                      className={cn(DASHBOARD_SUBPANEL_CLASS, "rounded-[16px]")}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <span
+                            className="flex h-9 w-9 items-center justify-center rounded-[12px] border border-white/45 shadow-sm"
+                            style={{
+                              background: `linear-gradient(135deg, ${
+                                STATUS_CHART_COLORS[index % STATUS_CHART_COLORS.length]
+                              }, rgba(255,255,255,0.92))`,
+                            }}
+                          >
+                            <span className="h-3 w-3 rounded-full bg-white/90" />
+                          </span>
+                          <span className="text-sm font-medium text-slate-700">
+                            {entry.name}
+                          </span>
+                        </div>
+                        <span className="text-lg font-semibold text-slate-950">
+                          {entry.value}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-[320px] items-center justify-center rounded-[16px] border border-dashed border-white/55 bg-white/32 px-6 text-center text-sm leading-6 text-slate-500 backdrop-blur-xl">
+                Status distribution appears here once the workspace has issue activity.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className={DASHBOARD_PANEL_CLASS}>
+          <CardHeader className="border-b border-white/45 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle>Issues Trend</CardTitle>
+                <CardDescription>
+                  Issue creation over the last 7 days for a quick pulse on incoming work.
+                </CardDescription>
+              </div>
+              <Badge className="rounded-full border border-white/45 bg-white/62 text-blue-600 shadow-sm backdrop-blur-xl hover:bg-white/62">
+                {totalIssuesTrend.label}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 p-5">
+            {isLoading ? (
+              <Skeleton className="h-[320px] w-full rounded-[16px]" />
+            ) : issues.length ? (
+              <>
+                <div className={cn(DASHBOARD_CHART_SHELL_CLASS, "h-[272px]")}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={issuesTrendData}
+                      margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient id="issuesTrendStroke" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stopColor={TREND_LINE_GRADIENT.start} />
+                          <stop offset="100%" stopColor={TREND_LINE_GRADIENT.end} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        stroke={CHART_GRID_COLOR}
+                        strokeDasharray="4 4"
+                        vertical={false}
+                      />
+                      <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                      <Tooltip content={<DashboardChartTooltip />} />
+                      <Line
+                        type="monotone"
+                        dataKey="issues"
+                        name="Issues"
+                        stroke="url(#issuesTrendStroke)"
+                        strokeWidth={3}
+                        dot={{ r: 4.5, strokeWidth: 0, fill: TREND_LINE_GRADIENT.end }}
+                        activeDot={{
+                          r: 6,
+                          strokeWidth: 3,
+                          stroke: "rgba(255,255,255,0.95)",
+                          fill: TREND_LINE_GRADIENT.end,
+                        }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className={cn(DASHBOARD_SUBPANEL_CLASS, "rounded-[16px]")}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                      Weekly Change
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-slate-950">
+                      {totalIssuesTrend.label}
+                    </p>
+                  </div>
+                  <div className={cn(DASHBOARD_SUBPANEL_CLASS, "rounded-[16px]")}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                      Most Active Project
+                    </p>
+                    <p className="mt-2 truncate text-sm font-semibold text-slate-950">
+                      {mostActiveProject?.name || "No project yet"}
+                    </p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="flex h-[320px] items-center justify-center rounded-[16px] border border-dashed border-white/55 bg-white/32 px-6 text-center text-sm leading-6 text-slate-500 backdrop-blur-xl">
+                Trend lines appear here once issues begin flowing into the workspace.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      <Card className={cn(DASHBOARD_PANEL_CLASS, "bg-white/62")}>
+        <CardHeader className="border-b border-white/45">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <CardTitle>Recent Issues</CardTitle>
@@ -797,7 +823,12 @@ const DashboardPage = () => {
                 and created time.
               </CardDescription>
             </div>
-            <Button variant="outline" type="button" onClick={() => navigate("/issues")}>
+            <Button
+              variant="outline"
+              type="button"
+              className="rounded-full border-white/60 bg-white/70 text-slate-700 shadow-[0_16px_34px_-22px_rgba(15,23,42,0.24)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/90 hover:text-blue-700 hover:shadow-[0_22px_42px_-24px_rgba(59,130,246,0.28)]"
+              onClick={() => navigate("/issues")}
+            >
               View all issues
             </Button>
           </div>
@@ -805,9 +836,9 @@ const DashboardPage = () => {
         <CardContent className="p-6">
           {isLoading ? (
             <div className="space-y-3">
-              <Skeleton className="h-28 w-full rounded-[26px]" />
-              <Skeleton className="h-28 w-full rounded-[26px]" />
-              <Skeleton className="h-28 w-full rounded-[26px]" />
+              <Skeleton className="h-28 w-full rounded-[16px]" />
+              <Skeleton className="h-28 w-full rounded-[16px]" />
+              <Skeleton className="h-28 w-full rounded-[16px]" />
             </div>
           ) : recentIssues.length ? (
             <div className="space-y-3">
@@ -819,7 +850,7 @@ const DashboardPage = () => {
                 return (
                   <button
                     key={issue._id}
-                    className="group flex w-full flex-col gap-4 rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.82),rgba(255,255,255,0.96))] p-4 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_20px_40px_-28px_rgba(59,130,246,0.45)] sm:p-5"
+                    className="group flex w-full flex-col gap-4 rounded-[16px] border border-white/55 bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(248,250,252,0.52))] p-4 text-left shadow-[0_16px_34px_-24px_rgba(15,23,42,0.26)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-1 hover:border-blue-200/70 hover:shadow-[0_24px_48px_-24px_rgba(59,130,246,0.32)] sm:p-5"
                     type="button"
                     onClick={() => setSelectedIssue(issue)}
                   >
