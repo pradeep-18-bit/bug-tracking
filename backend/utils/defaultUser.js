@@ -1,6 +1,8 @@
 const User = require("../models/User");
 const { normalizeWorkspaceId } = require("./workspace");
 
+const LEGACY_DEFAULT_EMAIL = "admin@company.com";
+
 const DEFAULT_USER = {
   name: "Admin User",
   email: "admin@example.com",
@@ -11,7 +13,9 @@ const DEFAULT_USER = {
 
 const ensureDefaultUser = async () => {
   const existingUser = await User.findOne({
-    email: DEFAULT_USER.email,
+    email: {
+      $in: [DEFAULT_USER.email, LEGACY_DEFAULT_EMAIL],
+    },
   }).select("+password");
 
   if (!existingUser) {
@@ -28,6 +32,11 @@ const ensureDefaultUser = async () => {
 
   if (existingUser.name !== DEFAULT_USER.name) {
     existingUser.name = DEFAULT_USER.name;
+    updated = true;
+  }
+
+  if (existingUser.email !== DEFAULT_USER.email) {
+    existingUser.email = DEFAULT_USER.email;
     updated = true;
   }
 
@@ -58,7 +67,11 @@ const ensureDefaultUser = async () => {
 };
 
 const resetDefaultUser = async () => {
-  await User.deleteMany({ email: DEFAULT_USER.email });
+  await User.deleteMany({
+    email: {
+      $in: [DEFAULT_USER.email, LEGACY_DEFAULT_EMAIL],
+    },
+  });
   const user = await User.create(DEFAULT_USER);
 
   console.log(`[seed] Default user reset: ${DEFAULT_USER.email}`);

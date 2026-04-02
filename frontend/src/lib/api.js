@@ -83,6 +83,11 @@ export const registerRequest = async (payload) => {
   return response.data;
 };
 
+export const fetchAdminCredentials = async () => {
+  const response = await api.get("/auth/admin-credentials");
+  return response.data;
+};
+
 export const fetchUsers = async () => {
   const response = await api.get("/auth/users");
   const data = response.data;

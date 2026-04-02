@@ -6,6 +6,7 @@ const ProjectTeam = require("../models/ProjectTeam");
 const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const User = require("../models/User");
+const { queueIssueCreatedEmail } = require("../queues/emailQueue");
 const asyncHandler = require("../utils/asyncHandler");
 const {
   ISSUE_STATUS,
@@ -148,6 +149,19 @@ const serializeIssue = (issue) => {
 };
 
 const serializeIssues = (issues = []) => issues.map(serializeIssue);
+
+const buildIssueCreatedEmailPayload = (issue) => ({
+  _id: String(issue._id),
+  title: issue.title,
+  description: issue.description || "",
+  projectName: issue.projectId?.name || "Unknown project",
+  assigneeName: issue.assignee?.name || "Unassigned",
+  assigneeEmail: issue.assignee?.email || "",
+  priority: issue.priority || "Medium",
+  status: getCanonicalIssueStatus(issue.status, ISSUE_STATUS.TODO),
+  createdAt: issue.createdAt,
+  dueAt: issue.dueAt || null,
+});
 
 const logIssuePayloadReceipt = (action, req) => {
   if (process.env.NODE_ENV === "production") {
@@ -1087,6 +1101,15 @@ const createIssue = asyncHandler(async (req, res) => {
   });
 
   await populateIssueDocument(issue);
+
+  if (issue.assignee?.email) {
+    queueIssueCreatedEmail(buildIssueCreatedEmailPayload(issue)).catch((error) => {
+      console.error("[issues] Failed to enqueue issue-created email", {
+        issueId: String(issue._id),
+        message: error.message,
+      });
+    });
+  }
 
   res.status(201).json(serializeIssue(issue));
 });

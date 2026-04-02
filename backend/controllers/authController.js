@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const asyncHandler = require("../utils/asyncHandler");
+const { DEFAULT_USER } = require("../utils/defaultUser");
 const generateToken = require("../utils/generateToken");
 const {
   createWorkspaceId,
@@ -128,8 +129,26 @@ const getUsers = asyncHandler(async (req, res) => {
   res.status(200).json(users);
 });
 
+const getAdminCredentials = asyncHandler(async (req, res) => {
+  const isAllowed =
+    process.env.NODE_ENV === "development" ||
+    process.env.ALLOW_ADMIN_CREDENTIALS === "true";
+
+  if (!isAllowed) {
+    return res.status(403).json({
+      error: "Not allowed",
+    });
+  }
+
+  return res.status(200).json({
+    email: DEFAULT_USER.email,
+    password: DEFAULT_USER.password,
+  });
+});
+
 module.exports = {
   register,
   login,
   getUsers,
+  getAdminCredentials,
 };
