@@ -6,22 +6,17 @@
   "main": "server.js",
   "scripts": {
     "dev": "nodemon server.js",
-    "dev:worker:email": "nodemon workers/emailWorker.js",
     "seed": "node scripts/seed.js",
     "reset:default-user": "node scripts/resetDefaultUser.js",
     "backup:export": "node scripts/exportMongoBackup.js",
-    "worker:email": "node workers/emailWorker.js",
     "start": "node server.js"
   },
   "dependencies": {
-    "@sendgrid/mail": "^8.1.6",
     "bcrypt": "^6.0.0",
-    "bull": "^4.16.5",
     "cors": "^2.8.5",
     "csv-parser": "^3.2.0",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
-    "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.9.5",
     "multer": "^2.1.1",

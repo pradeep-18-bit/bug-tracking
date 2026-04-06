@@ -11,18 +11,6 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
   deleteIssue,
   fetchIssues,
   fetchProjects,
@@ -60,18 +48,22 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
-const STATUS_CHART_COLORS = ["#5b7cff", "#a855f7", "#22c55e"];
-const TREND_LINE_GRADIENT = {
-  start: "#22d3ee",
-  end: "#6366f1",
+const STATUS_CARD_META = {
+  [ISSUE_STATUS.TODO]: {
+    tone: "blue",
+    helper: "Ready to plan",
+  },
+  [ISSUE_STATUS.IN_PROGRESS]: {
+    tone: "purple",
+    helper: "Active delivery lane",
+  },
+  [ISSUE_STATUS.DONE]: {
+    tone: "green",
+    helper: "Completed and resolved",
+  },
 };
-const CHART_GRID_COLOR = "rgba(148, 163, 184, 0.18)";
 const DASHBOARD_PANEL_CLASS =
   "overflow-hidden rounded-[16px] border border-white/55 bg-white/58 shadow-[0_22px_55px_-32px_rgba(15,23,42,0.38)] backdrop-blur-2xl";
-const DASHBOARD_CHART_SHELL_CLASS =
-  "rounded-[16px] border border-white/50 bg-[linear-gradient(180deg,rgba(255,255,255,0.34),rgba(255,255,255,0.18))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] backdrop-blur-2xl";
-const DASHBOARD_SUBPANEL_CLASS =
-  "rounded-[14px] border border-white/55 bg-white/48 p-4 shadow-[0_16px_36px_-26px_rgba(15,23,42,0.34)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_40px_-24px_rgba(15,23,42,0.38)]";
 
 const startOfDay = (value) => {
   const date = new Date(value);
@@ -165,51 +157,7 @@ const formatTrend = (
 };
 
 const buildWindowTrend = (config) => formatTrend(buildWindowSnapshot(config));
-
-const buildIssuesTrendSeries = (issues, days = 7) => {
-  const today = startOfDay(Date.now());
-
-  return Array.from({ length: days }, (_, index) => {
-    const dateValue = today - (days - 1 - index) * DAY_IN_MS;
-
-    return {
-      label: new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(
-        new Date(dateValue)
-      ),
-      fullLabel: new Intl.DateTimeFormat("en-US", {
-        month: "short",
-        day: "numeric",
-      }).format(new Date(dateValue)),
-      issues: issues.filter((issue) => startOfDay(issue.createdAt) === dateValue).length,
-    };
-  });
-};
-
-const DashboardChartTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) {
-    return null;
-  }
-
-  return (
-    <div className="rounded-[16px] border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-white/80 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
-      {label ? <p className="font-semibold text-white">{label}</p> : null}
-      <div className="mt-2 space-y-1.5">
-        {payload.map((entry) => (
-          <div key={entry.dataKey} className="flex items-center justify-between gap-4">
-            <span className="flex items-center gap-2">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: entry.color }}
-              />
-              <span>{entry.name}</span>
-            </span>
-            <span className="font-semibold text-white">{entry.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
+const formatSignedCount = (value) => `${value > 0 ? "+" : ""}${value}`;
 
 const QuickActionButton = ({ icon: Icon, title, className, onClick }) => (
   <button
@@ -486,7 +434,7 @@ const DashboardPage = () => {
     ]
   );
 
-  const issuesByStatus = useMemo(
+  const statusData = useMemo(
     () =>
       [ISSUE_STATUS.TODO, ISSUE_STATUS.IN_PROGRESS, ISSUE_STATUS.DONE].map((status) => ({
         key: status,
@@ -506,7 +454,70 @@ const DashboardPage = () => {
     [issues]
   );
 
-  const issuesTrendData = useMemo(() => buildIssuesTrendSeries(issues), [issues]);
+  const statusOverview = useMemo(() => {
+    const maxValue = Math.max(...statusData.map((entry) => entry.value), 0);
+
+    return statusData.map((entry) => {
+      const meta = STATUS_CARD_META[entry.key] || STATUS_CARD_META[ISSUE_STATUS.TODO];
+      const share = stats.totalIssues
+        ? Math.round((entry.value / stats.totalIssues) * 100)
+        : 0;
+      const progressWidth = maxValue
+        ? Math.max(Math.round((entry.value / maxValue) * 100), entry.value ? 18 : 0)
+        : 0;
+
+      return {
+        ...entry,
+        helper: meta.helper,
+        tone: meta.tone,
+        progressWidth,
+        shareLabel: `${share}% of all issues`,
+      };
+    });
+  }, [statusData, stats.totalIssues]);
+
+  const leadingStatus = useMemo(
+    () =>
+      statusOverview.reduce(
+        (leader, entry) => (entry.value > (leader?.value ?? -1) ? entry : leader),
+        null
+      ),
+    [statusOverview]
+  );
+
+  const trendTiles = useMemo(
+    () => [
+      {
+        key: "total",
+        label: "Total Issues",
+        value: stats.totalIssues,
+        helper: `${stats.openIssues} still active`,
+        tone: "blue",
+      },
+      {
+        key: "weekly",
+        label: "This Week",
+        value: formatSignedCount(totalIssuesTrend.current),
+        helper: totalIssuesTrend.label,
+        tone: "purple",
+      },
+      {
+        key: "completion",
+        label: "Completion Rate",
+        value: `${stats.completionRate}%`,
+        helper: `${stats.closedIssues} issues closed`,
+        tone: "green",
+      },
+    ],
+    [
+      stats.closedIssues,
+      stats.completionRate,
+      stats.openIssues,
+      stats.totalIssues,
+      totalIssuesTrend.current,
+      totalIssuesTrend.label,
+    ]
+  );
 
   const recentIssues = useMemo(
     () =>
@@ -654,7 +665,7 @@ const DashboardPage = () => {
               <div>
                 <CardTitle>Issues by Status</CardTitle>
                 <CardDescription>
-                  A quick visual split of queued, active, and completed work.
+                  Backlog, active work, and completed delivery in one quick scan.
                 </CardDescription>
               </div>
               <Badge className="rounded-full border border-white/45 bg-white/62 text-rose-600 shadow-sm backdrop-blur-xl hover:bg-white/62">
@@ -665,64 +676,45 @@ const DashboardPage = () => {
           <CardContent className="p-5">
             {isLoading ? (
               <Skeleton className="h-[320px] w-full rounded-[16px]" />
-            ) : issues.length ? (
-              <div className="grid gap-4 lg:grid-cols-[1fr_0.92fr] lg:items-center">
-                <div className={cn(DASHBOARD_CHART_SHELL_CLASS, "h-[284px]")}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Tooltip content={<DashboardChartTooltip />} />
-                      <Pie
-                        data={issuesByStatus}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={68}
-                        outerRadius={108}
-                        paddingAngle={5}
-                      >
-                        {issuesByStatus.map((entry, index) => (
-                          <Cell
-                            key={entry.key}
-                            fill={STATUS_CHART_COLORS[index % STATUS_CHART_COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
+            ) : (
+              <div className="status-card">
+                <div className="status-card-summary">
+                  <span className="status-chip">Total {stats.totalIssues}</span>
+                  <span className="status-chip muted">
+                    {leadingStatus?.value
+                      ? `${leadingStatus.name} leads the queue`
+                      : "No issue activity yet"}
+                  </span>
                 </div>
 
-                <div className="space-y-3">
-                  {issuesByStatus.map((entry, index) => (
-                    <div
-                      key={entry.key}
-                      className={cn(DASHBOARD_SUBPANEL_CLASS, "rounded-[16px]")}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <span
-                            className="flex h-9 w-9 items-center justify-center rounded-[12px] border border-white/45 shadow-sm"
-                            style={{
-                              background: `linear-gradient(135deg, ${
-                                STATUS_CHART_COLORS[index % STATUS_CHART_COLORS.length]
-                              }, rgba(255,255,255,0.92))`,
-                            }}
-                          >
-                            <span className="h-3 w-3 rounded-full bg-white/90" />
-                          </span>
-                          <span className="text-sm font-medium text-slate-700">
-                            {entry.name}
-                          </span>
+                <div className="space-y-1">
+                  {statusOverview.map((entry) => (
+                    <div key={entry.key} className="status-item">
+                      <div className="status-meta">
+                        <span className={cn("status-dot", entry.tone)} />
+                        <div>
+                          <span className="status-name">{entry.name}</span>
+                          <p className="status-helper">{entry.helper}</p>
                         </div>
-                        <span className="text-lg font-semibold text-slate-950">
-                          {entry.value}
-                        </span>
+                      </div>
+
+                      <div className="status-progress-wrap">
+                        <div className="progress-bar">
+                          <div
+                            className={cn("progress", entry.tone)}
+                            style={{ width: `${entry.progressWidth}%` }}
+                          />
+                        </div>
+                        <p className="status-share">{entry.shareLabel}</p>
+                      </div>
+
+                      <div className="status-count">
+                        <span>{entry.value}</span>
+                        <small>{entry.value === 1 ? "issue" : "issues"}</small>
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-            ) : (
-              <div className="flex h-[320px] items-center justify-center rounded-[16px] border border-dashed border-white/55 bg-white/32 px-6 text-center text-sm leading-6 text-slate-500 backdrop-blur-xl">
-                Status distribution appears here once the workspace has issue activity.
               </div>
             )}
           </CardContent>
@@ -734,7 +726,7 @@ const DashboardPage = () => {
               <div>
                 <CardTitle>Issues Trend</CardTitle>
                 <CardDescription>
-                  Issue creation over the last 7 days for a quick pulse on incoming work.
+                  Compact KPIs for volume, weekly intake, and delivery health.
                 </CardDescription>
               </div>
               <Badge className="rounded-full border border-white/45 bg-white/62 text-blue-600 shadow-sm backdrop-blur-xl hover:bg-white/62">
@@ -745,68 +737,27 @@ const DashboardPage = () => {
           <CardContent className="space-y-4 p-5">
             {isLoading ? (
               <Skeleton className="h-[320px] w-full rounded-[16px]" />
-            ) : issues.length ? (
-              <>
-                <div className={cn(DASHBOARD_CHART_SHELL_CLASS, "h-[272px]")}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={issuesTrendData}
-                      margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
-                    >
-                      <defs>
-                        <linearGradient id="issuesTrendStroke" x1="0" y1="0" x2="1" y2="0">
-                          <stop offset="0%" stopColor={TREND_LINE_GRADIENT.start} />
-                          <stop offset="100%" stopColor={TREND_LINE_GRADIENT.end} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid
-                        stroke={CHART_GRID_COLOR}
-                        strokeDasharray="4 4"
-                        vertical={false}
-                      />
-                      <XAxis dataKey="label" tickLine={false} axisLine={false} />
-                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                      <Tooltip content={<DashboardChartTooltip />} />
-                      <Line
-                        type="monotone"
-                        dataKey="issues"
-                        name="Issues"
-                        stroke="url(#issuesTrendStroke)"
-                        strokeWidth={3}
-                        dot={{ r: 4.5, strokeWidth: 0, fill: TREND_LINE_GRADIENT.end }}
-                        activeDot={{
-                          r: 6,
-                          strokeWidth: 3,
-                          stroke: "rgba(255,255,255,0.95)",
-                          fill: TREND_LINE_GRADIENT.end,
-                        }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+            ) : (
+              <div className="trend-card">
+                <div className="trend-stats">
+                  {trendTiles.map((tile) => (
+                    <div key={tile.key} className={cn("trend-stat", tile.tone)}>
+                      <p>{tile.label}</p>
+                      <h2>{tile.value}</h2>
+                      <span>{tile.helper}</span>
+                    </div>
+                  ))}
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className={cn(DASHBOARD_SUBPANEL_CLASS, "rounded-[16px]")}>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                      Weekly Change
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-slate-950">
-                      {totalIssuesTrend.label}
-                    </p>
-                  </div>
-                  <div className={cn(DASHBOARD_SUBPANEL_CLASS, "rounded-[16px]")}>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                      Most Active Project
-                    </p>
-                    <p className="mt-2 truncate text-sm font-semibold text-slate-950">
-                      {mostActiveProject?.name || "No project yet"}
-                    </p>
-                  </div>
+                <div className="trend-footer">
+                  <span>Most Active Project</span>
+                  <strong>{mostActiveProject?.name || "No project yet"}</strong>
+                  <p>
+                    {mostActiveProject
+                      ? `${mostActiveProject.total} issues tracked and ${mostActiveProject.open} still open.`
+                      : "Create a few issues to reveal where work is clustering."}
+                  </p>
                 </div>
-              </>
-            ) : (
-              <div className="flex h-[320px] items-center justify-center rounded-[16px] border border-dashed border-white/55 bg-white/32 px-6 text-center text-sm leading-6 text-slate-500 backdrop-blur-xl">
-                Trend lines appear here once issues begin flowing into the workspace.
               </div>
             )}
           </CardContent>

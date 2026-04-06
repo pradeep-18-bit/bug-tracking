@@ -14,18 +14,6 @@ import {
   Workflow,
 } from "lucide-react";
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
   fetchProjectReports,
   fetchProjects,
   fetchReports,
@@ -53,23 +41,38 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 const REPORT_PANEL_CLASS =
   "overflow-hidden rounded-[16px] border border-white/55 bg-white/58 shadow-[0_22px_55px_-32px_rgba(15,23,42,0.38)] backdrop-blur-2xl";
-const REPORT_CHART_SHELL_CLASS =
-  "rounded-[16px] border border-white/50 bg-[linear-gradient(180deg,rgba(255,255,255,0.34),rgba(255,255,255,0.18))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] backdrop-blur-2xl";
 const REPORT_SUBPANEL_CLASS =
   "rounded-[16px] border border-white/55 bg-white/52 shadow-[0_16px_36px_-26px_rgba(15,23,42,0.34)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_42px_-24px_rgba(15,23,42,0.38)]";
-const REPORT_GRID_COLOR = "rgba(148, 163, 184, 0.18)";
-const STATUS_CHART_COLORS = {
-  [ISSUE_STATUS.TODO]: "#5b7cff",
-  [ISSUE_STATUS.IN_PROGRESS]: "#a855f7",
-  [ISSUE_STATUS.DONE]: "#22c55e",
-};
-const PRIORITY_CHART_COLORS = {
-  High: "#fb7185",
-  Medium: "#f59e0b",
-  Low: "#38bdf8",
-};
 const STATUS_ORDER = [ISSUE_STATUS.TODO, ISSUE_STATUS.IN_PROGRESS, ISSUE_STATUS.DONE];
 const PRIORITY_ORDER = ["High", "Medium", "Low"];
+const STATUS_ROW_META = {
+  [ISSUE_STATUS.TODO]: {
+    tone: "blue",
+    helper: "Tap to focus",
+  },
+  [ISSUE_STATUS.IN_PROGRESS]: {
+    tone: "purple",
+    helper: "Tap to focus",
+  },
+  [ISSUE_STATUS.DONE]: {
+    tone: "green",
+    helper: "Tap to focus",
+  },
+};
+const PRIORITY_ROW_META = {
+  High: {
+    tone: "high",
+    helper: "Immediate attention",
+  },
+  Medium: {
+    tone: "medium",
+    helper: "Balanced workload",
+  },
+  Low: {
+    tone: "low",
+    helper: "Lower urgency",
+  },
+};
 
 const createDefaultFilters = () => ({
   projectId: "all",
@@ -87,24 +90,6 @@ const statusFilterLabels = {
   [ISSUE_STATUS.TODO]: "To Do",
   [ISSUE_STATUS.IN_PROGRESS]: "In Progress",
   [ISSUE_STATUS.DONE]: "Closed",
-};
-
-const ChartTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) {
-    return null;
-  }
-
-  const entry = payload[0];
-  const displayLabel = entry?.payload?.label || label || entry?.name;
-
-  return (
-    <div className="rounded-[16px] border border-white/10 bg-slate-950/82 px-4 py-3 text-sm text-white/80 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
-      {displayLabel ? <p className="font-semibold text-white">{displayLabel}</p> : null}
-      <p className="mt-1">
-        <span className="font-semibold text-white">{entry.value}</span> issues
-      </p>
-    </div>
-  );
 };
 
 const FilterField = ({ icon: Icon, label, children }) => (
@@ -354,6 +339,43 @@ const ReportsPage = () => {
       count: countsByKey.get(priority) || 0,
     }));
   }, [summaryData?.issuesByPriority]);
+
+  const statusRows = useMemo(() => {
+    const total = summary.totalIssues || 0;
+
+    return issuesByStatus.map((entry) => {
+      const meta = STATUS_ROW_META[entry.key] || STATUS_ROW_META[ISSUE_STATUS.TODO];
+      const share = total ? Math.round((entry.count / total) * 100) : 0;
+
+      return {
+        ...entry,
+        helper: filters.status === entry.key ? "Filter active" : meta.helper,
+        tone: meta.tone,
+        shareLabel: total ? `${share}% of scope` : "No issues yet",
+      };
+    });
+  }, [filters.status, issuesByStatus, summary.totalIssues]);
+
+  const priorityRows = useMemo(() => {
+    const total = summary.totalIssues || 0;
+    const maxCount = Math.max(...issuesByPriority.map((entry) => entry.count), 0);
+
+    return issuesByPriority.map((entry) => {
+      const meta = PRIORITY_ROW_META[entry.key] || PRIORITY_ROW_META.Medium;
+      const share = total ? Math.round((entry.count / total) * 100) : 0;
+      const width = maxCount
+        ? Math.max(Math.round((entry.count / maxCount) * 100), entry.count ? 12 : 0)
+        : 0;
+
+      return {
+        ...entry,
+        helper: filters.priority === entry.key ? "Priority filter active" : meta.helper,
+        tone: meta.tone,
+        shareLabel: total ? `${share}% of all issues` : "No issues yet",
+        width,
+      };
+    });
+  }, [filters.priority, issuesByPriority, summary.totalIssues]);
 
   const projectReports = projectReportsData?.projects || [];
   const userReports = userReportsData?.users || [];
@@ -727,10 +749,10 @@ const ReportsPage = () => {
                       <div>
                         <CardTitle>Issues by Status</CardTitle>
                         <CardDescription>
-                          Click any bar to narrow the full report view to a specific status.
+                          Focus the report by status with compact, color-coded lanes.
                         </CardDescription>
                       </div>
-                      <span className="rounded-full border border-white/55 bg-white/68 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur-xl">
+                      <span className="report-tag">
                         {statusFilterLabels[filters.status] || "All issues"}
                       </span>
                     </div>
@@ -738,76 +760,32 @@ const ReportsPage = () => {
                   <CardContent className="p-5">
                     {isLoading ? (
                       <Skeleton className="h-[320px] w-full rounded-[16px]" />
-                    ) : summary.totalIssues ? (
-                      <div className="grid gap-4 lg:grid-cols-[1fr_0.92fr] lg:items-center">
-                        <div className={cn(REPORT_CHART_SHELL_CLASS, "h-[280px]")}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={issuesByStatus} barCategoryGap={24}>
-                              <CartesianGrid
-                                stroke={REPORT_GRID_COLOR}
-                                strokeDasharray="4 4"
-                                vertical={false}
-                              />
-                              <XAxis dataKey="label" tickLine={false} axisLine={false} />
-                              <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                              <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(255,255,255,0.28)" }} />
-                              <Bar dataKey="count" radius={[16, 16, 0, 0]}>
-                                {issuesByStatus.map((entry) => (
-                                  <Cell
-                                    key={entry.key}
-                                    cursor="pointer"
-                                    fill={STATUS_CHART_COLORS[entry.key]}
-                                    onClick={() => handleStatusFilter(entry.key)}
-                                  />
-                                ))}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-
-                        <div className="space-y-3">
-                          {issuesByStatus.map((entry) => (
+                    ) : (
+                      <div className="report-card">
+                        <div className="report-status-list">
+                          {statusRows.map((entry) => (
                             <button
                               key={entry.key}
                               type="button"
                               onClick={() => handleStatusFilter(entry.key)}
                               className={cn(
-                                REPORT_SUBPANEL_CLASS,
-                                "w-full p-4 text-left",
-                                filters.status === entry.key ? "border-blue-200/90" : ""
+                                "report-status-row",
+                                entry.tone,
+                                filters.status === entry.key ? "active" : ""
                               )}
                             >
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="flex items-center gap-3">
-                                  <span
-                                    className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-white/45 shadow-sm"
-                                    style={{
-                                      background: `linear-gradient(135deg, ${STATUS_CHART_COLORS[entry.key]}, rgba(255,255,255,0.92))`,
-                                    }}
-                                  >
-                                    <span className="h-3 w-3 rounded-full bg-white/92" />
-                                  </span>
-                                  <div>
-                                    <p className="text-sm font-semibold text-slate-900">
-                                      {entry.label}
-                                    </p>
-                                    <p className="text-xs text-slate-500">Tap to focus</p>
-                                  </div>
-                                </div>
-                                <span className="text-lg font-semibold text-slate-950">
-                                  {entry.count}
-                                </span>
+                              <div className="report-status-copy">
+                                <p>{entry.label}</p>
+                                <span>{entry.helper}</span>
+                              </div>
+                              <div className="report-status-metrics">
+                                <small>{entry.shareLabel}</small>
+                                <strong>{entry.count}</strong>
                               </div>
                             </button>
                           ))}
                         </div>
                       </div>
-                    ) : (
-                      <ReportEmptyPanel
-                        icon={BarChart3}
-                        title="Status trends appear here"
-                        description="Once issues match the current filters, this chart becomes a quick control surface for the whole report."
-                      />
                     )}
                   </CardContent>
                 </Card>
@@ -818,10 +796,10 @@ const ReportsPage = () => {
                       <div>
                         <CardTitle>Priority Mix</CardTitle>
                         <CardDescription>
-                          Click any slice to focus the dashboard on a single priority band.
+                          Urgency bands for the current scope, with one-tap filtering.
                         </CardDescription>
                       </div>
-                      <span className="rounded-full border border-white/55 bg-white/68 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur-xl">
+                      <span className="report-tag">
                         {filters.priority === "all" ? "All priorities" : filters.priority}
                       </span>
                     </div>
@@ -829,74 +807,38 @@ const ReportsPage = () => {
                   <CardContent className="space-y-4 p-5">
                     {isLoading ? (
                       <Skeleton className="h-[320px] w-full rounded-[16px]" />
-                    ) : summary.totalIssues ? (
-                      <>
-                        <div className={cn(REPORT_CHART_SHELL_CLASS, "h-[250px]")}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Tooltip content={<ChartTooltip />} />
-                              <Pie
-                                data={issuesByPriority}
-                                dataKey="count"
-                                nameKey="label"
-                                innerRadius={66}
-                                outerRadius={108}
-                                paddingAngle={5}
-                              >
-                                {issuesByPriority.map((entry) => (
-                                  <Cell
-                                    key={entry.key}
-                                    cursor="pointer"
-                                    fill={PRIORITY_CHART_COLORS[entry.key]}
-                                    onClick={() => handlePriorityFilter(entry.key)}
-                                  />
-                                ))}
-                              </Pie>
-                            </PieChart>
-                          </ResponsiveContainer>
-                        </div>
-
-                        <div className="grid gap-3">
-                          {issuesByPriority.map((entry) => (
+                    ) : (
+                      <div className="report-card">
+                        <div className="report-priority-list">
+                          {priorityRows.map((entry) => (
                             <button
                               key={entry.key}
                               type="button"
                               onClick={() => handlePriorityFilter(entry.key)}
                               className={cn(
-                                REPORT_SUBPANEL_CLASS,
-                                "w-full p-4 text-left",
-                                filters.priority === entry.key ? "border-rose-200/90" : ""
+                                "report-priority-row",
+                                entry.tone,
+                                filters.priority === entry.key ? "active" : ""
                               )}
                             >
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="flex items-center gap-3">
-                                  <span
-                                    className="h-3.5 w-3.5 rounded-full"
-                                    style={{
-                                      backgroundColor: PRIORITY_CHART_COLORS[entry.key],
-                                    }}
-                                  />
-                                  <div>
-                                    <p className="text-sm font-semibold text-slate-900">
-                                      {entry.label}
-                                    </p>
-                                    <p className="text-xs text-slate-500">Interactive slice</p>
-                                  </div>
-                                </div>
-                                <span className="text-lg font-semibold text-slate-950">
-                                  {entry.count}
-                                </span>
+                              <div className="report-priority-copy">
+                                <span>{entry.label}</span>
+                                <small>{entry.helper}</small>
+                              </div>
+                              <div className="report-bar">
+                                <div
+                                  className="report-bar-fill"
+                                  style={{ width: `${entry.width}%` }}
+                                />
+                              </div>
+                              <div className="report-priority-metrics">
+                                <strong>{entry.count}</strong>
+                                <small>{entry.shareLabel}</small>
                               </div>
                             </button>
                           ))}
                         </div>
-                      </>
-                    ) : (
-                      <ReportEmptyPanel
-                        icon={Sparkles}
-                        title="Priority balance is waiting"
-                        description="Once issues enter the selected scope, this mix chart will show how urgent the workload feels."
-                      />
+                      </div>
                     )}
                   </CardContent>
                 </Card>

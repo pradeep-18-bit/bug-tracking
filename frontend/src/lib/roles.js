@@ -26,7 +26,6 @@ export const getRoleNavigation = (role) => {
   if (role === ROLE_TESTER) {
     return [
       { label: "Dashboard", href: dashboardPathByRole[ROLE_TESTER], icon: "dashboard" },
-      { label: "Testing Queue", href: "/issues", icon: "issues" },
       { label: "Tasks", href: "/tasks", icon: "tasks" },
       { label: "Reports", href: "/reports", icon: "reports" },
     ];
@@ -34,7 +33,6 @@ export const getRoleNavigation = (role) => {
 
   return [
     { label: "Dashboard", href: dashboardPathByRole[ROLE_DEVELOPER], icon: "dashboard" },
-    { label: "My Work", href: "/issues", icon: "issues" },
     { label: "Tasks", href: "/tasks", icon: "tasks" },
     { label: "Reports", href: "/reports", icon: "reports" },
   ];

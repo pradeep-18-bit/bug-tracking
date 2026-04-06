@@ -66,6 +66,10 @@ MONGO_ROOT_USERNAME=bugtracker
 MONGO_ROOT_PASSWORD=bugtracker
 MONGO_APP_DATABASE=bugtracker
 JWT_SECRET=change-me
+ALLOW_ADMIN_CREDENTIALS=false
+EMAIL_USER=your_gmail@gmail.com
+EMAIL_PASS=your_gmail_app_password
+APP_URL=http://localhost
 VITE_API_BASE_URL=/api
 ```
 
@@ -101,6 +105,7 @@ docker compose up --build
 
 - Frontend: `http://localhost`
 - Backend API: `http://localhost:5000`
+- Test email route: `http://localhost:5000/test-email`
 - MongoDB: `mongodb://localhost:27017`
 
 ## Mongo Restore Behavior
@@ -148,7 +153,9 @@ npm run dev
 ## Deployment Notes
 
 - The frontend container serves static files through Nginx and proxies `/api` to the backend container.
+- The frontend Nginx config also proxies `/test-email` to the backend for quick mail verification in Dockerized runs.
 - The backend container connects to Mongo using compose network DNS (`mongo`).
+- Mail notifications in Docker require `EMAIL_USER`, `EMAIL_PASS`, and `APP_URL` in the root compose `.env`.
 - The backend still seeds the default admin user on startup.
 - Workspace isolation remains intact because the existing app logic and Mongo data are unchanged.
 

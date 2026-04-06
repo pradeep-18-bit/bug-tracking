@@ -6,7 +6,7 @@ const ProjectTeam = require("../models/ProjectTeam");
 const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const User = require("../models/User");
-const { queueIssueCreatedEmail } = require("../queues/emailQueue");
+const { sendIssueEmail } = require("../services/emailService");
 const asyncHandler = require("../utils/asyncHandler");
 const {
   ISSUE_STATUS,
@@ -156,12 +156,20 @@ const buildIssueCreatedEmailPayload = (issue) => ({
   description: issue.description || "",
   projectName: issue.projectId?.name || "Unknown project",
   assigneeName: issue.assignee?.name || "Unassigned",
-  assigneeEmail: issue.assignee?.email || "",
   priority: issue.priority || "Medium",
   status: getCanonicalIssueStatus(issue.status, ISSUE_STATUS.TODO),
   createdAt: issue.createdAt,
-  dueAt: issue.dueAt || null,
+  dueDate: issue.dueAt || null,
 });
+
+const getIssueNotificationEmails = (issue) =>
+  [
+    issue?.assignee?.email || null,
+    // If we want to notify the reporter later, add issue?.reporter?.email here.
+  ]
+    .map((email) => (email ? String(email).trim().toLowerCase() : null))
+    .filter(Boolean)
+    .filter((email, index, emails) => emails.indexOf(email) === index);
 
 const logIssuePayloadReceipt = (action, req) => {
   if (process.env.NODE_ENV === "production") {
@@ -1102,13 +1110,18 @@ const createIssue = asyncHandler(async (req, res) => {
 
   await populateIssueDocument(issue);
 
-  if (issue.assignee?.email) {
-    queueIssueCreatedEmail(buildIssueCreatedEmailPayload(issue)).catch((error) => {
-      console.error("[issues] Failed to enqueue issue-created email", {
+  const emails = getIssueNotificationEmails(issue);
+
+  if (emails.length > 0) {
+    try {
+      console.log("[issues] Sending email to:", emails);
+      await sendIssueEmail(emails, buildIssueCreatedEmailPayload(issue));
+    } catch (error) {
+      console.error("[issues] Failed to send issue-created email", {
         issueId: String(issue._id),
         message: error.message,
       });
-    });
+    }
   }
 
   res.status(201).json(serializeIssue(issue));

@@ -303,6 +303,7 @@ const IssueListView = ({
   viewMode = "list",
   showViewToggle = false,
   onViewModeChange,
+  usePageScroll = false,
 }) => {
   const deferredSearch = useDeferredValue(filters.search);
 
@@ -370,6 +371,17 @@ const IssueListView = ({
         ),
       })),
     [visibleIssues]
+  );
+  const desktopTableWrapperClassName = useMemo(
+    () => (usePageScroll ? "overflow-x-auto" : "max-h-[780px] overflow-auto"),
+    [usePageScroll]
+  );
+  const desktopTableHeaderClassName = useMemo(
+    () =>
+      usePageScroll
+        ? "bg-slate-50/95 px-5 py-4 font-semibold"
+        : "sticky top-0 bg-slate-50/95 px-5 py-4 font-semibold",
+    [usePageScroll]
   );
 
   return (
@@ -447,32 +459,32 @@ const IssueListView = ({
             </CardContent>
           ) : (
             <>
-              <div className="max-h-[780px] overflow-auto">
+              <div className={desktopTableWrapperClassName}>
                 <table className="hidden min-w-[1180px] w-full text-left lg:table">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/95 text-[11px] uppercase tracking-[0.24em] text-slate-500">
-                      <th className="sticky top-0 bg-slate-50/95 px-5 py-4 font-semibold">
+                      <th className={desktopTableHeaderClassName}>
                         Issue
                       </th>
-                      <th className="sticky top-0 bg-slate-50/95 px-5 py-4 font-semibold">
+                      <th className={desktopTableHeaderClassName}>
                         Project
                       </th>
-                      <th className="sticky top-0 bg-slate-50/95 px-5 py-4 font-semibold">
+                      <th className={desktopTableHeaderClassName}>
                         Team
                       </th>
-                      <th className="sticky top-0 bg-slate-50/95 px-5 py-4 font-semibold">
+                      <th className={desktopTableHeaderClassName}>
                         Assignee
                       </th>
-                      <th className="sticky top-0 bg-slate-50/95 px-5 py-4 font-semibold">
+                      <th className={desktopTableHeaderClassName}>
                         Priority
                       </th>
-                      <th className="sticky top-0 bg-slate-50/95 px-5 py-4 font-semibold">
+                      <th className={desktopTableHeaderClassName}>
                         Status
                       </th>
-                      <th className="sticky top-0 bg-slate-50/95 px-5 py-4 font-semibold">
+                      <th className={desktopTableHeaderClassName}>
                         Created
                       </th>
-                      <th className="sticky top-0 bg-slate-50/95 px-5 py-4 font-semibold">
+                      <th className={desktopTableHeaderClassName}>
                         Actions
                       </th>
                     </tr>

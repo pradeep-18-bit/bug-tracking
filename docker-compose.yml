@@ -23,6 +23,10 @@ services:
       PORT: 5000
       JWT_SECRET: ${JWT_SECRET:-change-me}
       MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-bugtracker}:${MONGO_ROOT_PASSWORD:-bugtracker}@mongo:27017/${MONGO_APP_DATABASE:-bugtracker}?authSource=admin
+      ALLOW_ADMIN_CREDENTIALS: ${ALLOW_ADMIN_CREDENTIALS:-false}
+      EMAIL_USER: ${EMAIL_USER:-}
+      EMAIL_PASS: ${EMAIL_PASS:-}
+      APP_URL: ${APP_URL:-http://localhost}
     depends_on:
       - mongo
     ports:
