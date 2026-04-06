@@ -54,6 +54,11 @@ Full-stack Jira-like bug tracking and project management app with:
 - Exported Mongo backup snapshot from the current local `bugtracker` database
 - Compose-based local deployment flow
 
+## Documentation
+
+- `README.md`: setup and deployment
+- `PROJECT_API_AND_FLOW.md`: API usage, technologies, and end-to-end application flow
+
 ## Environment Files
 
 Root compose env:
