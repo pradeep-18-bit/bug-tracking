@@ -1,8 +1,13 @@
 const mongoose = require("mongoose");
 const Issue = require("../models/Issue");
 const Project = require("../models/Project");
+const ProjectMeeting = require("../models/ProjectMeeting");
 const ProjectTeam = require("../models/ProjectTeam");
 const Team = require("../models/Team");
+const TeamMember = require("../models/TeamMember");
+const User = require("../models/User");
+const { sendProjectMeetingInviteEmail } = require("../services/emailService");
+const { createOnlineMeeting } = require("../services/microsoftGraphService");
 const asyncHandler = require("../utils/asyncHandler");
 const {
   buildProjectAccessQuery,
@@ -91,6 +96,171 @@ const buildProjectResponse = async (projectId) => {
     ...serializedProject,
     issueCount: await getProjectIssueCount(serializedProject._id),
   };
+};
+
+const parseDurationMinutes = (value) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.round(value);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsedValue = Number(value);
+
+    if (Number.isFinite(parsedValue)) {
+      return Math.round(parsedValue);
+    }
+  }
+
+  return NaN;
+};
+
+const parseMeetingDateTime = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate;
+};
+
+const resolveMeetingWindow = ({ startDateTime, endDateTime, durationMinutes }) => {
+  const startDate = parseMeetingDateTime(startDateTime);
+
+  if (!startDate) {
+    return {
+      error: "Meeting start date and time is required",
+    };
+  }
+
+  const parsedEndDate = parseMeetingDateTime(endDateTime);
+
+  if (parsedEndDate) {
+    if (parsedEndDate.getTime() <= startDate.getTime()) {
+      return {
+        error: "Meeting end time must be after the start time",
+      };
+    }
+
+    return {
+      startDate,
+      endDate: parsedEndDate,
+      durationMinutes: Math.max(
+        5,
+        Math.round((parsedEndDate.getTime() - startDate.getTime()) / (60 * 1000))
+      ),
+    };
+  }
+
+  const parsedDurationMinutes = parseDurationMinutes(durationMinutes);
+
+  if (!Number.isFinite(parsedDurationMinutes) || parsedDurationMinutes < 5) {
+    return {
+      error: "Meeting duration must be at least 5 minutes",
+    };
+  }
+
+  return {
+    startDate,
+    endDate: new Date(startDate.getTime() + parsedDurationMinutes * 60 * 1000),
+    durationMinutes: parsedDurationMinutes,
+  };
+};
+
+const serializeProjectMeeting = (meeting) => {
+  const serializedMeeting =
+    typeof meeting?.toObject === "function" ? meeting.toObject() : meeting;
+
+  if (!serializedMeeting) {
+    return null;
+  }
+
+  return {
+    _id: serializedMeeting._id,
+    projectId: serializedMeeting.projectId,
+    workspaceId: normalizeWorkspaceId(serializedMeeting.workspaceId),
+    scheduledBy: serializedMeeting.scheduledBy,
+    provider: serializedMeeting.provider,
+    subject: serializedMeeting.subject,
+    meetingId: serializedMeeting.meetingId,
+    joinUrl: serializedMeeting.joinUrl,
+    startDateTime: serializedMeeting.startDateTime,
+    endDateTime: serializedMeeting.endDateTime,
+    durationMinutes: serializedMeeting.durationMinutes,
+    participants: serializedMeeting.participants || [],
+    createdAt: serializedMeeting.createdAt,
+  };
+};
+
+const loadAccessibleProject = async (user, projectId) =>
+  Project.findOne({
+    _id: projectId,
+    ...(await buildProjectAccessQuery(user)),
+  })
+    .select("_id name workspaceId")
+    .lean();
+
+const getAttachedTeamParticipants = async ({ projectId, workspaceId }) => {
+  const projectTeams = await ProjectTeam.find({
+    projectId,
+  })
+    .select("teamId")
+    .lean();
+  const attachedTeamIds = Array.from(
+    new Set(projectTeams.map((item) => String(item.teamId)).filter(Boolean))
+  );
+
+  if (!attachedTeamIds.length) {
+    return [];
+  }
+
+  const teamMemberships = await TeamMember.find({
+    teamId: {
+      $in: attachedTeamIds,
+    },
+  })
+    .select("userId")
+    .lean();
+  const userIds = Array.from(
+    new Set(teamMemberships.map((item) => String(item.userId)).filter(Boolean))
+  );
+
+  if (!userIds.length) {
+    return [];
+  }
+
+  const users = await User.find({
+    _id: {
+      $in: userIds,
+    },
+    workspaceId: normalizeWorkspaceId(workspaceId),
+  })
+    .select("_id name email role workspaceId")
+    .lean();
+  const participantsByEmail = new Map();
+
+  users.forEach((user) => {
+    const email = String(user?.email || "").trim().toLowerCase();
+
+    if (!email || participantsByEmail.has(email)) {
+      return;
+    }
+
+    participantsByEmail.set(email, {
+      userId: user._id,
+      name: user.name || email,
+      email,
+      role: user.role || "",
+    });
+  });
+
+  return Array.from(participantsByEmail.values()).sort((left, right) =>
+    left.name.localeCompare(right.name)
+  );
 };
 
 const getProjects = asyncHandler(async (req, res) => {
@@ -354,10 +524,154 @@ const updateProjectStatus = asyncHandler(async (req, res) => {
   });
 });
 
+const scheduleProjectMeeting = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Unauthorized");
+  }
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid project id");
+  }
+
+  const subject = typeof req.body?.subject === "string" ? req.body.subject.trim() : "";
+  const meetingWindow = resolveMeetingWindow({
+    startDateTime: req.body?.startDateTime,
+    endDateTime: req.body?.endDateTime,
+    durationMinutes: req.body?.durationMinutes,
+  });
+
+  if (!subject) {
+    res.status(400);
+    throw new Error("Meeting title is required");
+  }
+
+  if (meetingWindow.error) {
+    res.status(400);
+    throw new Error(meetingWindow.error);
+  }
+
+  const { startDate, endDate, durationMinutes } = meetingWindow;
+  const project = await loadAccessibleProject(req.user, req.params.id);
+
+  if (!project) {
+    res.status(404);
+    throw new Error("Project not found");
+  }
+
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const participants = await getAttachedTeamParticipants({
+    projectId: project._id,
+    workspaceId,
+  });
+
+  if (!participants.length) {
+    res.status(400);
+    throw new Error("No users found in attached teams. Attach a team with members first.");
+  }
+
+  const attendees = participants.map((participant) => ({
+    emailAddress: {
+      address: participant.email,
+      name: participant.name,
+    },
+    type: "required",
+  }));
+  const meetingResult = await createOnlineMeeting({
+    subject,
+    startDateTime: startDate.toISOString(),
+    endDateTime: endDate.toISOString(),
+    attendees,
+    organizerEmail: req.user.email,
+  });
+  const meeting = await ProjectMeeting.create({
+    projectId: project._id,
+    workspaceId,
+    scheduledBy: req.user._id,
+    provider: "microsoft_teams",
+    subject,
+    meetingId: meetingResult.meetingId,
+    joinUrl: meetingResult.joinUrl,
+    startDateTime: meetingResult.startDateTime,
+    endDateTime: meetingResult.endDateTime,
+    durationMinutes,
+    participants: participants.map((participant) => ({
+      userId: participant.userId,
+      name: participant.name,
+      email: participant.email,
+      role: participant.role,
+    })),
+  });
+
+  let inviteWarning = "";
+
+  try {
+    await sendProjectMeetingInviteEmail(
+      participants.map((participant) => participant.email),
+      {
+        subject: meeting.subject,
+        joinUrl: meeting.joinUrl,
+        startDateTime: meeting.startDateTime,
+        endDateTime: meeting.endDateTime,
+        projectName: project.name,
+      }
+    );
+  } catch (inviteError) {
+    inviteWarning =
+      "Meeting created, but invite emails could not be sent right now.";
+    console.error("[project-meetings] Failed to send meeting invites", {
+      projectId: String(project._id),
+      error: inviteError?.message || inviteError,
+    });
+  }
+
+  res.status(201).json({
+    message: "Meeting scheduled successfully",
+    meeting: serializeProjectMeeting(meeting),
+    warning: inviteWarning || undefined,
+  });
+});
+
+const getProjectMeetings = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Unauthorized");
+  }
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid project id");
+  }
+
+  const project = await loadAccessibleProject(req.user, req.params.id);
+
+  if (!project) {
+    res.status(404);
+    throw new Error("Project not found");
+  }
+
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const meetings = await ProjectMeeting.find({
+    projectId: req.params.id,
+    workspaceId,
+    endDateTime: {
+      $gte: new Date(),
+    },
+  })
+    .sort({ startDateTime: 1 })
+    .limit(8)
+    .lean();
+
+  res.status(200).json(meetings.map(serializeProjectMeeting).filter(Boolean));
+});
+
 module.exports = {
   getProjects,
   createProject,
   attachProjectTeam,
   detachProjectTeam,
   updateProjectStatus,
+  scheduleProjectMeeting,
+  getProjectMeetings,
 };

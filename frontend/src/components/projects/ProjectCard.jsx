@@ -1,15 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import Select from "react-select";
 import {
   Bug,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
+  ExternalLink,
   Link2,
   LoaderCircle,
   Plus,
   RotateCcw,
-  X,
+  Video,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -23,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { fetchProjectMeetings } from "@/lib/api";
 import { formatDate, getInitials } from "@/lib/utils";
 import {
   getProjectMembers,
@@ -31,6 +36,124 @@ import {
 import {
   memberSelectStyles,
 } from "@/components/projects/memberSelectTheme";
+
+const MEETING_DURATION_OPTIONS = [
+  { label: "30 min", value: 30 },
+  { label: "45 min", value: 45 },
+  { label: "1 hr", value: 60 },
+  { label: "1 hr 30 min", value: 90 },
+  { label: "2 hr", value: 120 },
+];
+
+const padDateSegment = (value) => String(value).padStart(2, "0");
+
+const toDateInputValue = (date) =>
+  `${date.getFullYear()}-${padDateSegment(date.getMonth() + 1)}-${padDateSegment(
+    date.getDate()
+  )}`;
+
+const toTimeInputValue = (date) =>
+  `${padDateSegment(date.getHours())}:${padDateSegment(date.getMinutes())}`;
+
+const buildDefaultMeetingDateTime = () => {
+  const now = new Date();
+  const roundedMinutes = Math.ceil((now.getMinutes() + 1) / 15) * 15;
+  now.setMinutes(roundedMinutes, 0, 0);
+
+  return {
+    date: toDateInputValue(now),
+    time: toTimeInputValue(now),
+  };
+};
+
+const formatMeetingDateTime = (value) => {
+  if (!value) {
+    return "Not scheduled";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Not scheduled";
+  }
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const formatMeetingDateLabel = (value) => {
+  if (!value) {
+    return "Select date";
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Select date";
+  }
+
+  return date.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+};
+
+const formatDateValue = (date) =>
+  `${date.getFullYear()}-${padDateSegment(date.getMonth() + 1)}-${padDateSegment(
+    date.getDate()
+  )}`;
+
+const startOfDay = (date) =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const getCalendarCells = (monthDate) => {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDayOfMonth = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const leadingSlots = firstDayOfMonth.getDay();
+  const totalSlots = Math.ceil((leadingSlots + daysInMonth) / 7) * 7;
+
+  return Array.from({ length: totalSlots }, (_, index) => {
+    const dayNumber = index - leadingSlots + 1;
+
+    if (dayNumber < 1 || dayNumber > daysInMonth) {
+      return null;
+    }
+
+    return new Date(year, month, dayNumber);
+  });
+};
+
+const buildTimeOptions = () => {
+  const options = [];
+
+  for (let minutes = 0; minutes < 24 * 60; minutes += 15) {
+    const hour = Math.floor(minutes / 60);
+    const minute = minutes % 60;
+    const value = `${padDateSegment(hour)}:${padDateSegment(minute)}`;
+    const label = new Date(2000, 0, 1, hour, minute).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+
+    options.push({
+      value,
+      label,
+    });
+  }
+
+  return options;
+};
+
+const TIME_OPTIONS = buildTimeOptions();
+const TEAMS_NEW_MEETING_BASE_URL = "https://teams.microsoft.com/l/meeting/new";
 
 const buildTeamOption = (team) => ({
   value: team._id,
@@ -83,31 +206,58 @@ const StatusBadge = ({ isCompleted }) => (
   </span>
 );
 
-const ProjectMembersPreview = ({ members = [] }) => {
+const ProjectMembersPreview = ({ members = [], teams = [] }) => {
   const visibleMembers = members.slice(0, 4);
   const overflowCount = Math.max(members.length - visibleMembers.length, 0);
+  const visibleTeams = teams.slice(0, 3);
+  const overflowTeams = Math.max(teams.length - visibleTeams.length, 0);
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <span className="text-sm font-semibold text-white/90">Members: {members.length}</span>
-      <div className="flex items-center">
-        {visibleMembers.map((member, index) => (
-          <Avatar
-            key={member._id}
-            className={`avatar-pop-in h-10 w-10 rounded-2xl border-2 border-white/80 bg-white/18 text-xs text-white shadow-lg backdrop-blur ${index === 0 ? "" : "-ml-2.5"}`}
-            style={{ animationDelay: `${index * 40}ms` }}
-          >
-            <AvatarFallback className="bg-transparent text-white">
-              {getInitials(member.name)}
-            </AvatarFallback>
-          </Avatar>
-        ))}
+    <div className="flex max-w-full flex-col items-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <span className="text-sm font-semibold text-white/90">Members:</span>
+        <div className="flex items-center">
+          {visibleMembers.map((member, index) => (
+            <Avatar
+              key={member._id}
+              className={`avatar-pop-in h-9 w-9 rounded-xl border-2 border-white/80 bg-white/18 text-xs text-white shadow-lg backdrop-blur ${index === 0 ? "" : "-ml-2"}`}
+              style={{ animationDelay: `${index * 40}ms` }}
+            >
+              <AvatarFallback className="bg-transparent text-white">
+                {getInitials(member.name)}
+              </AvatarFallback>
+            </Avatar>
+          ))}
+        </div>
+        {overflowCount ? (
+          <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-xl border border-white/25 bg-white/12 px-2 text-xs font-semibold text-white shadow-sm backdrop-blur">
+            +{overflowCount}
+          </span>
+        ) : null}
       </div>
-      {overflowCount ? (
-        <span className="inline-flex h-10 min-w-10 items-center justify-center rounded-2xl border border-white/25 bg-white/10 px-2 text-xs font-semibold text-white shadow-sm backdrop-blur">
-          +{overflowCount}
-        </span>
-      ) : null}
+
+      <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
+        <span className="text-sm font-semibold text-white/90">Teams:</span>
+        {visibleTeams.length ? (
+          visibleTeams.map((team) => (
+            <span
+              key={team._id}
+              className="inline-flex max-w-full items-center rounded-full border border-white/35 bg-white/16 px-2.5 py-1 text-xs font-medium text-white backdrop-blur"
+            >
+              <span className="truncate">
+                {team.name} ({team.memberCount || team.members?.length || 0})
+              </span>
+            </span>
+          ))
+        ) : (
+          <span className="text-xs text-white/75">No teams attached</span>
+        )}
+        {overflowTeams ? (
+          <span className="inline-flex items-center rounded-full border border-white/35 bg-white/16 px-2 py-1 text-xs font-semibold text-white backdrop-blur">
+            +{overflowTeams}
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 };
@@ -118,11 +268,10 @@ const ProjectCard = ({
   workspaceTeams = [],
   canManageProject = false,
   onAttachTeam,
-  onDetachTeam,
   onUpdateStatus,
+  onOpenTeamsComposer,
   isAttachingTeam = false,
   isUpdatingStatus = false,
-  detachingTeamId = "",
   teamsErrorMessage = "",
 }) => {
   const navigate = useNavigate();
@@ -130,6 +279,22 @@ const ProjectCard = ({
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [teamError, setTeamError] = useState("");
   const [statusError, setStatusError] = useState("");
+  const defaultMeetingDateTime = useMemo(() => buildDefaultMeetingDateTime(), []);
+  const [meetingTitle, setMeetingTitle] = useState("");
+  const [meetingDate, setMeetingDate] = useState(defaultMeetingDateTime.date);
+  const [meetingTime, setMeetingTime] = useState(defaultMeetingDateTime.time);
+  const [meetingDuration, setMeetingDuration] = useState(
+    String(MEETING_DURATION_OPTIONS[0].value)
+  );
+  const [meetingError, setMeetingError] = useState("");
+  const [meetingWarning, setMeetingWarning] = useState("");
+  const [latestScheduledMeeting, setLatestScheduledMeeting] = useState(null);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
+  const calendarPopoverRef = useRef(null);
 
   const members = useMemo(() => getProjectMembers(project), [project]);
   const attachedTeams = useMemo(() => getProjectTeams(project), [project]);
@@ -163,6 +328,96 @@ const ProjectCard = ({
     [availableTeamOptions, selectedTeamId]
   );
 
+  const {
+    data: projectMeetings = [],
+    isLoading: isMeetingsLoading,
+    error: meetingsError,
+  } = useQuery({
+    queryKey: ["project-meetings", project?._id],
+    queryFn: () => fetchProjectMeetings({ projectId: project._id }),
+    enabled: Boolean(project?._id),
+    staleTime: 45_000,
+  });
+
+  const upcomingMeetings = useMemo(
+    () =>
+      [...projectMeetings]
+        .filter((meeting) => {
+          const endDate = new Date(meeting?.endDateTime);
+          return !Number.isNaN(endDate.getTime()) && endDate.getTime() >= Date.now();
+        })
+        .sort(
+          (left, right) =>
+            new Date(left?.startDateTime).getTime() -
+            new Date(right?.startDateTime).getTime()
+        ),
+    [projectMeetings]
+  );
+
+  const highlightedMeeting = latestScheduledMeeting || upcomingMeetings[0] || null;
+  const attendeePreview = useMemo(() => {
+    const attendeesByEmail = new Map();
+
+    attachedTeams.forEach((team) => {
+      (team?.members || []).forEach((member) => {
+        const email = String(member?.email || "").trim().toLowerCase();
+        const userId = String(member?._id || "");
+
+        if (!email || attendeesByEmail.has(email)) {
+          return;
+        }
+
+        attendeesByEmail.set(email, {
+          _id: userId,
+          name: member?.name || email,
+          email,
+        });
+      });
+    });
+
+    return Array.from(attendeesByEmail.values()).sort((left, right) =>
+      left.name.localeCompare(right.name)
+    );
+  }, [attachedTeams]);
+  const visibleAttendees = attendeePreview.slice(0, 4);
+  const overflowAttendees = attendeePreview.slice(4);
+  const selectedMeetingDate = useMemo(
+    () => (meetingDate ? new Date(`${meetingDate}T00:00:00`) : null),
+    [meetingDate]
+  );
+  const todayStart = useMemo(() => startOfDay(new Date()), []);
+  const currentMonthStart = useMemo(
+    () => new Date(todayStart.getFullYear(), todayStart.getMonth(), 1),
+    [todayStart]
+  );
+  const canNavigateToPreviousMonth = calendarMonth.getTime() > currentMonthStart.getTime();
+  const calendarCells = useMemo(() => getCalendarCells(calendarMonth), [calendarMonth]);
+  const computedEndDateTime = useMemo(() => {
+    if (!meetingDate || !meetingTime) {
+      return null;
+    }
+
+    const parsedDuration = Number(meetingDuration);
+    const startDate = new Date(`${meetingDate}T${meetingTime}`);
+
+    if (Number.isNaN(startDate.getTime()) || !Number.isFinite(parsedDuration)) {
+      return null;
+    }
+
+    return new Date(startDate.getTime() + parsedDuration * 60 * 1000);
+  }, [meetingDate, meetingDuration, meetingTime]);
+  const computedEndTimeLabel = useMemo(() => {
+    if (!computedEndDateTime) {
+      return "";
+    }
+
+    return computedEndDateTime.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  }, [computedEndDateTime]);
+
   useEffect(() => {
     if (!isTeamDialogOpen) {
       setTeamError("");
@@ -178,6 +433,28 @@ const ProjectCard = ({
       setSelectedTeamId(availableTeams[0]._id);
     }
   }, [availableTeams, isTeamDialogOpen, selectedTeamId]);
+
+  useEffect(() => {
+    setMeetingError("");
+    setMeetingWarning("");
+    setLatestScheduledMeeting(null);
+    setIsCalendarOpen(false);
+  }, [project?._id]);
+
+  useEffect(() => {
+    if (!isCalendarOpen) {
+      return undefined;
+    }
+
+    const handleOutsidePointer = (event) => {
+      if (!calendarPopoverRef.current?.contains(event.target)) {
+        setIsCalendarOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsidePointer);
+    return () => document.removeEventListener("mousedown", handleOutsidePointer);
+  }, [isCalendarOpen]);
 
   const handleTeamDialogChange = (open) => {
     setIsTeamDialogOpen(open);
@@ -208,20 +485,6 @@ const ProjectCard = ({
     }
   };
 
-  const handleDetachTeam = async (teamId) => {
-    try {
-      setTeamError("");
-      await onDetachTeam({
-        projectId: project._id,
-        teamId,
-      });
-    } catch (error) {
-      setTeamError(
-        error.response?.data?.message || "Unable to detach the selected team."
-      );
-    }
-  };
-
   const handleStatusToggle = async () => {
     try {
       setStatusError("");
@@ -234,6 +497,26 @@ const ProjectCard = ({
         error.response?.data?.message || "Unable to update project status."
       );
     }
+  };
+
+  const handleScheduleMeeting = async (event) => {
+    event.preventDefault();
+
+    const subject = meetingTitle.trim() || `${project.name} Meeting`;
+    const teamsMeetingUrl = `${TEAMS_NEW_MEETING_BASE_URL}?subject=${encodeURIComponent(subject)}`;
+    const openedWindow = window.open(teamsMeetingUrl, "_blank", "noopener,noreferrer");
+
+    if (!openedWindow) {
+      setMeetingError("Unable to open Microsoft Teams. Please allow pop-ups and try again.");
+      return;
+    }
+
+    if (typeof onOpenTeamsComposer === "function") {
+      onOpenTeamsComposer();
+    }
+
+    setMeetingError("");
+    setMeetingWarning("You'll complete scheduling in Microsoft Teams.");
   };
 
   const actionButtonClass =
@@ -291,7 +574,7 @@ const ProjectCard = ({
                 ) : null}
               </div>
 
-              <ProjectMembersPreview members={members} />
+              <ProjectMembersPreview members={members} teams={attachedTeams} />
             </div>
           </div>
         </div>
@@ -367,71 +650,339 @@ const ProjectCard = ({
             </div>
           ) : null}
 
-          <div className="rounded-[26px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.82),rgba(255,255,255,0.98))] p-4 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-950">Attached Teams</p>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                  Team-based membership only
-                </p>
+          <div className="space-y-3">
+            <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(155deg,rgba(238,242,255,0.92),rgba(255,255,255,0.98))] p-3 shadow-sm sm:p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#4F46E5] text-white shadow-[0_10px_20px_-12px_rgba(79,70,229,0.8)]">
+                    <Video className="h-4 w-4" />
+                    <span className="absolute -right-1 -top-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-white bg-[#0EA5E9] text-[9px] font-bold text-white">
+                      T
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-950">
+                      Schedule Team Meeting
+                    </p>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                      Microsoft Teams
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              {canManageProject ? (
-                <Button
-                  className="interactive-button h-9 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 shadow-sm hover:border-slate-300 hover:bg-white"
-                  disabled={Boolean(teamsErrorMessage) || !availableTeams.length}
-                  type="button"
-                  onClick={() => handleTeamDialogChange(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  + Attach Team
-                </Button>
-              ) : null}
-            </div>
+              <form className="mt-3 space-y-2.5" onSubmit={handleScheduleMeeting}>
+                <label className="space-y-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    Meeting Title
+                  </span>
+                  <input
+                    className="field-select h-9 rounded-xl px-3 text-xs"
+                    type="text"
+                    placeholder="Sprint sync"
+                    value={meetingTitle}
+                    onChange={(event) => setMeetingTitle(event.target.value)}
+                  />
+                </label>
 
-            <div className="mt-4 flex flex-wrap gap-3">
-              {attachedTeams.length ? (
-                attachedTeams.map((team) => (
-                  <div
-                    key={team._id}
-                    className="interactive-card inline-flex max-w-full items-center gap-3 rounded-[20px] border border-slate-200 bg-white px-4 py-3 shadow-sm"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-semibold text-slate-950">
-                          {team.name}
-                        </span>
-                        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                        <span className="text-xs font-medium text-slate-500">
-                          {team.memberCount || team.members?.length || 0} members
-                        </span>
-                      </div>
-                    </div>
-
-                    {canManageProject ? (
+                <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="flex flex-col">
+                    <span className="mb-1 text-[11px] uppercase text-gray-500">Date</span>
+                    <div className="relative" ref={calendarPopoverRef}>
                       <button
                         type="button"
-                        className="interactive-button inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-500 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={
-                          detachingTeamId === team._id || typeof onDetachTeam !== "function"
-                        }
-                        onClick={() => handleDetachTeam(team._id)}
+                        className="field-select block h-11 w-full rounded-xl px-3 text-left text-sm text-slate-700"
+                        onClick={() => {
+                          if (selectedMeetingDate && !Number.isNaN(selectedMeetingDate.getTime())) {
+                            setCalendarMonth(
+                              new Date(
+                                selectedMeetingDate.getFullYear(),
+                                selectedMeetingDate.getMonth(),
+                                1
+                              )
+                            );
+                          }
+
+                          setIsCalendarOpen((current) => !current);
+                        }}
                       >
-                        {detachingTeamId === team._id ? (
-                          <LoaderCircle className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <X className="h-4 w-4" />
-                        )}
+                        {formatMeetingDateLabel(meetingDate)}
                       </button>
-                    ) : null}
+
+                      {isCalendarOpen ? (
+                        <div className="absolute left-0 top-full z-30 mt-2 w-[280px] rounded-xl border border-slate-200 bg-white p-3 shadow-md">
+                          <div className="flex items-center justify-between">
+                            <button
+                              type="button"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={!canNavigateToPreviousMonth}
+                              onClick={() =>
+                                setCalendarMonth(
+                                  (current) =>
+                                    new Date(
+                                      current.getFullYear(),
+                                      current.getMonth() - 1,
+                                      1
+                                    )
+                                )
+                              }
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                            </button>
+
+                            <p className="text-sm font-semibold text-slate-900">
+                              {calendarMonth.toLocaleDateString([], {
+                                month: "long",
+                                year: "numeric",
+                              })}
+                            </p>
+
+                            <button
+                              type="button"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                              onClick={() =>
+                                setCalendarMonth(
+                                  (current) =>
+                                    new Date(
+                                      current.getFullYear(),
+                                      current.getMonth() + 1,
+                                      1
+                                    )
+                                )
+                              }
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400">
+                            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => (
+                              <span key={day}>{day}</span>
+                            ))}
+                          </div>
+
+                          <div className="mt-1 grid grid-cols-7 gap-1">
+                            {calendarCells.map((cellDate, cellIndex) => {
+                              if (!cellDate) {
+                                return <span key={`empty-${cellIndex}`} className="h-8 w-8" />;
+                              }
+
+                              const cellDateValue = formatDateValue(cellDate);
+                              const isSelected = cellDateValue === meetingDate;
+                              const isPastDate =
+                                startOfDay(cellDate).getTime() < todayStart.getTime();
+
+                              return (
+                                <button
+                                  key={cellDateValue}
+                                  type="button"
+                                  disabled={isPastDate}
+                                  className={`h-8 w-8 rounded-lg text-xs font-medium transition-colors ${
+                                    isSelected
+                                      ? "bg-indigo-600 text-white shadow-sm"
+                                      : isPastDate
+                                        ? "cursor-not-allowed text-slate-300"
+                                        : "text-slate-700 hover:bg-slate-100"
+                                  }`}
+                                  onClick={() => {
+                                    setMeetingDate(cellDateValue);
+                                    setIsCalendarOpen(false);
+                                  }}
+                                >
+                                  {cellDate.getDate()}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                ))
-              ) : (
-                <div className="w-full rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
-                  No teams attached yet.
+
+                  <div className="flex flex-col">
+                    <span className="mb-1 text-[11px] uppercase text-gray-500">Start Time</span>
+                    <select
+                      className="field-select block h-11 rounded-xl px-3 text-sm"
+                      value={meetingTime}
+                      onChange={(event) => setMeetingTime(event.target.value)}
+                    >
+                      {TIME_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col">
+                    <span className="mb-1 text-[11px] uppercase text-gray-500">Duration</span>
+                    <select
+                      className="field-select block h-11 rounded-xl px-3 text-sm"
+                      value={meetingDuration}
+                      onChange={(event) => setMeetingDuration(event.target.value)}
+                    >
+                      {MEETING_DURATION_OPTIONS.map((option) => (
+                        <option key={option.value} value={String(option.value)}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col">
+                    <span className="mb-1 text-[11px] uppercase text-gray-500">End Time</span>
+                    <input
+                      className="field-select block h-11 rounded-xl bg-gray-50 px-3 text-sm text-slate-600"
+                      type="text"
+                      value={computedEndTimeLabel}
+                      readOnly
+                    />
+                  </div>
                 </div>
-              )}
+
+                <div className="rounded-xl border border-slate-200 bg-white/70 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      Attendees
+                    </p>
+                    <span className="text-xs text-slate-500">
+                      {attendeePreview.length} from attached teams
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center">
+                    {visibleAttendees.length ? (
+                      <>
+                        {visibleAttendees.map((attendee, attendeeIndex) => (
+                          <Avatar
+                            key={`${attendee.email}-${attendeeIndex}`}
+                            title={`${attendee.name} (${attendee.email})`}
+                            className={`h-8 w-8 rounded-xl border-2 border-white bg-indigo-100 text-[11px] text-indigo-700 shadow-sm ${
+                              attendeeIndex === 0 ? "" : "-ml-2"
+                            }`}
+                          >
+                            <AvatarFallback className="bg-transparent text-[11px] font-semibold text-indigo-700">
+                              {getInitials(attendee.name)}
+                            </AvatarFallback>
+                          </Avatar>
+                        ))}
+
+                        {overflowAttendees.length ? (
+                          <span
+                            className="-ml-2 inline-flex h-8 min-w-8 items-center justify-center rounded-xl border-2 border-white bg-slate-200 px-2 text-[11px] font-semibold text-slate-700 shadow-sm"
+                            title={overflowAttendees
+                              .map((attendee) => `${attendee.name} (${attendee.email})`)
+                              .join("\n")}
+                          >
+                            +{overflowAttendees.length}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="text-xs text-slate-500">
+                        No attendee preview available yet.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <Button
+                  className="interactive-button h-9 w-full rounded-xl border border-sky-300/20 bg-[linear-gradient(90deg,#2563EB_0%,#0EA5E9_100%)] px-3 text-xs font-semibold text-white shadow-[0_14px_30px_-20px_rgba(14,165,233,0.9)] hover:opacity-95"
+                  type="submit"
+                >
+                  <Video className="h-3.5 w-3.5" />
+                  Create in Teams
+                </Button>
+                <p className="text-center text-[11px] text-slate-500">
+                  You'll complete scheduling in Microsoft Teams
+                </p>
+              </form>
+
+              {meetingError ? (
+                <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                  {meetingError}
+                </div>
+              ) : null}
+
+              {meetingWarning ? (
+                <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  {meetingWarning}
+                </div>
+              ) : null}
+
+              {highlightedMeeting?.joinUrl ? (
+                <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50/70 px-3 py-2.5">
+                  <p className="text-xs font-semibold text-blue-900">
+                    Latest Meeting Link
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <a
+                      href={highlightedMeeting.joinUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate text-xs font-medium text-blue-700 underline decoration-blue-300 underline-offset-2"
+                    >
+                      {highlightedMeeting.joinUrl}
+                    </a>
+                    <Button
+                      className="h-7 rounded-lg border border-blue-200 bg-white px-2 text-xs font-semibold text-blue-700 hover:bg-white"
+                      type="button"
+                      onClick={() => window.open(highlightedMeeting.joinUrl, "_blank")}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Join Meeting
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Upcoming Meetings
+                </p>
+                <div className="mt-2 space-y-2">
+                  {isMeetingsLoading ? (
+                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                      Loading meetings...
+                    </div>
+                  ) : meetingsError ? (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                      {meetingsError?.response?.data?.message ||
+                        "Unable to load upcoming meetings."}
+                    </div>
+                  ) : upcomingMeetings.length ? (
+                    upcomingMeetings.slice(0, 3).map((meeting) => (
+                      <div
+                        key={meeting._id}
+                        className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-slate-900">
+                            {meeting.subject}
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            {formatMeetingDateTime(meeting.startDateTime)}
+                          </p>
+                        </div>
+                        {meeting.joinUrl ? (
+                          <button
+                            type="button"
+                            className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                            onClick={() => window.open(meeting.joinUrl, "_blank")}
+                          >
+                            Join
+                          </button>
+                        ) : null}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-white/70 px-3 py-2 text-xs text-slate-500">
+                      No upcoming meetings yet.
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
+
           </div>
         </CardContent>
       </Card>
@@ -532,3 +1083,4 @@ const ProjectCard = ({
 };
 
 export default ProjectCard;
+

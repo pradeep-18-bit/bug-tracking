@@ -13,6 +13,8 @@ import {
   getIssuePriorityVariant,
   getIssueStatusLabel,
   getIssueStatusVariant,
+  ISSUE_STATUS,
+  normalizeIssueStatus,
   resolveIssueAssignee,
 } from "@/lib/issues";
 import { findProjectById, getProjectTeams } from "@/lib/project-teams";
@@ -31,6 +33,36 @@ import TesterDashboardPage from "@/pages/TesterDashboardPage";
 import { ROLE_ADMIN, ROLE_TESTER } from "@/lib/roles";
 
 const isValidIssueType = (value) => ["Bug", "Task", "Story"].includes(value);
+const ALL_PROJECTS_VALUE = "ALL";
+const PROJECT_DIVIDER_VALUE = "__project-divider__";
+const OPEN_ISSUES_QUERY_VALUE = "OPEN";
+const CLOSED_ISSUES_QUERY_VALUE = "CLOSED";
+
+const normalizeStatusFilterValue = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  const normalizedValue = String(value).trim().toUpperCase();
+
+  if (normalizedValue === OPEN_ISSUES_QUERY_VALUE) {
+    return OPEN_ISSUES_QUERY_VALUE;
+  }
+
+  if (normalizedValue === CLOSED_ISSUES_QUERY_VALUE) {
+    return CLOSED_ISSUES_QUERY_VALUE;
+  }
+
+  return "";
+};
+
+const normalizeProjectFilterValue = (value) => {
+  if (!value) {
+    return ALL_PROJECTS_VALUE;
+  }
+
+  return String(value).toLowerCase() === "all" ? ALL_PROJECTS_VALUE : String(value);
+};
 
 const sanitizeComposeParams = (searchParams, setSearchParams) => {
   const nextParams = new URLSearchParams(searchParams);
@@ -45,7 +77,7 @@ const AdminIssuesPage = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState({
-    projectId: searchParams.get("projectId") || "",
+    projectId: normalizeProjectFilterValue(searchParams.get("projectId")),
     teamId: searchParams.get("teamId") || "all",
     search: searchParams.get("search") || "",
   });
@@ -54,6 +86,10 @@ const AdminIssuesPage = () => {
     searchParams.get("compose") === "1"
   );
   const deferredSearch = useDeferredValue(filters.search);
+  const activeStatusFilter = useMemo(
+    () => normalizeStatusFilterValue(searchParams.get("status")),
+    [searchParams]
+  );
 
   const {
     data: projects = [],
@@ -70,18 +106,22 @@ const AdminIssuesPage = () => {
     }
 
     setFilters((current) => {
-      const requestedProjectId = searchParams.get("projectId") || current.projectId;
+      const requestedProjectId = normalizeProjectFilterValue(
+        searchParams.get("projectId") || current.projectId
+      );
       const nextProject =
-        findProjectById(projects, requestedProjectId) ||
-        findProjectById(projects, current.projectId) ||
-        projects[0];
-      const nextProjectId = nextProject?._id || "";
+        requestedProjectId === ALL_PROJECTS_VALUE
+          ? null
+          : findProjectById(projects, requestedProjectId);
+      const nextProjectId = nextProject?._id || ALL_PROJECTS_VALUE;
       const requestedTeamId = searchParams.get("teamId") || current.teamId;
-      const nextTeamId = getProjectTeams(nextProject).some(
-        (team) => String(team._id) === String(requestedTeamId)
-      )
-        ? String(requestedTeamId)
-        : "all";
+      const nextTeamId =
+        nextProject &&
+        getProjectTeams(nextProject).some(
+          (team) => String(team._id) === String(requestedTeamId)
+        )
+          ? String(requestedTeamId)
+          : "all";
       const nextSearch = searchParams.get("search") || current.search;
 
       if (
@@ -129,12 +169,44 @@ const AdminIssuesPage = () => {
     ],
     queryFn: () =>
       fetchIssues({
-        projectId: filters.projectId,
-        teamId: filters.teamId,
+        projectId:
+          filters.projectId === ALL_PROJECTS_VALUE ? "" : filters.projectId,
+        teamId:
+          filters.projectId === ALL_PROJECTS_VALUE ? "all" : filters.teamId,
         search: deferredSearch,
       }),
-    enabled: Boolean(filters.projectId),
+    enabled: Boolean(projects.length),
   });
+  const filteredIssues = useMemo(() => {
+    if (!activeStatusFilter) {
+      return issues;
+    }
+
+    if (activeStatusFilter === OPEN_ISSUES_QUERY_VALUE) {
+      return issues.filter(
+        (issue) => normalizeIssueStatus(issue.status, "") !== ISSUE_STATUS.DONE
+      );
+    }
+
+    if (activeStatusFilter === CLOSED_ISSUES_QUERY_VALUE) {
+      return issues.filter(
+        (issue) => normalizeIssueStatus(issue.status, "") === ISSUE_STATUS.DONE
+      );
+    }
+
+    return issues;
+  }, [activeStatusFilter, issues]);
+  const activeStatusLabel = useMemo(() => {
+    if (activeStatusFilter === OPEN_ISSUES_QUERY_VALUE) {
+      return "Showing: Open Issues";
+    }
+
+    if (activeStatusFilter === CLOSED_ISSUES_QUERY_VALUE) {
+      return "Showing: Closed Issues";
+    }
+
+    return "";
+  }, [activeStatusFilter]);
 
   const { data: dependencyIssues = [] } = useQuery({
     queryKey: ["issues", "admin-issue-options"],
@@ -147,9 +219,9 @@ const AdminIssuesPage = () => {
       return;
     }
 
-    const nextIssue = issues.find((issue) => issue._id === selectedIssue._id);
+    const nextIssue = filteredIssues.find((issue) => issue._id === selectedIssue._id);
     setSelectedIssue(nextIssue || null);
-  }, [issues, selectedIssue]);
+  }, [filteredIssues, selectedIssue]);
 
   const createIssueMutation = useMutation({
     mutationFn: createIssue,
@@ -180,7 +252,7 @@ const AdminIssuesPage = () => {
   const handleProjectChange = (projectId) => {
     setFilters((current) => ({
       ...current,
-      projectId,
+      projectId: normalizeProjectFilterValue(projectId),
       teamId: "all",
     }));
   };
@@ -215,8 +287,8 @@ const AdminIssuesPage = () => {
     <div className="space-y-4">
       <Card className="border-slate-200 shadow-sm">
         <CardContent className="space-y-3 p-4">
-          <div className="grid gap-3 xl:grid-cols-[220px_220px_minmax(0,1fr)_auto]">
-            <label className="space-y-1.5">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,220px)_minmax(0,220px)_minmax(0,1fr)_auto]">
+            <label className="min-w-0 space-y-1.5">
               <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                 Project
               </span>
@@ -225,6 +297,12 @@ const AdminIssuesPage = () => {
                 value={filters.projectId}
                 onChange={(event) => handleProjectChange(event.target.value)}
               >
+                <option value={ALL_PROJECTS_VALUE}>All Projects</option>
+                {projects.length ? (
+                  <option value={PROJECT_DIVIDER_VALUE} disabled>
+                    -----------
+                  </option>
+                ) : null}
                 {projects.map((project) => (
                   <option key={project._id} value={project._id}>
                     {project.name}
@@ -233,7 +311,7 @@ const AdminIssuesPage = () => {
               </select>
             </label>
 
-            <label className="space-y-1.5">
+            <label className="min-w-0 space-y-1.5">
               <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                 Team
               </span>
@@ -257,7 +335,7 @@ const AdminIssuesPage = () => {
               </select>
             </label>
 
-            <label className="space-y-1.5">
+            <label className="min-w-0 space-y-1.5">
               <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                 Search
               </span>
@@ -296,6 +374,14 @@ const AdminIssuesPage = () => {
               before creating issues.
             </p>
           ) : null}
+
+          {activeStatusLabel ? (
+            <div className="flex items-center">
+              <Badge className="rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
+                {activeStatusLabel}
+              </Badge>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -308,7 +394,7 @@ const AdminIssuesPage = () => {
               <Skeleton className="h-12 w-full rounded-xl" />
               <Skeleton className="h-12 w-full rounded-xl" />
             </div>
-          ) : issues.length ? (
+          ) : filteredIssues.length ? (
             <div className="overflow-x-auto">
               <table className="min-w-[900px] w-full text-left">
                 <thead>
@@ -322,7 +408,7 @@ const AdminIssuesPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {issues.map((issue) => {
+                  {filteredIssues.map((issue) => {
                     const assignee = resolveIssueAssignee(issue);
 
                     return (

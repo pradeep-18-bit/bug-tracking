@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Select from "react-select";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -12,19 +13,25 @@ import {
   Sparkles,
   Users2,
   Workflow,
+  X,
 } from "lucide-react";
 import {
   fetchProjectReports,
   fetchProjects,
   fetchReports,
+  fetchSelectedUserReport,
   fetchTeamReports,
   fetchTeams,
-  fetchUserReports,
+  fetchUsers,
 } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { ISSUE_STATUS, getIssueStatusLabel } from "@/lib/issues";
 import { cn, formatDate, getInitials } from "@/lib/utils";
 import { getWorkspaceScope } from "@/lib/workspace";
+import {
+  formatMemberOptionLabel,
+  memberSelectStyles,
+} from "@/components/projects/memberSelectTheme";
 import DashboardStatCard from "@/components/dashboard/DashboardStatCard";
 import EmptyState from "@/components/shared/EmptyState";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -43,15 +50,12 @@ const REPORT_PANEL_CLASS =
   "overflow-hidden rounded-[16px] border border-white/55 bg-white/58 shadow-[0_22px_55px_-32px_rgba(15,23,42,0.38)] backdrop-blur-2xl";
 const REPORT_SUBPANEL_CLASS =
   "rounded-[16px] border border-white/55 bg-white/52 shadow-[0_16px_36px_-26px_rgba(15,23,42,0.34)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_42px_-24px_rgba(15,23,42,0.38)]";
-const STATUS_ORDER = [ISSUE_STATUS.TODO, ISSUE_STATUS.IN_PROGRESS, ISSUE_STATUS.DONE];
+const OPEN_STATUS_KEY = "OPEN";
+const STATUS_ORDER = [OPEN_STATUS_KEY, ISSUE_STATUS.DONE];
 const PRIORITY_ORDER = ["High", "Medium", "Low"];
 const STATUS_ROW_META = {
-  [ISSUE_STATUS.TODO]: {
+  [OPEN_STATUS_KEY]: {
     tone: "blue",
-    helper: "Tap to focus",
-  },
-  [ISSUE_STATUS.IN_PROGRESS]: {
-    tone: "purple",
     helper: "Tap to focus",
   },
   [ISSUE_STATUS.DONE]: {
@@ -73,6 +77,37 @@ const PRIORITY_ROW_META = {
     helper: "Lower urgency",
   },
 };
+const REPORT_USER_SELECT_STYLES = {
+  ...memberSelectStyles,
+  control: (base, state) => ({
+    ...memberSelectStyles.control(base, state),
+    minHeight: 54,
+    borderRadius: 20,
+    paddingLeft: 4,
+    paddingRight: 4,
+    boxShadow: state.isFocused
+      ? "0 0 0 4px rgba(59, 130, 246, 0.12), 0 14px 30px -24px rgba(15, 23, 42, 0.34)"
+      : "0 14px 28px -24px rgba(15, 23, 42, 0.24)",
+  }),
+  valueContainer: (base) => ({
+    ...memberSelectStyles.valueContainer(base),
+    paddingTop: 6,
+    paddingBottom: 6,
+  }),
+  menu: (base) => ({
+    ...memberSelectStyles.menu(base),
+    borderRadius: 20,
+  }),
+  menuList: (base) => ({
+    ...memberSelectStyles.menuList(base),
+    maxHeight: 240,
+    overflowY: "auto",
+  }),
+  menuPortal: (base) => ({
+    ...base,
+    zIndex: 9999,
+  }),
+};
 
 const createDefaultFilters = () => ({
   projectId: "all",
@@ -85,10 +120,10 @@ const createDefaultFilters = () => ({
 });
 
 const statusFilterLabels = {
-  all: "All issues",
-  OPEN: "Open issues",
+  all: "All Issues",
+  [OPEN_STATUS_KEY]: "Open Issues",
   [ISSUE_STATUS.TODO]: "To Do",
-  [ISSUE_STATUS.IN_PROGRESS]: "In Progress",
+  [ISSUE_STATUS.IN_PROGRESS]: "Open Issues",
   [ISSUE_STATUS.DONE]: "Closed",
 };
 
@@ -116,17 +151,12 @@ const ReportEmptyPanel = ({ icon: Icon, title, description }) => (
   </div>
 );
 
-const DistributionBar = ({ total, open, inProgress, closed }) => {
+const DistributionBar = ({ total, open, closed }) => {
   const segments = [
     {
       key: "open",
       value: open,
       className: "bg-[linear-gradient(90deg,#f59e0b,#fb7185)]",
-    },
-    {
-      key: "in-progress",
-      value: inProgress,
-      className: "bg-[linear-gradient(90deg,#7c3aed,#d946ef)]",
     },
     {
       key: "closed",
@@ -165,12 +195,53 @@ const ActiveFilterChip = ({ label, onClear }) => (
   </button>
 );
 
-const sortByName = (left, right) => left.name.localeCompare(right.name);
+const sortByName = (left, right) =>
+  (left?.name || left?.email || "").localeCompare(right?.name || right?.email || "");
+
+const buildReportUserOption = (user) => ({
+  value: String(user?._id || ""),
+  label: user?.name || user?.email || "Unnamed user",
+  email: user?.email || "",
+  role: user?.role || "Contributor",
+});
+
+const formatReportUserOptionLabel = (option, meta) => {
+  if (meta.context === "menu") {
+    return formatMemberOptionLabel(option, meta);
+  }
+
+  const secondaryText = [option.role, option.email].filter(Boolean).join(" | ");
+
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-sm font-semibold text-slate-900">{option.label}</p>
+      {secondaryText ? (
+        <p className="truncate text-xs text-slate-500">{secondaryText}</p>
+      ) : null}
+    </div>
+  );
+};
+
+const buildEmptyUserPerformance = (option) => ({
+  assigneeId: option?.value || "",
+  name: option?.label || "Selected user",
+  email: option?.email || "",
+  role: option?.role || "Contributor",
+  total: 0,
+  open: 0,
+  closed: 0,
+  completionRate: 0,
+});
 
 const ReportsPage = () => {
   const { user } = useAuth();
   const workspaceScope = getWorkspaceScope(user);
   const [filters, setFilters] = useState(createDefaultFilters);
+  const [selectedPerformanceUserId, setSelectedPerformanceUserId] = useState("");
+  const activeStatusFilter =
+    filters.status === ISSUE_STATUS.IN_PROGRESS ? OPEN_STATUS_KEY : filters.status;
+  const reportSelectPortalTarget =
+    typeof document !== "undefined" ? document.body : undefined;
 
   const reportFilters = useMemo(
     () => ({
@@ -179,10 +250,10 @@ const ReportsPage = () => {
       assigneeId: filters.assigneeId,
       dateFrom: filters.dateFrom,
       dateTo: filters.dateTo,
-      status: filters.status,
+      status: activeStatusFilter,
       priority: filters.priority,
     }),
-    [filters]
+    [activeStatusFilter, filters]
   );
 
   const {
@@ -222,12 +293,12 @@ const ReportsPage = () => {
   });
 
   const {
-    data: userReportsData,
-    isLoading: isUserReportsLoading,
-    error: userReportsError,
+    data: workspaceUsers = [],
+    isLoading: isWorkspaceUsersLoading,
+    error: workspaceUsersError,
   } = useQuery({
-    queryKey: ["reports", "users", reportFilters],
-    queryFn: () => fetchUserReports(reportFilters),
+    queryKey: ["users", "reports-directory", workspaceScope],
+    queryFn: fetchUsers,
   });
 
   const {
@@ -244,14 +315,12 @@ const ReportsPage = () => {
     teamsError ||
     summaryError ||
     projectReportsError ||
-    userReportsError ||
     teamReportsError;
   const isLoading =
     isProjectsLoading ||
     isTeamsLoading ||
     isSummaryLoading ||
     isProjectReportsLoading ||
-    isUserReportsLoading ||
     isTeamReportsLoading;
 
   const scopedTeams = useMemo(() => {
@@ -309,24 +378,53 @@ const ReportsPage = () => {
     [filters.assigneeId, memberOptions]
   );
 
-  const summary = {
-    totalIssues: summaryData?.totalIssues || 0,
-    openIssues: summaryData?.openIssues || 0,
-    inProgressIssues: summaryData?.inProgressIssues || 0,
-    closedIssues: summaryData?.closedIssues || 0,
-  };
+  const hasStatusBreakdown = Boolean(summaryData?.issuesByStatus?.length);
+
+  const statusCounts = useMemo(() => {
+    const countsByKey = new Map(
+      (summaryData?.issuesByStatus || []).map((entry) => [entry.key, Number(entry.count) || 0])
+    );
+    const todoIssues = countsByKey.get(ISSUE_STATUS.TODO) || 0;
+    const inProgressIssues = countsByKey.get(ISSUE_STATUS.IN_PROGRESS) || 0;
+    const closedIssues = countsByKey.get(ISSUE_STATUS.DONE) || 0;
+
+    return {
+      totalIssues: todoIssues + inProgressIssues + closedIssues,
+      openIssues: todoIssues + inProgressIssues,
+      closedIssues,
+    };
+  }, [summaryData?.issuesByStatus]);
+
+  const summary = useMemo(
+    () => ({
+      totalIssues: hasStatusBreakdown
+        ? statusCounts.totalIssues
+        : Number(summaryData?.totalIssues ?? 0),
+      openIssues: hasStatusBreakdown
+        ? statusCounts.openIssues
+        : Number(summaryData?.openIssues ?? 0),
+      closedIssues: hasStatusBreakdown
+        ? statusCounts.closedIssues
+        : Number(summaryData?.closedIssues ?? 0),
+    }),
+    [
+      hasStatusBreakdown,
+      statusCounts.closedIssues,
+      statusCounts.openIssues,
+      statusCounts.totalIssues,
+      summaryData?.closedIssues,
+      summaryData?.openIssues,
+      summaryData?.totalIssues,
+    ]
+  );
 
   const issuesByStatus = useMemo(() => {
-    const countsByKey = new Map(
-      (summaryData?.issuesByStatus || []).map((entry) => [entry.key, entry.count])
-    );
-
     return STATUS_ORDER.map((status) => ({
       key: status,
-      label: getIssueStatusLabel(status),
-      count: countsByKey.get(status) || 0,
+      label: statusFilterLabels[status] || getIssueStatusLabel(status),
+      count: status === OPEN_STATUS_KEY ? summary.openIssues : summary.closedIssues,
     }));
-  }, [summaryData?.issuesByStatus]);
+  }, [summary.closedIssues, summary.openIssues]);
 
   const issuesByPriority = useMemo(() => {
     const countsByKey = new Map(
@@ -344,17 +442,17 @@ const ReportsPage = () => {
     const total = summary.totalIssues || 0;
 
     return issuesByStatus.map((entry) => {
-      const meta = STATUS_ROW_META[entry.key] || STATUS_ROW_META[ISSUE_STATUS.TODO];
+      const meta = STATUS_ROW_META[entry.key] || STATUS_ROW_META[OPEN_STATUS_KEY];
       const share = total ? Math.round((entry.count / total) * 100) : 0;
 
       return {
         ...entry,
-        helper: filters.status === entry.key ? "Filter active" : meta.helper,
+        helper: activeStatusFilter === entry.key ? "Filter active" : meta.helper,
         tone: meta.tone,
         shareLabel: total ? `${share}% of scope` : "No issues yet",
       };
     });
-  }, [filters.status, issuesByStatus, summary.totalIssues]);
+  }, [activeStatusFilter, issuesByStatus, summary.totalIssues]);
 
   const priorityRows = useMemo(() => {
     const total = summary.totalIssues || 0;
@@ -378,8 +476,72 @@ const ReportsPage = () => {
   }, [filters.priority, issuesByPriority, summary.totalIssues]);
 
   const projectReports = projectReportsData?.projects || [];
-  const userReports = userReportsData?.users || [];
   const teamReports = teamReportsData?.teams || [];
+
+  const scopedPerformanceUsers = useMemo(() => {
+    const sortedUsers = [...workspaceUsers].sort(sortByName);
+
+    if (filters.projectId === "all" && filters.teamId === "all") {
+      return sortedUsers;
+    }
+
+    const scopedMemberIds = new Set(memberOptions.map((member) => String(member._id)));
+
+    return sortedUsers.filter((member) => scopedMemberIds.has(String(member._id)));
+  }, [filters.projectId, filters.teamId, memberOptions, workspaceUsers]);
+
+  const performanceUserOptions = useMemo(
+    () => scopedPerformanceUsers.map(buildReportUserOption),
+    [scopedPerformanceUsers]
+  );
+
+  const selectedPerformanceUserOption = useMemo(
+    () =>
+      performanceUserOptions.find((option) => option.value === selectedPerformanceUserId) ||
+      null,
+    [performanceUserOptions, selectedPerformanceUserId]
+  );
+
+  useEffect(() => {
+    if (!selectedPerformanceUserId) {
+      return;
+    }
+
+    const isStillAvailable = performanceUserOptions.some(
+      (option) => option.value === selectedPerformanceUserId
+    );
+
+    if (!isStillAvailable) {
+      setSelectedPerformanceUserId("");
+    }
+  }, [performanceUserOptions, selectedPerformanceUserId]);
+
+  const selectedUserReportFilters = useMemo(
+    () => ({
+      ...reportFilters,
+      assigneeId: selectedPerformanceUserId,
+    }),
+    [reportFilters, selectedPerformanceUserId]
+  );
+
+  const {
+    data: selectedUserReport,
+    isLoading: isSelectedUserReportLoading,
+    isFetching: isSelectedUserReportFetching,
+    error: selectedUserReportError,
+  } = useQuery({
+    queryKey: ["reports", "individual-user", selectedUserReportFilters],
+    queryFn: () => fetchSelectedUserReport(selectedUserReportFilters),
+    enabled: Boolean(selectedPerformanceUserId),
+  });
+
+  const selectedUserPerformance = useMemo(() => {
+    if (!selectedPerformanceUserOption) {
+      return null;
+    }
+
+    return selectedUserReport || buildEmptyUserPerformance(selectedPerformanceUserOption);
+  }, [selectedPerformanceUserOption, selectedUserReport]);
 
   const activeFilterChips = useMemo(() => {
     const chips = [];
@@ -443,10 +605,10 @@ const ReportsPage = () => {
       });
     }
 
-    if (filters.status !== "all") {
+    if (activeStatusFilter !== "all") {
       chips.push({
         key: "status",
-        label: `Status: ${statusFilterLabels[filters.status] || filters.status}`,
+        label: `Status: ${statusFilterLabels[activeStatusFilter] || activeStatusFilter}`,
         onClear: () =>
           setFilters((current) => ({
             ...current,
@@ -472,7 +634,7 @@ const ReportsPage = () => {
     filters.dateFrom,
     filters.dateTo,
     filters.priority,
-    filters.status,
+    activeStatusFilter,
     selectedMember,
     selectedProject,
     selectedTeam,
@@ -496,19 +658,7 @@ const ReportsPage = () => {
       tone: "amber",
       helperText: "Queued + active work",
       trendLabel:
-        filters.status === "OPEN" ? "Open filter active" : "Click to focus",
-    },
-    {
-      key: ISSUE_STATUS.IN_PROGRESS,
-      title: "In Progress",
-      value: summary.inProgressIssues,
-      icon: BarChart3,
-      tone: "violet",
-      helperText: "Currently moving",
-      trendLabel:
-        filters.status === ISSUE_STATUS.IN_PROGRESS
-          ? "In progress active"
-          : "Click to focus",
+        activeStatusFilter === OPEN_STATUS_KEY ? "Open filter active" : "Click to focus",
     },
     {
       key: ISSUE_STATUS.DONE,
@@ -518,7 +668,9 @@ const ReportsPage = () => {
       tone: "emerald",
       helperText: "Delivered work",
       trendLabel:
-        filters.status === ISSUE_STATUS.DONE ? "Closed filter active" : "Click to focus",
+        activeStatusFilter === ISSUE_STATUS.DONE
+          ? "Closed filter active"
+          : "Click to focus",
     },
   ];
 
@@ -542,7 +694,14 @@ const ReportsPage = () => {
   const handleStatusFilter = (status) => {
     setFilters((current) => ({
       ...current,
-      status: status === "all" ? "all" : current.status === status ? "all" : status,
+      status:
+        status === "all"
+          ? "all"
+          : (current.status === ISSUE_STATUS.IN_PROGRESS
+              ? OPEN_STATUS_KEY
+              : current.status) === status
+            ? "all"
+            : status,
     }));
   };
 
@@ -558,7 +717,6 @@ const ReportsPage = () => {
   const hasAnyData =
     summary.totalIssues > 0 ||
     projectReports.length > 0 ||
-    userReports.length > 0 ||
     teamReports.length > 0;
 
   return (
@@ -701,10 +859,9 @@ const ReportsPage = () => {
         </Card>
       ) : (
         <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {isLoading ? (
               <>
-                <Skeleton className="h-[164px] w-full rounded-[16px]" />
                 <Skeleton className="h-[164px] w-full rounded-[16px]" />
                 <Skeleton className="h-[164px] w-full rounded-[16px]" />
                 <Skeleton className="h-[164px] w-full rounded-[16px]" />
@@ -722,9 +879,9 @@ const ReportsPage = () => {
                   trendDirection="flat"
                   compact
                   className={cn(
-                    filters.status === card.key
+                    activeStatusFilter === card.key
                       ? "ring-2 ring-white/75 ring-offset-0"
-                      : card.key === "all" && filters.status === "all"
+                      : card.key === "all" && activeStatusFilter === "all"
                         ? "ring-2 ring-white/75 ring-offset-0"
                         : ""
                   )}
@@ -749,11 +906,11 @@ const ReportsPage = () => {
                       <div>
                         <CardTitle>Issues by Status</CardTitle>
                         <CardDescription>
-                          Focus the report by status with compact, color-coded lanes.
+                          Focus the report by open and closed issue lanes.
                         </CardDescription>
                       </div>
                       <span className="report-tag">
-                        {statusFilterLabels[filters.status] || "All issues"}
+                        {statusFilterLabels[activeStatusFilter] || statusFilterLabels.all}
                       </span>
                     </div>
                   </CardHeader>
@@ -771,7 +928,7 @@ const ReportsPage = () => {
                               className={cn(
                                 "report-status-row",
                                 entry.tone,
-                                filters.status === entry.key ? "active" : ""
+                                activeStatusFilter === entry.key ? "active" : ""
                               )}
                             >
                               <div className="report-status-copy">
@@ -943,7 +1100,6 @@ const ReportsPage = () => {
                               <DistributionBar
                                 total={project.total}
                                 open={project.open}
-                                inProgress={project.inProgress}
                                 closed={project.closed}
                               />
                             </div>
@@ -968,115 +1124,195 @@ const ReportsPage = () => {
                       <div>
                         <CardTitle>Individual Performance</CardTitle>
                         <CardDescription>
-                          Assignee-level delivery view with open, in-progress, and closed
-                          counts plus a visual completion bar.
+                          Search for a teammate and review one focused delivery
+                          snapshot at a time.
                         </CardDescription>
                       </div>
                       <span className="rounded-full border border-white/55 bg-white/68 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur-xl">
-                        {userReports.length} contributors
+                        Single-user focus
                       </span>
                     </div>
                   </CardHeader>
                   <CardContent className="p-5">
-                    {isLoading ? (
-                      <div className="space-y-3">
-                        <Skeleton className="h-[118px] w-full rounded-[16px]" />
-                        <Skeleton className="h-[118px] w-full rounded-[16px]" />
-                        <Skeleton className="h-[118px] w-full rounded-[16px]" />
-                      </div>
-                    ) : userReports.length ? (
-                      <div className="space-y-3">
-                        {userReports.map((person) => {
-                          const isActive =
-                            String(filters.assigneeId) === String(person.assigneeId);
+                    <div className="space-y-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+                        <div className="flex-1 space-y-2">
+                          <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                            Select User
+                          </label>
 
-                          return (
-                            <button
-                              key={person.assigneeId}
-                              type="button"
-                              onClick={() =>
-                                setFilters((current) => ({
-                                  ...current,
-                                  assigneeId: isActive ? "all" : person.assigneeId,
-                                }))
+                          {isWorkspaceUsersLoading ? (
+                            <Skeleton className="h-[54px] w-full rounded-[20px]" />
+                          ) : (
+                            <Select
+                              options={performanceUserOptions}
+                              value={selectedPerformanceUserOption}
+                              onChange={(option) =>
+                                setSelectedPerformanceUserId(option?.value || "")
                               }
-                              className={cn(
-                                REPORT_SUBPANEL_CLASS,
-                                "group flex w-full flex-col gap-4 p-4 text-left sm:p-5",
-                                isActive
-                                  ? "border-violet-200/90 bg-[linear-gradient(180deg,rgba(245,243,255,0.94),rgba(238,242,255,0.7))]"
-                                  : "bg-[linear-gradient(180deg,rgba(255,255,255,0.74),rgba(248,250,252,0.54))]"
-                              )}
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="flex min-w-0 items-center gap-3">
-                                  <Avatar className="h-11 w-11 rounded-2xl avatar-pop-in">
-                                    <AvatarFallback>{getInitials(person.name)}</AvatarFallback>
-                                  </Avatar>
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm font-semibold text-slate-950">
-                                      {person.name}
-                                    </p>
-                                    <p className="truncate text-xs text-slate-500">
-                                      {person.role || "Contributor"}
-                                    </p>
+                              isSearchable
+                              isClearable
+                              placeholder="Search user by name or email"
+                              styles={REPORT_USER_SELECT_STYLES}
+                              formatOptionLabel={formatReportUserOptionLabel}
+                              menuPortalTarget={reportSelectPortalTarget}
+                              menuPosition="fixed"
+                              filterOption={(option, inputValue) =>
+                                [option.label, option.data.email, option.data.role]
+                                  .filter(Boolean)
+                                  .join(" ")
+                                  .toLowerCase()
+                                  .includes(inputValue.trim().toLowerCase())
+                              }
+                              noOptionsMessage={({ inputValue }) =>
+                                inputValue.trim()
+                                  ? "No matching users found."
+                                  : filters.projectId !== "all" || filters.teamId !== "all"
+                                    ? "No users available in the current report scope."
+                                    : "No users available."
+                              }
+                            />
+                          )}
+                        </div>
+
+                        {selectedPerformanceUserId ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-full border-white/60 bg-white/72 text-slate-700 shadow-[0_12px_26px_-18px_rgba(15,23,42,0.24)] backdrop-blur-xl"
+                            onClick={() => setSelectedPerformanceUserId("")}
+                          >
+                            <X className="h-4 w-4" />
+                            Clear
+                          </Button>
+                        ) : null}
+                      </div>
+
+                      {workspaceUsersError ? (
+                        <div className="rounded-[16px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                          {workspaceUsersError.response?.data?.message ||
+                            "Unable to load users for this report view right now."}
+                        </div>
+                      ) : isWorkspaceUsersLoading ? (
+                        <div className="mx-auto max-w-2xl">
+                          <Skeleton className="h-[220px] w-full rounded-[18px]" />
+                        </div>
+                      ) : null}
+
+                      {!workspaceUsersError && !isWorkspaceUsersLoading && !selectedPerformanceUserOption ? (
+                        <ReportEmptyPanel
+                          icon={Users2}
+                          title="Search and select a user to view performance"
+                          description="Find a teammate by name or email to load a focused delivery snapshot for the current report scope."
+                        />
+                      ) : !workspaceUsersError &&
+                        !isWorkspaceUsersLoading &&
+                        selectedUserReportError ? (
+                        <div className="rounded-[16px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                          {selectedUserReportError.response?.data?.message ||
+                            "Unable to load this user's performance right now."}
+                        </div>
+                      ) : !workspaceUsersError &&
+                        !isWorkspaceUsersLoading &&
+                        (isSelectedUserReportLoading || isSelectedUserReportFetching) ? (
+                        <div className="mx-auto max-w-2xl">
+                          <Skeleton className="h-[244px] w-full rounded-[18px]" />
+                        </div>
+                      ) : !workspaceUsersError && !isWorkspaceUsersLoading && selectedUserPerformance ? (
+                        <div className="mx-auto max-w-2xl">
+                          <div
+                            className={cn(
+                              REPORT_SUBPANEL_CLASS,
+                              "flex flex-col gap-5 border-violet-200/80 bg-[linear-gradient(180deg,rgba(245,243,255,0.94),rgba(255,255,255,0.84))] p-5"
+                            )}
+                          >
+                            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                              <div className="flex min-w-0 items-center gap-4">
+                                <Avatar className="h-14 w-14 rounded-2xl avatar-pop-in">
+                                  <AvatarFallback>
+                                    {getInitials(selectedUserPerformance.name)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0">
+                                  <p className="truncate text-lg font-semibold text-slate-950">
+                                    {selectedUserPerformance.name}
+                                  </p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                    <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold text-slate-600">
+                                      {selectedUserPerformance.role || "Contributor"}
+                                    </span>
+                                    {selectedUserPerformance.email ? (
+                                      <span className="truncate">
+                                        {selectedUserPerformance.email}
+                                      </span>
+                                    ) : null}
                                   </div>
                                 </div>
-                                <span className="rounded-full bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">
-                                  {person.completionRate}% closed
-                                </span>
                               </div>
 
-                              <div className="grid grid-cols-3 gap-2">
-                                <div className="rounded-[14px] bg-amber-50/85 px-3 py-2">
-                                  <p className="text-[11px] uppercase tracking-[0.2em] text-amber-700">
-                                    Open
-                                  </p>
-                                  <p className="mt-1 text-base font-semibold text-amber-900">
-                                    {person.open}
-                                  </p>
-                                </div>
-                                <div className="rounded-[14px] bg-violet-50/90 px-3 py-2">
-                                  <p className="text-[11px] uppercase tracking-[0.2em] text-violet-700">
-                                    In Progress
-                                  </p>
-                                  <p className="mt-1 text-base font-semibold text-violet-900">
-                                    {person.inProgress}
-                                  </p>
-                                </div>
-                                <div className="rounded-[14px] bg-emerald-50/90 px-3 py-2">
-                                  <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-700">
-                                    Closed
-                                  </p>
-                                  <p className="mt-1 text-base font-semibold text-emerald-900">
-                                    {person.closed}
-                                  </p>
-                                </div>
+                              <div className="rounded-[18px] bg-violet-50/90 px-4 py-3 text-right">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-600">
+                                  Completion
+                                </p>
+                                <p className="mt-1 text-2xl font-semibold text-violet-900">
+                                  {selectedUserPerformance.completionRate}%
+                                </p>
                               </div>
+                            </div>
 
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                                  <span>Issue Distribution</span>
-                                  <span>{person.total} total</span>
-                                </div>
-                                <DistributionBar
-                                  total={person.total}
-                                  open={person.open}
-                                  inProgress={person.inProgress}
-                                  closed={person.closed}
+                            <div className="grid gap-3 sm:grid-cols-3">
+                              <div className="rounded-[16px] bg-slate-950/[0.03] px-4 py-3">
+                                <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                                  Total Issues
+                                </p>
+                                <p className="mt-1 text-xl font-semibold text-slate-950">
+                                  {selectedUserPerformance.total}
+                                </p>
+                              </div>
+                              <div className="rounded-[16px] bg-amber-50/85 px-4 py-3">
+                                <p className="text-[11px] uppercase tracking-[0.2em] text-amber-700">
+                                  Open Issues
+                                </p>
+                                <p className="mt-1 text-xl font-semibold text-amber-900">
+                                  {selectedUserPerformance.open}
+                                </p>
+                              </div>
+                              <div className="rounded-[16px] bg-emerald-50/90 px-4 py-3">
+                                <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-700">
+                                  Closed Issues
+                                </p>
+                                <p className="mt-1 text-xl font-semibold text-emerald-900">
+                                  {selectedUserPerformance.closed}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                                <span>Completion Progress</span>
+                                <span>{selectedUserPerformance.completionRate}% complete</span>
+                              </div>
+                              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                                <div
+                                  className="h-full rounded-full bg-[linear-gradient(90deg,#8b5cf6,#6366f1)] transition-all duration-300"
+                                  style={{
+                                    width: `${Math.max(
+                                      selectedUserPerformance.completionRate,
+                                      selectedUserPerformance.total ? 6 : 0
+                                    )}%`,
+                                  }}
                                 />
                               </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <ReportEmptyPanel
-                        icon={Users2}
-                        title="Individual insights are waiting"
-                        description="As soon as issues are assigned in this scope, each assignee's delivery picture will appear here."
-                      />
-                    )}
+                              <p className="text-sm text-slate-500">
+                                {selectedUserPerformance.total
+                                  ? `${selectedUserPerformance.closed} of ${selectedUserPerformance.total} issues in this scope are closed.`
+                                  : "This user does not have any issues in the current report scope yet."}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -1146,12 +1382,12 @@ const ReportsPage = () => {
                                     {team.total}
                                   </p>
                                 </div>
-                                <div className="rounded-[14px] bg-violet-50/90 px-3 py-2">
-                                  <p className="text-[11px] uppercase tracking-[0.2em] text-violet-700">
-                                    In Progress
+                                <div className="rounded-[14px] bg-amber-50/85 px-3 py-2">
+                                  <p className="text-[11px] uppercase tracking-[0.2em] text-amber-700">
+                                    Open
                                   </p>
-                                  <p className="mt-1 text-base font-semibold text-violet-900">
-                                    {team.inProgress}
+                                  <p className="mt-1 text-base font-semibold text-amber-900">
+                                    {team.open}
                                   </p>
                                 </div>
                                 <div className="rounded-[14px] bg-emerald-50/90 px-3 py-2">
@@ -1172,7 +1408,6 @@ const ReportsPage = () => {
                                 <DistributionBar
                                   total={team.total}
                                   open={team.open}
-                                  inProgress={team.inProgress}
                                   closed={team.closed}
                                 />
                               </div>

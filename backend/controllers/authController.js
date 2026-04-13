@@ -7,6 +7,26 @@ const {
   normalizeWorkspaceId,
 } = require("../utils/workspace");
 
+const passwordHasLetter = /[A-Za-z]/;
+const passwordHasNumber = /\d/;
+
+const getPasswordValidationMessage = (password) => {
+  const normalizedPassword = typeof password === "string" ? password : "";
+
+  if (normalizedPassword.length < 8) {
+    return "Password must be at least 8 characters long";
+  }
+
+  if (
+    !passwordHasLetter.test(normalizedPassword) ||
+    !passwordHasNumber.test(normalizedPassword)
+  ) {
+    return "Password must include at least one letter and one number";
+  }
+
+  return "";
+};
+
 const buildAuthPayload = (user) => ({
   token: generateToken(user._id, normalizeWorkspaceId(user.workspaceId)),
   user: {
@@ -35,6 +55,13 @@ const register = asyncHandler(async (req, res) => {
   if (!normalizedName || !normalizedEmail || !password || !normalizedRole) {
     res.status(400);
     throw new Error("Name, email, password, and role are required");
+  }
+
+  const passwordValidationMessage = getPasswordValidationMessage(password);
+
+  if (passwordValidationMessage) {
+    res.status(400);
+    throw new Error(passwordValidationMessage);
   }
 
   if (!User.availableRoles.includes(normalizedRole)) {
@@ -129,6 +156,51 @@ const getUsers = asyncHandler(async (req, res) => {
   res.status(200).json(users);
 });
 
+const changePassword = asyncHandler(async (req, res) => {
+  const currentPassword =
+    typeof req.body.currentPassword === "string" ? req.body.currentPassword : "";
+  const newPassword =
+    typeof req.body.newPassword === "string" ? req.body.newPassword : "";
+
+  if (!currentPassword || !newPassword) {
+    res.status(400);
+    throw new Error("Current password and new password are required");
+  }
+
+  if (currentPassword === newPassword) {
+    res.status(400);
+    throw new Error("New password must be different from the current password");
+  }
+
+  const passwordValidationMessage = getPasswordValidationMessage(newPassword);
+
+  if (passwordValidationMessage) {
+    res.status(400);
+    throw new Error(passwordValidationMessage);
+  }
+
+  const user = await User.findById(req.user._id).select("+password");
+
+  if (!user) {
+    res.status(401);
+    throw new Error("Unauthorized");
+  }
+
+  const currentPasswordMatches = await user.comparePassword(currentPassword);
+
+  if (!currentPasswordMatches) {
+    res.status(400);
+    throw new Error("Current password is incorrect");
+  }
+
+  user.password = newPassword;
+  await user.save();
+
+  res.status(200).json({
+    message: "Password updated successfully",
+  });
+});
+
 const getAdminCredentials = asyncHandler(async (req, res) => {
   const isAllowed =
     process.env.NODE_ENV === "development" ||
@@ -150,5 +222,6 @@ module.exports = {
   register,
   login,
   getUsers,
+  changePassword,
   getAdminCredentials,
 };

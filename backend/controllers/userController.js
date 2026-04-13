@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const bcrypt = require("bcrypt");
+const mongoose = require("mongoose");
 const User = require("../models/User");
 const asyncHandler = require("../utils/asyncHandler");
 const {
@@ -112,18 +113,19 @@ const inviteUser = asyncHandler(async (req, res) => {
   });
 });
 
-const bulkInviteUsers = asyncHandler(async (req, res) => {
+const updateUserRole = asyncHandler(async (req, res) => {
   const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const userId = String(req.params.id || "").trim();
   const role = normalizeRole(req.body.role);
-  const rawEmails = Array.isArray(req.body.emails)
-    ? req.body.emails.join(",")
-    : typeof req.body.emails === "string"
-      ? req.body.emails
-      : "";
 
-  if (!rawEmails.trim() || !role) {
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
     res.status(400);
-    throw new Error("Emails and role are required");
+    throw new Error("Please provide a valid user id");
+  }
+
+  if (!role) {
+    res.status(400);
+    throw new Error("Role is required");
   }
 
   if (!User.availableRoles.includes(role)) {
@@ -131,61 +133,45 @@ const bulkInviteUsers = asyncHandler(async (req, res) => {
     throw new Error(`Role must be one of ${User.availableRoles.join(", ")}`);
   }
 
-  const parsedEmails = Array.from(
-    new Set(
-      rawEmails
-        .split(/[,\n;]+/)
-        .map((value) => normalizeEmail(value))
-        .filter(Boolean)
-    )
-  );
+  const user = await User.findOne({
+    _id: userId,
+    workspaceId,
+  });
 
-  if (!parsedEmails.length) {
-    res.status(400);
-    throw new Error("Please provide at least one valid email to import");
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found in this workspace");
   }
 
-  const existingUsers = await User.find({
-    email: {
-      $in: parsedEmails,
+  if (user.role === "Admin" && role !== "Admin") {
+    const adminCount = await User.countDocuments({
+      workspaceId,
+      role: "Admin",
+    });
+
+    if (adminCount <= 1) {
+      res.status(400);
+      throw new Error("At least one admin must remain in the workspace");
+    }
+  }
+
+  if (user.role !== role) {
+    user.role = role;
+    await user.save();
+  }
+
+  res.status(200).json({
+    message: "Role updated successfully",
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      employeeId: user.employeeId || "",
+      designation: user.designation || "",
+      role: user.role,
+      workspaceId: normalizeWorkspaceId(user.workspaceId),
+      createdAt: user.createdAt,
     },
-  })
-    .select("email")
-    .lean();
-
-  const existingEmailSet = new Set(
-    existingUsers.map((user) => normalizeEmail(user.email))
-  );
-  const created = [];
-  const skipped = [];
-  const invalid = [];
-
-  for (const email of parsedEmails) {
-    if (!emailRegex.test(email)) {
-      invalid.push(email);
-      continue;
-    }
-
-    if (existingEmailSet.has(email)) {
-      skipped.push({
-        email,
-        reason: "User already exists",
-      });
-      continue;
-    }
-
-    const invitedUser = await createInvitedUser({ email, role, workspaceId });
-    created.push(invitedUser);
-    existingEmailSet.add(email);
-  }
-
-  res.status(201).json({
-    message: created.length
-      ? `${created.length} user${created.length === 1 ? "" : "s"} invited successfully`
-      : "No new users were imported",
-    created,
-    skipped,
-    invalid,
   });
 });
 
@@ -350,6 +336,6 @@ const importUsers = asyncHandler(async (req, res) => {
 module.exports = {
   getManagedUsers,
   inviteUser,
-  bulkInviteUsers,
+  updateUserRole,
   importUsers,
 };

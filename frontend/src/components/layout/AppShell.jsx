@@ -18,15 +18,22 @@ const RouteContentFallback = () => (
 const AppShell = () => {
   const location = useLocation();
   useScrollRestoration();
+  const isProjectsRoute = location.pathname === "/projects";
 
   return (
     <div className="relative min-h-screen bg-transparent text-gray-900">
       <Navbar />
-      <main className="mt-4 px-4 pb-10 pt-20 sm:px-6 lg:px-8">
+      <main
+        className={
+          isProjectsRoute
+            ? "mt-0 h-screen overflow-hidden px-0 pb-0 pt-20"
+            : "mt-4 px-4 pb-10 pt-20 sm:px-6 lg:px-8"
+        }
+      >
         <Suspense fallback={<RouteContentFallback />}>
           <div
             key={`${location.pathname}${location.search}`}
-            className="page-shell-enter"
+            className={isProjectsRoute ? "page-shell-enter h-full" : "page-shell-enter"}
           >
             <Outlet />
           </div>

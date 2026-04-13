@@ -28,6 +28,8 @@ const initialForm = {
 
 const roleOptions = ["Admin", "Developer", "Tester"];
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const passwordHasLetter = /[A-Za-z]/;
+const passwordHasNumber = /\d/;
 
 const inputClassName =
   "h-11 rounded-[10px] border !border-white/20 !bg-white/[0.10] pl-11 pr-4 text-sm !text-white placeholder:!text-white/60 caret-white shadow-none transition duration-200 focus-visible:!border-[#3B82F6] focus-visible:ring-2 focus-visible:ring-[#3B82F6]/30 [&:-webkit-autofill]:[-webkit-text-fill-color:#fff] [&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgba(255,255,255,0.10)]";
@@ -84,8 +86,14 @@ const validateForm = ({ mode, formData }) => {
 
   if (!formData.password) {
     errors.password = "Password is required";
-  } else if (formData.password.length < 6) {
-    errors.password = "Password must be at least 6 characters long";
+  } else if (mode === "register" && formData.password.length < 8) {
+    errors.password = "Password must be at least 8 characters long";
+  } else if (
+    mode === "register" &&
+    (!passwordHasLetter.test(formData.password) ||
+      !passwordHasNumber.test(formData.password))
+  ) {
+    errors.password = "Password must include at least one letter and one number";
   }
 
   return errors;

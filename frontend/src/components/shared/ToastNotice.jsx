@@ -1,0 +1,54 @@
+import { AlertCircle, CheckCircle2, X } from "lucide-react";
+
+const ToastNotice = ({ toast, onDismiss }) => {
+  if (!toast) {
+    return null;
+  }
+
+  const isSuccess = toast.type === "success";
+
+  return (
+    <div className="fixed right-4 top-4 z-50 w-[calc(100%-2rem)] max-w-sm sm:right-6 sm:top-6">
+      <div
+        className={`rounded-[26px] border px-4 py-4 shadow-[0_28px_60px_-30px_rgba(15,23,42,0.42)] backdrop-blur-xl ${
+          isSuccess
+            ? "border-emerald-200 bg-emerald-50/95 text-emerald-900"
+            : "border-rose-200 bg-rose-50/95 text-rose-900"
+        }`}
+        role={isSuccess ? "status" : "alert"}
+      >
+        <div className="flex items-start gap-3">
+          <div
+            className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
+              isSuccess
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-rose-100 text-rose-700"
+            }`}
+          >
+            {isSuccess ? (
+              <CheckCircle2 className="h-5 w-5" />
+            ) : (
+              <AlertCircle className="h-5 w-5" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">
+              {toast.title || (isSuccess ? "Success" : "Something went wrong")}
+            </p>
+            <p className="mt-1 text-sm leading-6">{toast.message}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="rounded-full p-1.5 text-current/60 transition hover:bg-black/5 hover:text-current"
+            aria-label="Dismiss notification"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ToastNotice;

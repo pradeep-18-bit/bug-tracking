@@ -13,6 +13,7 @@ import {
 const AuthPage = lazy(() => import("@/pages/AuthPage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const DeveloperDashboardPage = lazy(() => import("@/pages/DeveloperDashboardPage"));
+const DeveloperSettingsPage = lazy(() => import("@/pages/DeveloperSettingsPage"));
 const TesterDashboardPage = lazy(() => import("@/pages/TesterDashboardPage"));
 const ProjectsPage = lazy(() => import("@/pages/ProjectsPage"));
 const IssuesPage = lazy(() => import("@/pages/IssuesPage"));
@@ -107,6 +108,14 @@ const App = () => (
         element={
           <ProtectedRoute roles={[ROLE_DEVELOPER]}>
             <DeveloperDashboardPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dev/settings"
+        element={
+          <ProtectedRoute roles={[ROLE_DEVELOPER]}>
+            <DeveloperSettingsPage />
           </ProtectedRoute>
         }
       />

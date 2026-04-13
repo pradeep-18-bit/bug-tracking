@@ -5,6 +5,7 @@ const Issue = require("./Issue");
 const Comment = require("./Comment");
 const Team = require("./Team");
 const TeamMember = require("./TeamMember");
+const ProjectMeeting = require("./ProjectMeeting");
 
 module.exports = {
   User,
@@ -14,4 +15,5 @@ module.exports = {
   Comment,
   Team,
   TeamMember,
+  ProjectMeeting,
 };

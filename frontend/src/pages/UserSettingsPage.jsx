@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Select from "react-select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import {
   MailPlus,
   ShieldCheck,
@@ -7,13 +9,20 @@ import {
   Users2,
 } from "lucide-react";
 import {
-  bulkInviteUsers,
   fetchManagedUsers,
   inviteUser,
+  updateUserRole,
 } from "@/lib/api";
+import { getDashboardPathByRole } from "@/lib/roles";
 import { formatDate, getInitials } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 import ImportUsers from "@/components/settings/ImportUsers";
 import EmptyState from "@/components/shared/EmptyState";
+import ToastNotice from "@/components/shared/ToastNotice";
+import {
+  formatMemberOptionLabel,
+  memberSelectStyles,
+} from "@/components/projects/memberSelectTheme";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +35,6 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
 
 const roleOptions = ["Admin", "Developer", "Tester"];
 
@@ -63,47 +71,62 @@ const CredentialsPreview = ({ title, entries = [], helperText }) => {
   );
 };
 
-const ResultList = ({ title, items = [], tone = "rose" }) => {
-  if (!items.length) {
-    return null;
+const formatUserRoleOptionLabel = (option, meta) => {
+  if (meta.context === "menu") {
+    return formatMemberOptionLabel(option, meta);
   }
 
-  const toneClassName =
-    tone === "amber"
-      ? "border-amber-200 bg-amber-50/80 text-amber-800"
-      : "border-rose-200 bg-rose-50/80 text-rose-800";
-
   return (
-    <div className={`rounded-[24px] border p-4 ${toneClassName}`}>
-      <p className="text-sm font-semibold">{title}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {items.map((item) => (
-          <span
-            key={typeof item === "string" ? item : item.email}
-            className="rounded-full border border-current/20 bg-white/70 px-3 py-1 text-xs"
-          >
-            {typeof item === "string" ? item : `${item.email} - ${item.reason}`}
-          </span>
-        ))}
-      </div>
+    <div className="min-w-0">
+      <p className="truncate text-sm font-semibold text-slate-900">{option.label}</p>
+      <p className="truncate text-xs text-slate-500">{option.email}</p>
     </div>
   );
 };
 
 const UserSettingsPage = () => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const redirectTimeoutRef = useRef(null);
+  const { token, user: authUser, setAuthSession } = useAuth();
+
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("Developer");
-  const [bulkEmails, setBulkEmails] = useState("");
-  const [bulkRole, setBulkRole] = useState("Developer");
   const [inviteFeedback, setInviteFeedback] = useState("");
-  const [bulkFeedback, setBulkFeedback] = useState("");
   const [recentInvite, setRecentInvite] = useState(null);
-  const [bulkResult, setBulkResult] = useState({
-    created: [],
-    skipped: [],
-    invalid: [],
-  });
+  const [selectedUser, setSelectedUser] = useState("");
+  const [currentRole, setCurrentRole] = useState("");
+  const [newRole, setNewRole] = useState("");
+  const [toast, setToast] = useState(null);
+
+  const showToast = (type, message) => {
+    setToast({
+      id: Date.now(),
+      type,
+      message,
+    });
+  };
+
+  useEffect(() => {
+    if (!toast?.id) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setToast(null);
+    }, 3600);
+
+    return () => window.clearTimeout(timer);
+  }, [toast?.id]);
+
+  useEffect(
+    () => () => {
+      if (redirectTimeoutRef.current) {
+        window.clearTimeout(redirectTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   const {
     data: users = [],
@@ -113,6 +136,27 @@ const UserSettingsPage = () => {
     queryKey: ["managed-users"],
     queryFn: fetchManagedUsers,
   });
+
+  const sortedUsers = useMemo(
+    () => [...users].sort((left, right) => (left.name || "").localeCompare(right.name || "")),
+    [users]
+  );
+
+  const userOptions = useMemo(
+    () =>
+      sortedUsers.map((user) => ({
+        value: user._id,
+        label: user.name,
+        email: user.email,
+        role: user.role,
+      })),
+    [sortedUsers]
+  );
+
+  const selectedUserOption = useMemo(
+    () => userOptions.find((option) => option.value === selectedUser) || null,
+    [selectedUser, userOptions]
+  );
 
   const inviteMutation = useMutation({
     mutationFn: inviteUser,
@@ -125,18 +169,56 @@ const UserSettingsPage = () => {
     },
   });
 
-  const bulkInviteMutation = useMutation({
-    mutationFn: bulkInviteUsers,
+  const roleUpdateMutation = useMutation({
+    mutationFn: updateUserRole,
     onSuccess: (data) => {
-      setBulkFeedback(data.message || "Bulk import finished");
-      setBulkResult({
-        created: data.created || [],
-        skipped: data.skipped || [],
-        invalid: data.invalid || [],
-      });
-      setBulkEmails("");
+      const updatedUser = data.user;
+
+      setSelectedUser(updatedUser._id);
+      setCurrentRole(updatedUser.role);
+      setNewRole(updatedUser.role);
+      showToast("success", data.message || "Role updated successfully");
+
+      const mergeUpdatedUser = (existingUsers = []) =>
+        Array.isArray(existingUsers)
+          ? existingUsers.map((user) =>
+              user._id === updatedUser._id ? { ...user, ...updatedUser } : user
+            )
+          : existingUsers;
+
+      queryClient.setQueryData(["managed-users"], mergeUpdatedUser);
+      queryClient.setQueryData(["users"], mergeUpdatedUser);
+
+      const isCurrentUser = authUser?._id === updatedUser._id;
+      const isLosingAdminAccess =
+        isCurrentUser && authUser?.role === "Admin" && updatedUser.role !== "Admin";
+
+      if (isLosingAdminAccess) {
+        redirectTimeoutRef.current = window.setTimeout(() => {
+          setAuthSession({
+            token,
+            user: {
+              ...authUser,
+              ...updatedUser,
+            },
+          });
+          navigate(getDashboardPathByRole(updatedUser.role), {
+            replace: true,
+          });
+        }, 900);
+
+        return;
+      }
+
       queryClient.invalidateQueries({ queryKey: ["managed-users"] });
       queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (mutationError) => {
+      showToast(
+        "error",
+        mutationError.response?.data?.message ||
+          "Unable to update this user's role right now."
+      );
     },
   });
 
@@ -153,6 +235,13 @@ const UserSettingsPage = () => {
     };
   }, [users]);
 
+  const isRoleUpdateDisabled =
+    roleUpdateMutation.isPending ||
+    !selectedUser ||
+    !currentRole ||
+    !newRole ||
+    currentRole === newRole;
+
   const handleInviteSubmit = async (event) => {
     event.preventDefault();
     setInviteFeedback("");
@@ -163,28 +252,47 @@ const UserSettingsPage = () => {
         email: inviteEmail.trim(),
         role: inviteRole,
       });
-    } catch (error) {
-      return error;
+    } catch (mutationError) {
+      return mutationError;
     }
+
+    return undefined;
   };
 
-  const handleBulkSubmit = async (event) => {
+  const handleRoleSelectionChange = (option) => {
+    setSelectedUser(option?.value || "");
+    setCurrentRole(option?.role || "");
+    setNewRole(option?.role || "");
+  };
+
+  const handleRoleUpdateSubmit = async (event) => {
     event.preventDefault();
-    setBulkFeedback("");
-    setBulkResult({
-      created: [],
-      skipped: [],
-      invalid: [],
-    });
+
+    if (!selectedUser) {
+      showToast("error", "Select a user before updating a role.");
+      return;
+    }
+
+    if (!newRole) {
+      showToast("error", "Choose a new role to continue.");
+      return;
+    }
+
+    if (newRole === currentRole) {
+      showToast("error", "Choose a different role before updating.");
+      return;
+    }
 
     try {
-      await bulkInviteMutation.mutateAsync({
-        emails: bulkEmails,
-        role: bulkRole,
+      await roleUpdateMutation.mutateAsync({
+        id: selectedUser,
+        role: newRole,
       });
-    } catch (error) {
-      return error;
+    } catch (mutationError) {
+      return mutationError;
     }
+
+    return undefined;
   };
 
   if (error) {
@@ -199,6 +307,8 @@ const UserSettingsPage = () => {
 
   return (
     <div className="space-y-6">
+      <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {isLoading ? (
           <>
@@ -255,7 +365,7 @@ const UserSettingsPage = () => {
         )}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+      <section className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Invite user</CardTitle>
@@ -320,32 +430,67 @@ const UserSettingsPage = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>Bulk invite</CardTitle>
+            <CardTitle>Modify User Role</CardTitle>
             <CardDescription>
-              Import multiple users at once using comma-separated, line-separated, or semicolon-separated emails.
+              Update roles of existing workspace users.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-            <form className="space-y-4" onSubmit={handleBulkSubmit}>
+            <form className="space-y-4" onSubmit={handleRoleUpdateSubmit}>
+              {!users.length && !isLoading ? (
+                <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800">
+                  Invite or import users before modifying workspace roles.
+                </div>
+              ) : null}
+
               <label className="space-y-2">
                 <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
-                  Emails
+                  Select User
                 </span>
-                <Textarea
-                  placeholder="alex@company.com, sam@company.com, riley@company.com"
-                  value={bulkEmails}
-                  onChange={(event) => setBulkEmails(event.target.value)}
-                  required
+                <Select
+                  inputId="user-role-selector"
+                  isClearable
+                  isDisabled={isLoading || !userOptions.length || roleUpdateMutation.isPending}
+                  options={userOptions}
+                  value={selectedUserOption}
+                  styles={memberSelectStyles}
+                  formatOptionLabel={formatUserRoleOptionLabel}
+                  onChange={handleRoleSelectionChange}
+                  placeholder={
+                    isLoading
+                      ? "Loading workspace users..."
+                      : userOptions.length
+                        ? "Search by name or email"
+                        : "No workspace users available"
+                  }
+                  noOptionsMessage={() =>
+                    userOptions.length
+                      ? "No users match your search."
+                      : "No workspace users are available."
+                  }
                 />
               </label>
 
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.22em] text-gray-500">Role</span>
+                <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                  Current Role
+                </span>
+                <Input value={currentRole} placeholder="Select a user first" disabled />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                  New Role
+                </span>
                 <select
                   className="field-select"
-                  value={bulkRole}
-                  onChange={(event) => setBulkRole(event.target.value)}
+                  value={newRole}
+                  onChange={(event) => setNewRole(event.target.value)}
+                  disabled={!selectedUser || roleUpdateMutation.isPending}
                 >
+                  <option value="" disabled>
+                    Select a role
+                  </option>
                   {roleOptions.map((role) => (
                     <option key={role} value={role}>
                       {role}
@@ -354,37 +499,11 @@ const UserSettingsPage = () => {
                 </select>
               </label>
 
-              <Button
-                className="w-full"
-                type="submit"
-                disabled={bulkInviteMutation.isPending}
-              >
-                <MailPlus className="h-4 w-4" />
-                {bulkInviteMutation.isPending ? "Importing..." : "Run bulk invite"}
+              <Button className="w-full" type="submit" disabled={isRoleUpdateDisabled}>
+                <ShieldCheck className="h-4 w-4" />
+                {roleUpdateMutation.isPending ? "Updating..." : "Update Role"}
               </Button>
             </form>
-
-            {bulkInviteMutation.isError ? (
-              <div className="rounded-[24px] border border-rose-200 bg-rose-50/80 p-4 text-sm text-rose-700">
-                {bulkInviteMutation.error?.response?.data?.message ||
-                  "Unable to import users right now."}
-              </div>
-            ) : null}
-
-            {bulkFeedback ? (
-              <div className="rounded-[24px] border border-blue-200 bg-blue-50/80 p-4 text-sm text-blue-800">
-                {bulkFeedback}
-              </div>
-            ) : null}
-
-            <CredentialsPreview
-              title="New accounts created"
-              entries={bulkResult.created}
-              helperText="These temporary passwords are only shown here once. Copy them somewhere secure for your onboarding flow."
-            />
-
-            <ResultList title="Skipped emails" items={bulkResult.skipped} tone="amber" />
-            <ResultList title="Invalid emails" items={bulkResult.invalid} />
           </CardContent>
         </Card>
       </section>

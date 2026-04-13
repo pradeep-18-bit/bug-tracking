@@ -117,6 +117,74 @@ const sendIssueEmail = async (emails, issue) => {
   return info;
 };
 
+const sendProjectMeetingInviteEmail = async (emails, meeting) => {
+  const recipients = [...new Set((emails || []).filter(Boolean))];
+
+  if (recipients.length === 0) {
+    return;
+  }
+
+  const emailUser = getEmailUser();
+  const emailPass = getEmailPass();
+
+  if (!emailUser || !emailPass) {
+    throw new Error("EMAIL_USER and EMAIL_PASS must be configured");
+  }
+
+  const meetingTitleText = String(meeting?.subject || "Project team meeting").trim();
+  const meetingTitle = escapeHtml(meetingTitleText || "Project team meeting");
+  const projectName = escapeHtml(meeting?.projectName || "Project");
+  const joinUrl = String(meeting?.joinUrl || "").trim();
+  const hasJoinUrl = Boolean(joinUrl);
+
+  const mailOptions = {
+    from: `"Pirnav Workspace" <${emailUser}>`,
+    to: recipients.join(","),
+    subject: `Meeting Scheduled: ${meetingTitleText || "Project team meeting"}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <h2 style="color: #2563EB;">Team Meeting Scheduled</h2>
+
+        <p><b>Project:</b> ${projectName}</p>
+        <p><b>Title:</b> ${meetingTitle}</p>
+        <p><b>Start:</b> ${escapeHtml(formatDateTime(meeting?.startDateTime))}</p>
+        <p><b>End:</b> ${escapeHtml(formatDateTime(meeting?.endDateTime))}</p>
+
+        ${
+          hasJoinUrl
+            ? `
+          <br />
+          <a
+            href="${escapeHtml(joinUrl)}"
+            style="background: #2563EB; color: #fff; padding: 10px 16px; border-radius: 6px; text-decoration: none;"
+          >
+            Join Microsoft Teams Meeting
+          </a>
+          <p style="margin-top: 12px; font-size: 12px; color: #64748B;">
+            If the button does not work, copy this URL:
+            <br />
+            <a href="${escapeHtml(joinUrl)}">${escapeHtml(joinUrl)}</a>
+          </p>
+        `
+            : ""
+        }
+
+        <p style="margin-top: 20px; color: #888; font-size: 12px;">
+          Automated notification from Pirnav Workspace
+        </p>
+      </div>
+    `,
+  };
+
+  const transporter = createTransporter();
+  console.log("[meeting-email] Sending meeting invite...");
+  const info = await transporter.sendMail(mailOptions);
+  console.log(`[meeting-email] Invite sent: ${info.response}`);
+
+  return info;
+};
+
 module.exports = {
   sendIssueEmail,
+  sendProjectMeetingInviteEmail,
 };

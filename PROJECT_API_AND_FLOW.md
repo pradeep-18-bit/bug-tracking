@@ -76,8 +76,8 @@ Important behavior:
 
 Main frontend API helpers:
 
-- auth: `loginRequest`, `registerRequest`, `fetchAdminCredentials`
-- users: `fetchUsers`, `fetchWorkspaceUsers`, `fetchManagedUsers`, `inviteUser`, `bulkInviteUsers`, `importUsers`
+- auth: `loginRequest`, `registerRequest`, `changePasswordRequest`, `fetchAdminCredentials`
+- users: `fetchUsers`, `fetchWorkspaceUsers`, `fetchManagedUsers`, `inviteUser`, `updateUserRole`, `importUsers`
 - projects: `fetchProjects`, `createProject`, `attachProjectTeam`, `detachProjectTeam`, `updateProjectStatus`
 - teams: `fetchTeams`, `fetchTeam`, `createTeam`, `addTeamMember`, `removeTeamMember`
 - issues: `fetchIssues`, `fetchMyIssues`, `createIssue`, `updateIssue`, `deleteIssue`
@@ -115,11 +115,13 @@ Base: `/api/auth`
 
 - `POST /register`
 - `POST /login`
+- `POST /change-password`
 - `GET /admin-credentials`
 - `GET /users`
 
 Notes:
 
+- `POST /change-password` is protected
 - `GET /users` is protected
 - `GET /admin-credentials` is only allowed in development or when `ALLOW_ADMIN_CREDENTIALS=true`
 
@@ -129,7 +131,7 @@ Base: `/api/users`
 
 - `GET /`
 - `POST /invite`
-- `POST /bulk`
+- `PATCH /:id/role`
 - `POST /import`
 - `POST /import-users`
 

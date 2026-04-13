@@ -613,7 +613,6 @@ const DeveloperDashboardPage = () => {
             ...payload,
             assigneeId: payload.assigneeId || user?._id || null,
           });
-          setIsCreateDialogOpen(false);
         }}
       />
 

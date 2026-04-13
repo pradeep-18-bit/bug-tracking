@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { Layers3, PlusCircle, Sparkles } from "lucide-react";
+import { AlertTriangle, FolderPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -11,6 +10,11 @@ const ProjectComposer = ({ onSubmit, isPending }) => {
     description: "",
   });
   const [error, setError] = useState("");
+
+  const inputClassName =
+    "h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-500/30";
+  const textAreaClassName =
+    "min-h-[108px] rounded-lg border-slate-200 bg-white shadow-none focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-500/30";
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -46,86 +50,78 @@ const ProjectComposer = ({ onSubmit, isPending }) => {
   };
 
   return (
-    <Card className="page-shell-enter relative min-w-0 overflow-hidden border-white/60 bg-white/78 shadow-[0_28px_70px_-36px_rgba(15,23,42,0.32)] backdrop-blur-xl">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-[radial-gradient(circle_at_top_left,_rgba(99,102,241,0.18),_transparent_48%),radial-gradient(circle_at_top_right,_rgba(236,72,153,0.18),_transparent_44%)]" />
-      <CardHeader className="relative space-y-3 border-b border-white/60 pb-5">
-        <div className="inline-flex w-fit items-center gap-2 rounded-full border border-indigo-200/70 bg-white/80 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-indigo-700 shadow-sm">
-          <PlusCircle className="h-3.5 w-3.5" />
-          New Project
+    <section className="flex h-full flex-col bg-white px-4 py-4">
+      <header className="rounded-t-2xl border border-slate-200/80 bg-[linear-gradient(135deg,#6366F1_0%,#EC4899_100%)] px-4 py-4 text-white shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/35 bg-white/20">
+            <FolderPlus className="h-4.5 w-4.5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-[1.05rem] font-semibold leading-6">Create Project</h2>
+            <p className="mt-0.5 text-xs text-white/85">Set up a new workspace</p>
+          </div>
         </div>
-        <CardTitle className="text-[1.65rem] leading-tight text-slate-950">
-          Create a project
-        </CardTitle>
-        <div className="rounded-[24px] border border-indigo-100/80 bg-[linear-gradient(135deg,rgba(99,102,241,0.08),rgba(236,72,153,0.08))] px-4 py-3 text-sm text-slate-600">
-          Members come from attached teams only.
-        </div>
-      </CardHeader>
-      <CardContent className="relative pt-5">
-        <form className="space-y-4" onSubmit={handleSubmit}>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="name">
-              Project name
+      </header>
+
+      <div className="border-x border-slate-200/80 bg-white px-4 py-3">
+        <div className="h-px bg-slate-200/90" />
+      </div>
+
+      <div className="flex min-h-0 flex-1 items-center border-x border-b border-slate-200/80 bg-white px-4 pb-4 pt-3 rounded-b-2xl">
+        <form
+          className="w-full space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+          onSubmit={handleSubmit}
+        >
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500" htmlFor="name">
+              Project Name
             </label>
             <Input
               id="name"
               name="name"
+              className={inputClassName}
               placeholder="Customer Platform"
               value={formData.name}
               onChange={handleChange}
             />
+            <p className="text-xs text-slate-400">Choose a concise, recognizable name.</p>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="description">
+          <div className="space-y-1.5">
+            <label
+              className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500"
+              htmlFor="description"
+            >
               Description
             </label>
             <Textarea
               id="description"
               name="description"
+              className={textAreaClassName}
               placeholder="Short product scope or delivery note."
               value={formData.description}
               onChange={handleChange}
             />
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                <Layers3 className="h-4 w-4 text-indigo-600" />
-                Team-based access
-              </div>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                Attach teams after creation to bring members into the project.
-              </p>
-            </div>
-
-            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                <Sparkles className="h-4 w-4 text-pink-500" />
-                Compact workflow
-              </div>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                Create the project first, then attach teams and start creating work.
-              </p>
-            </div>
+            <p className="text-xs text-slate-400">Add goals, scope, or key delivery notes.</p>
           </div>
 
           {error ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {error}
+            <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
             </div>
           ) : null}
 
           <Button
-            className="interactive-button w-full bg-slate-950 text-white hover:bg-slate-900"
+            className="interactive-button h-10 w-full rounded-xl border border-indigo-300/30 bg-[linear-gradient(90deg,#2563EB_0%,#6366F1_55%,#8B5CF6_100%)] text-white shadow-[0_14px_28px_-18px_rgba(99,102,241,0.82)] hover:brightness-105"
             disabled={isPending}
             type="submit"
           >
             {isPending ? "Creating project..." : "Create Project"}
           </Button>
         </form>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 };
 

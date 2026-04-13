@@ -83,6 +83,11 @@ export const registerRequest = async (payload) => {
   return response.data;
 };
 
+export const changePasswordRequest = async (payload) => {
+  const response = await api.post("/auth/change-password", payload);
+  return response.data;
+};
+
 export const fetchAdminCredentials = async () => {
   const response = await api.get("/auth/admin-credentials");
   return response.data;
@@ -180,6 +185,22 @@ export const updateProjectStatus = async ({ projectId, isCompleted }) => {
     isCompleted,
   });
   return response.data;
+};
+
+export const fetchProjectMeetings = async ({ projectId }) => {
+  const response = await api.get(`/projects/${projectId}/meetings`);
+  const data = response.data;
+
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (Array.isArray(data?.meetings)) {
+    return data.meetings;
+  }
+
+  console.warn("[api] Unexpected project meetings response shape:", data);
+  return [];
 };
 
 export const fetchTeams = async (workspaceId = CURRENT_WORKSPACE_SCOPE) => {
@@ -290,6 +311,16 @@ export const fetchUserReports = async (filters = {}) => {
   return response.data;
 };
 
+export const fetchSelectedUserReport = async (filters = {}) => {
+  const data = await fetchUserReports(filters);
+
+  if (Array.isArray(data?.users)) {
+    return data.users[0] || null;
+  }
+
+  return null;
+};
+
 export const fetchTeamReports = async (filters = {}) => {
   const response = await api.get("/reports/team", {
     params: buildParams(normalizeIssueFilters(filters)),
@@ -302,8 +333,10 @@ export const inviteUser = async (payload) => {
   return response.data;
 };
 
-export const bulkInviteUsers = async (payload) => {
-  const response = await api.post("/users/bulk", payload);
+export const updateUserRole = async ({ id, role }) => {
+  const response = await api.patch(`/users/${id}/role`, {
+    role,
+  });
   return response.data;
 };
 

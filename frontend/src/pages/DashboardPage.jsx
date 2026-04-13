@@ -6,7 +6,6 @@ import {
   ClipboardList,
   Layers3,
   Plus,
-  TrendingUp,
   Users2,
   Zap,
 } from "lucide-react";
@@ -23,11 +22,8 @@ import {
   getIssuePriorityVariant,
   ISSUE_STATUS,
   isIssueClosed,
-  isIssueInProgress,
   isIssueOpen,
   resolveIssueAssignee,
-  getIssueStatusLabel,
-  getIssueStatusVariant,
   getIssueTypeVariant,
 } from "@/lib/issues";
 import { cn, formatDateTime, getInitials } from "@/lib/utils";
@@ -48,14 +44,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const OPEN_STATUS_KEY = "OPEN";
+const CLOSED_STATUS_KEY = "CLOSED";
 const STATUS_CARD_META = {
-  [ISSUE_STATUS.TODO]: {
+  [OPEN_STATUS_KEY]: {
     tone: "blue",
-    helper: "Ready to plan",
-  },
-  [ISSUE_STATUS.IN_PROGRESS]: {
-    tone: "purple",
-    helper: "Active delivery lane",
+    helper: "Backlog + active work",
   },
   [ISSUE_STATUS.DONE]: {
     tone: "green",
@@ -73,6 +67,17 @@ const startOfDay = (value) => {
 
 const getProjectKey = (project) => String(project?._id || "");
 const getIssueProjectKey = (issue) => String(issue?.projectId?._id || issue?.projectId || "");
+const getIssuesRouteFromCardKey = (cardKey) => {
+  if (cardKey === "open-issues") {
+    return `/issues?status=${OPEN_STATUS_KEY}`;
+  }
+
+  if (cardKey === "closed") {
+    return `/issues?status=${CLOSED_STATUS_KEY}`;
+  }
+
+  return "/issues";
+};
 
 const buildWindowSnapshot = ({
   items,
@@ -158,6 +163,16 @@ const formatTrend = (
 
 const buildWindowTrend = (config) => formatTrend(buildWindowSnapshot(config));
 const formatSignedCount = (value) => `${value > 0 ? "+" : ""}${value}`;
+const getDashboardIssueBadge = (issue) =>
+  isIssueClosed(issue)
+    ? {
+        label: "Closed",
+        variant: "success",
+      }
+    : {
+        label: "Open",
+        variant: "default",
+      };
 
 const QuickActionButton = ({ icon: Icon, title, className, onClick }) => (
   <button
@@ -304,7 +319,6 @@ const DashboardPage = () => {
     return {
       totalIssues: statusMetrics.total,
       openIssues: statusMetrics.open,
-      inProgressIssues: statusMetrics.inProgress,
       closedIssues: statusMetrics.closed,
       highPriorityPending,
       completionRate,
@@ -332,16 +346,6 @@ const DashboardPage = () => {
         items: issues,
         getDate: (issue) => new Date(issue.createdAt).getTime(),
         predicate: (issue) => isIssueOpen(issue),
-      }),
-    [issues]
-  );
-
-  const inProgressTrend = useMemo(
-    () =>
-      buildWindowTrend({
-        items: issues,
-        getDate: (issue) => new Date(issue.startedAt || issue.createdAt).getTime(),
-        predicate: (issue) => isIssueInProgress(issue),
       }),
     [issues]
   );
@@ -387,15 +391,6 @@ const DashboardPage = () => {
         trend: openIssuesTrend,
       },
       {
-        key: "in-progress",
-        title: "In Progress",
-        value: stats.inProgressIssues,
-        icon: TrendingUp,
-        tone: "violet",
-        helperText: "Active delivery",
-        trend: inProgressTrend,
-      },
-      {
         key: "closed",
         title: "Closed",
         value: stats.closedIssues,
@@ -421,11 +416,9 @@ const DashboardPage = () => {
       },
     ],
     [
-      inProgressTrend,
       stats.closedIssues,
       openIssuesTrend,
       stats.completionRate,
-      stats.inProgressIssues,
       stats.openIssues,
       stats.teamMembersAssigned,
       stats.teamsCount,
@@ -435,30 +428,26 @@ const DashboardPage = () => {
   );
 
   const statusData = useMemo(
-    () =>
-      [ISSUE_STATUS.TODO, ISSUE_STATUS.IN_PROGRESS, ISSUE_STATUS.DONE].map((status) => ({
-        key: status,
-        name: getIssueStatusLabel(status),
-        value: issues.filter((issue) => {
-          if (isIssueClosed(issue)) {
-            return status === ISSUE_STATUS.DONE;
-          }
-
-          if (isIssueInProgress(issue)) {
-            return status === ISSUE_STATUS.IN_PROGRESS;
-          }
-
-          return status === ISSUE_STATUS.TODO;
-        }).length,
-      })),
-    [issues]
+    () => [
+      {
+        key: OPEN_STATUS_KEY,
+        name: "Open Issues",
+        value: stats.openIssues,
+      },
+      {
+        key: ISSUE_STATUS.DONE,
+        name: "Closed",
+        value: stats.closedIssues,
+      },
+    ],
+    [stats.closedIssues, stats.openIssues]
   );
 
   const statusOverview = useMemo(() => {
     const maxValue = Math.max(...statusData.map((entry) => entry.value), 0);
 
     return statusData.map((entry) => {
-      const meta = STATUS_CARD_META[entry.key] || STATUS_CARD_META[ISSUE_STATUS.TODO];
+      const meta = STATUS_CARD_META[entry.key] || STATUS_CARD_META[OPEN_STATUS_KEY];
       const share = stats.totalIssues
         ? Math.round((entry.value / stats.totalIssues) * 100)
         : 0;
@@ -631,10 +620,9 @@ const DashboardPage = () => {
         </CardContent>
       </Card>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {isLoading ? (
           <>
-            <Skeleton className="h-[162px] w-full rounded-[16px]" />
             <Skeleton className="h-[162px] w-full rounded-[16px]" />
             <Skeleton className="h-[162px] w-full rounded-[16px]" />
             <Skeleton className="h-[162px] w-full rounded-[16px]" />
@@ -652,7 +640,9 @@ const DashboardPage = () => {
               trendDirection={card.trend.direction}
               trendLabel={card.trend.label}
               compact
-              onClick={() => navigate(card.key === "teams" ? "/teams" : "/issues")}
+              onClick={() =>
+                navigate(card.key === "teams" ? "/teams" : getIssuesRouteFromCardKey(card.key))
+              }
             />
           ))
         )}
@@ -665,7 +655,7 @@ const DashboardPage = () => {
               <div>
                 <CardTitle>Issues by Status</CardTitle>
                 <CardDescription>
-                  Backlog, active work, and completed delivery in one quick scan.
+                  Open workload and completed delivery in one quick scan.
                 </CardDescription>
               </div>
               <Badge className="rounded-full border border-white/45 bg-white/62 text-rose-600 shadow-sm backdrop-blur-xl hover:bg-white/62">
@@ -682,7 +672,7 @@ const DashboardPage = () => {
                   <span className="status-chip">Total {stats.totalIssues}</span>
                   <span className="status-chip muted">
                     {leadingStatus?.value
-                      ? `${leadingStatus.name} leads the queue`
+                      ? `${leadingStatus.name} holds the largest share`
                       : "No issue activity yet"}
                   </span>
                 </div>
@@ -797,6 +787,7 @@ const DashboardPage = () => {
                 const assignee = resolveIssueAssignee(issue);
                 const assigneeName = assignee?.name || "";
                 const assigneeRole = assignee?.role || "";
+                const statusBadge = getDashboardIssueBadge(issue);
 
                 return (
                   <button
@@ -811,9 +802,7 @@ const DashboardPage = () => {
                           <p className="truncate text-base font-semibold text-slate-950 transition group-hover:text-blue-700">
                             {issue.title}
                           </p>
-                          <Badge variant={getIssueStatusVariant(issue.status)}>
-                            {getIssueStatusLabel(issue.status)}
-                          </Badge>
+                          <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
                           <Badge variant={getIssuePriorityVariant(issue.priority)}>
                             {issue.priority}
                           </Badge>
