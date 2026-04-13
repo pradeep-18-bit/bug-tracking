@@ -2,11 +2,13 @@ const User = require("../models/User");
 const { normalizeWorkspaceId } = require("./workspace");
 
 const LEGACY_DEFAULT_EMAIL = "admin@company.com";
+const DEFAULT_ADMIN_PASSWORD =
+  process.env.ADMIN_DEFAULT_PASSWORD || "admin123";
 
 const DEFAULT_USER = {
   name: "Admin User",
   email: "admin@example.com",
-  password: "admin123",
+  password: DEFAULT_ADMIN_PASSWORD,
   role: "Admin",
   workspaceId: normalizeWorkspaceId(),
 };

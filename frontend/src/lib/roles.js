@@ -9,7 +9,7 @@ export const dashboardPathByRole = {
 };
 
 export const getDashboardPathByRole = (role) =>
-  dashboardPathByRole[role] || "/auth";
+  dashboardPathByRole[role] || "/login";
 
 export const getRoleNavigation = (role) => {
   if (role === ROLE_ADMIN) {

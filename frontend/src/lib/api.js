@@ -78,6 +78,11 @@ export const loginRequest = async (payload) => {
   return response.data;
 };
 
+export const adminLoginRequest = async () => {
+  const response = await api.post("/auth/admin-login");
+  return response.data;
+};
+
 export const registerRequest = async (payload) => {
   const response = await api.post("/auth/register", payload);
   return response.data;
@@ -85,11 +90,6 @@ export const registerRequest = async (payload) => {
 
 export const changePasswordRequest = async (payload) => {
   const response = await api.post("/auth/change-password", payload);
-  return response.data;
-};
-
-export const fetchAdminCredentials = async () => {
-  const response = await api.get("/auth/admin-credentials");
   return response.data;
 };
 

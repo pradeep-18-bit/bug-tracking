@@ -10,6 +10,19 @@ const {
 const passwordHasLetter = /[A-Za-z]/;
 const passwordHasNumber = /\d/;
 
+const isAdminDefaultLoginAllowed = () =>
+  process.env.ENABLE_ADMIN_DEFAULT_LOGIN === "true";
+
+const getAdminDefaultPassword = () =>
+  typeof process.env.ADMIN_DEFAULT_PASSWORD === "string"
+    ? process.env.ADMIN_DEFAULT_PASSWORD
+    : "";
+
+const isDefaultAdminCredentialAttempt = (email, password) =>
+  email === DEFAULT_USER.email &&
+  Boolean(getAdminDefaultPassword()) &&
+  password === getAdminDefaultPassword();
+
 const getPasswordValidationMessage = (password) => {
   const normalizedPassword = typeof password === "string" ? password : "";
 
@@ -37,6 +50,26 @@ const buildAuthPayload = (user) => ({
     workspaceId: normalizeWorkspaceId(user.workspaceId),
   },
 });
+
+const syncUserForAuth = async (user, password) => {
+  let requiresSave = false;
+
+  if (!user.workspaceId) {
+    user.workspaceId = normalizeWorkspaceId();
+    requiresSave = true;
+  }
+
+  if (!User.isPasswordHashed(user.password)) {
+    user.password = password;
+    requiresSave = true;
+  }
+
+  if (requiresSave) {
+    await user.save();
+  }
+
+  return user;
+};
 
 const register = asyncHandler(async (req, res) => {
   const { name, email, password, role } = req.body;
@@ -105,6 +138,11 @@ const login = asyncHandler(async (req, res) => {
     throw new Error("Email and password are required");
   }
 
+  if (isDefaultAdminCredentialAttempt(normalizedEmail, password)) {
+    res.status(403);
+    throw new Error("Default admin password is only available via /admin access");
+  }
+
   const user = await User.findOne({ email: normalizedEmail }).select("+password");
 
   console.log("[auth] User found:", Boolean(user));
@@ -118,21 +156,42 @@ const login = asyncHandler(async (req, res) => {
     throw new Error("Invalid credentials");
   }
 
-  if (!user.workspaceId) {
-    user.workspaceId = normalizeWorkspaceId();
+  await syncUserForAuth(user, password);
+
+  res.status(200).json(buildAuthPayload(user));
+});
+
+const adminLogin = asyncHandler(async (req, res) => {
+  if (!isAdminDefaultLoginAllowed()) {
+    res.status(403);
+    throw new Error("Admin default password access is disabled");
   }
 
-  if (!User.isPasswordHashed(user.password)) {
-    user.password = password;
-    await user.save();
-    console.log("[auth] Migrated plaintext password to bcrypt hash:", {
-      email: normalizedEmail,
-    });
-  } else if (!user.isModified("workspaceId") && user.workspaceId) {
-    // no-op: prevents an unnecessary save when the workspace id already exists
-  } else {
-    await user.save();
+  const adminDefaultPassword = getAdminDefaultPassword();
+
+  if (!adminDefaultPassword) {
+    res.status(500);
+    throw new Error("Admin default password is not configured");
   }
+
+  const user = await User.findOne({
+    email: DEFAULT_USER.email,
+    role: "Admin",
+  }).select("+password");
+
+  if (!user) {
+    res.status(404);
+    throw new Error("Default admin account is unavailable");
+  }
+
+  const passwordMatches = await user.comparePassword(adminDefaultPassword);
+
+  if (!passwordMatches) {
+    res.status(403);
+    throw new Error("Default admin password is not available");
+  }
+
+  await syncUserForAuth(user, adminDefaultPassword);
 
   res.status(200).json(buildAuthPayload(user));
 });
@@ -201,27 +260,10 @@ const changePassword = asyncHandler(async (req, res) => {
   });
 });
 
-const getAdminCredentials = asyncHandler(async (req, res) => {
-  const isAllowed =
-    process.env.NODE_ENV === "development" ||
-    process.env.ALLOW_ADMIN_CREDENTIALS === "true";
-
-  if (!isAllowed) {
-    return res.status(403).json({
-      error: "Not allowed",
-    });
-  }
-
-  return res.status(200).json({
-    email: DEFAULT_USER.email,
-    password: DEFAULT_USER.password,
-  });
-});
-
 module.exports = {
   register,
   login,
+  adminLogin,
   getUsers,
   changePassword,
-  getAdminCredentials,
 };

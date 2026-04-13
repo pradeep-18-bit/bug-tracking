@@ -40,7 +40,7 @@ const ProtectedRoute = ({ children, roles }) => {
   const { isAuthenticated, role } = useAuth();
 
   if (!isAuthenticated) {
-    return <Navigate to="/auth" replace />;
+    return <Navigate to="/login" replace />;
   }
 
   if (roles?.length && !roles.includes(role)) {
@@ -64,7 +64,7 @@ const RootRoute = () => {
   const { isAuthenticated, role } = useAuth();
 
   return (
-    <Navigate to={isAuthenticated ? getDashboardPathByRole(role) : "/auth"} replace />
+    <Navigate to={isAuthenticated ? getDashboardPathByRole(role) : "/login"} replace />
   );
 };
 
@@ -77,6 +77,26 @@ const LegacyDashboardRedirect = () => {
 const App = () => (
   <Routes>
     <Route path="/" element={<RootRoute />} />
+    <Route
+      path="/login"
+      element={
+        <PublicRoute>
+          <Suspense fallback={<PublicRouteFallback />}>
+            <AuthPage />
+          </Suspense>
+        </PublicRoute>
+      }
+    />
+    <Route
+      path="/admin"
+      element={
+        <PublicRoute>
+          <Suspense fallback={<PublicRouteFallback />}>
+            <AuthPage />
+          </Suspense>
+        </PublicRoute>
+      }
+    />
     <Route
       path="/auth"
       element={

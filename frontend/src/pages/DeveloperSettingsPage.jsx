@@ -81,6 +81,9 @@ const getStrengthMeta = (password, checks) => {
   };
 };
 
+const getSafeMessage = (value, fallback) =>
+  typeof value === "string" && value.trim() ? value : fallback;
+
 const PasswordField = ({
   autoComplete,
   disabled,
@@ -134,6 +137,35 @@ const DeveloperSettingsPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [toast, setToast] = useState(null);
 
+  const changePasswordMutation = useMutation({
+    mutationFn: changePasswordRequest,
+    onSuccess: (data) => {
+      setToast({
+        id: Date.now(),
+        type: "success",
+        message: getSafeMessage(
+          data?.message,
+          "Password updated successfully"
+        ),
+      });
+      setFormData(initialFormState);
+      setTouched(initialTouchedState);
+      setShowPassword(false);
+    },
+    onError: (error) => {
+      setToast({
+        id: Date.now(),
+        type: "error",
+        message: getSafeMessage(
+          error?.response?.data?.message,
+          "Unable to update your password right now."
+        ),
+      });
+    },
+  });
+
+  const isPasswordUpdatePending = changePasswordMutation.isPending;
+
   const passwordChecks = useMemo(
     () => getPasswordChecks(formData.newPassword),
     [formData.newPassword]
@@ -184,7 +216,7 @@ const DeveloperSettingsPage = () => {
     formData.currentPassword !== formData.newPassword &&
     formData.newPassword === formData.confirmPassword;
 
-  const isUpdateDisabled = !isFormValid || changePasswordMutation.isPending;
+  const isUpdateDisabled = !isFormValid || isPasswordUpdatePending;
 
   const currentPasswordMessage = validationErrors.currentPassword || "";
   const newPasswordMessage = validationErrors.newPassword || "";
@@ -205,29 +237,6 @@ const DeveloperSettingsPage = () => {
 
     return () => window.clearTimeout(timer);
   }, [toast?.id]);
-
-  const changePasswordMutation = useMutation({
-    mutationFn: changePasswordRequest,
-    onSuccess: (data) => {
-      setToast({
-        id: Date.now(),
-        type: "success",
-        message: data.message || "Password updated successfully",
-      });
-      setFormData(initialFormState);
-      setTouched(initialTouchedState);
-      setShowPassword(false);
-    },
-    onError: (error) => {
-      setToast({
-        id: Date.now(),
-        type: "error",
-        message:
-          error.response?.data?.message ||
-          "Unable to update your password right now.",
-      });
-    },
-  });
 
   const handleFieldChange = (event) => {
     const { name, value } = event.target;
@@ -295,7 +304,7 @@ const DeveloperSettingsPage = () => {
             <form className="space-y-5" onSubmit={handleSubmit}>
               <PasswordField
                 autoComplete="current-password"
-                disabled={changePasswordMutation.isPending}
+                disabled={isPasswordUpdatePending}
                 error={validationErrors.currentPassword}
                 label="Current Password"
                 message={currentPasswordMessage}
@@ -311,7 +320,7 @@ const DeveloperSettingsPage = () => {
               <div className="space-y-3">
                 <PasswordField
                   autoComplete="new-password"
-                  disabled={changePasswordMutation.isPending}
+                  disabled={isPasswordUpdatePending}
                   error={validationErrors.newPassword}
                   label="New Password"
                   message={newPasswordMessage}
@@ -359,7 +368,7 @@ const DeveloperSettingsPage = () => {
 
               <PasswordField
                 autoComplete="new-password"
-                disabled={changePasswordMutation.isPending}
+                disabled={isPasswordUpdatePending}
                 error={validationErrors.confirmPassword}
                 label="Confirm New Password"
                 message={confirmPasswordMessage}
@@ -381,7 +390,7 @@ const DeveloperSettingsPage = () => {
                   type="checkbox"
                   className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30"
                   checked={showPassword}
-                  disabled={changePasswordMutation.isPending}
+                  disabled={isPasswordUpdatePending}
                   onChange={(event) => setShowPassword(event.target.checked)}
                 />
                 <span>Show Password</span>
@@ -392,7 +401,7 @@ const DeveloperSettingsPage = () => {
                 disabled={isUpdateDisabled}
                 type="submit"
               >
-                {changePasswordMutation.isPending ? (
+                {isPasswordUpdatePending ? (
                   <>
                     <LoaderCircle className="h-4 w-4 animate-spin" />
                     Updating...

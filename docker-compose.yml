@@ -23,7 +23,8 @@ services:
       PORT: 5000
       JWT_SECRET: ${JWT_SECRET:-change-me}
       MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-bugtracker}:${MONGO_ROOT_PASSWORD:-bugtracker}@mongo:27017/${MONGO_APP_DATABASE:-bugtracker}?authSource=admin
-      ALLOW_ADMIN_CREDENTIALS: ${ALLOW_ADMIN_CREDENTIALS:-false}
+      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-admin123}
+      ENABLE_ADMIN_DEFAULT_LOGIN: ${ENABLE_ADMIN_DEFAULT_LOGIN:-true}
       EMAIL_USER: ${EMAIL_USER:-}
       EMAIL_PASS: ${EMAIL_PASS:-}
       APP_URL: ${APP_URL:-http://localhost}
@@ -37,6 +38,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_ENABLE_ADMIN_DEFAULT_LOGIN: ${VITE_ENABLE_ADMIN_DEFAULT_LOGIN:-true}
     container_name: bug-tracking-frontend
     restart: unless-stopped
     depends_on:
