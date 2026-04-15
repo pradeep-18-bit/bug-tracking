@@ -168,6 +168,11 @@ export const createProject = async (payload) => {
   return response.data;
 };
 
+export const deleteProject = async (projectId) => {
+  const response = await api.delete(`/projects/${projectId}`);
+  return response.data;
+};
+
 export const attachProjectTeam = async ({ projectId, teamId }) => {
   const response = await api.post(`/projects/${projectId}/teams`, {
     teamId,
@@ -338,6 +343,51 @@ export const updateUserRole = async ({ id, role }) => {
     role,
   });
   return response.data;
+};
+
+export const fetchEmailConfig = async (userId) => {
+  const response = await api.get("/settings/email-config", {
+    params: buildParams({
+      userId,
+    }),
+  });
+  return response.data;
+};
+
+export const saveEmailConfig = async (payload) => {
+  const response = await api.post("/settings/email-config", payload);
+  return response.data;
+};
+
+export const testEmailConfig = async (payload) => {
+  const response = await api.post("/settings/test-email", payload);
+  return response.data;
+};
+
+export const fetchWorkspaceSender = async () => {
+  const response = await api.get("/settings/workspace-sender");
+  return response.data;
+};
+
+export const saveWorkspaceSender = async (payload) => {
+  const response = await api.post("/settings/workspace-sender", payload);
+  return response.data;
+};
+
+export const fetchEligibleSenders = async () => {
+  const response = await api.get("/settings/eligible-senders");
+  const data = response.data;
+
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (Array.isArray(data?.users)) {
+    return data.users;
+  }
+
+  console.warn("[api] Unexpected eligible senders response shape:", data);
+  return [];
 };
 
 export const importUsers = async (file) => {

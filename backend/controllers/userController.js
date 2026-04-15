@@ -2,7 +2,15 @@ const crypto = require("crypto");
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
 const User = require("../models/User");
+const {
+  clearWorkspaceSenderSelection,
+  clearUserSenderSelectionsForSender,
+} = require("./settingsController");
 const asyncHandler = require("../utils/asyncHandler");
+const {
+  ROLE_ADMIN,
+  isEligibleWorkspaceSenderRole,
+} = require("../utils/roles");
 const {
   normalizeEmail,
   normalizeText,
@@ -143,10 +151,10 @@ const updateUserRole = asyncHandler(async (req, res) => {
     throw new Error("User not found in this workspace");
   }
 
-  if (user.role === "Admin" && role !== "Admin") {
+  if (user.role === ROLE_ADMIN && role !== ROLE_ADMIN) {
     const adminCount = await User.countDocuments({
       workspaceId,
-      role: "Admin",
+      role: ROLE_ADMIN,
     });
 
     if (adminCount <= 1) {
@@ -155,13 +163,38 @@ const updateUserRole = asyncHandler(async (req, res) => {
     }
   }
 
+  let warning = "";
+
   if (user.role !== role) {
+    const losesSenderEligibility =
+      isEligibleWorkspaceSenderRole(user.role) && !isEligibleWorkspaceSenderRole(role);
+
     user.role = role;
     await user.save();
+
+    if (losesSenderEligibility) {
+      const clearedUserSenderSelections = await clearUserSenderSelectionsForSender({
+        workspaceId,
+        senderUserId: user._id,
+        updatedByUserId: req.user._id,
+      });
+
+      const clearedWorkspaceSender = await clearWorkspaceSenderSelection({
+        workspaceId,
+        userId: req.user._id,
+        matchUserId: user._id,
+      });
+
+      if ((clearedUserSenderSelections?.modifiedCount || 0) > 0 || clearedWorkspaceSender) {
+        warning =
+          "Saved sender selections were cleared because this user is no longer eligible.";
+      }
+    }
   }
 
   res.status(200).json({
     message: "Role updated successfully",
+    warning: warning || undefined,
     user: {
       _id: user._id,
       name: user.name,

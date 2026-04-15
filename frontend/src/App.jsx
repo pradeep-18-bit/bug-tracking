@@ -4,8 +4,8 @@ import AppShell from "@/components/layout/AppShell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  ADMIN_PANEL_ROLES,
   getDashboardPathByRole,
-  ROLE_ADMIN,
   ROLE_DEVELOPER,
   ROLE_TESTER,
 } from "@/lib/roles";
@@ -118,7 +118,7 @@ const App = () => (
       <Route
         path="/admin/dashboard"
         element={
-          <ProtectedRoute roles={[ROLE_ADMIN]}>
+          <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
             <DashboardPage />
           </ProtectedRoute>
         }
@@ -150,7 +150,7 @@ const App = () => (
       <Route
         path="/projects"
         element={
-          <ProtectedRoute roles={[ROLE_ADMIN]}>
+          <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
             <ProjectsPage />
           </ProtectedRoute>
         }
@@ -158,7 +158,7 @@ const App = () => (
       <Route
         path="/teams"
         element={
-          <ProtectedRoute roles={[ROLE_ADMIN]}>
+          <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
             <TeamsPage />
           </ProtectedRoute>
         }
@@ -166,7 +166,7 @@ const App = () => (
       <Route
         path="/teams/create"
         element={
-          <ProtectedRoute roles={[ROLE_ADMIN]}>
+          <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
             <TeamCreatePage />
           </ProtectedRoute>
         }
@@ -174,7 +174,7 @@ const App = () => (
       <Route
         path="/teams/:id"
         element={
-          <ProtectedRoute roles={[ROLE_ADMIN]}>
+          <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
             <TeamDetailsPage />
           </ProtectedRoute>
         }
@@ -182,7 +182,7 @@ const App = () => (
       <Route
         path="/settings/users"
         element={
-          <ProtectedRoute roles={[ROLE_ADMIN]}>
+          <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
             <UserSettingsPage />
           </ProtectedRoute>
         }

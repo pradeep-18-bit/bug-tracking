@@ -157,7 +157,6 @@ const login = asyncHandler(async (req, res) => {
   }
 
   await syncUserForAuth(user, password);
-
   res.status(200).json(buildAuthPayload(user));
 });
 
@@ -192,7 +191,6 @@ const adminLogin = asyncHandler(async (req, res) => {
   }
 
   await syncUserForAuth(user, adminDefaultPassword);
-
   res.status(200).json(buildAuthPayload(user));
 });
 

@@ -6,6 +6,8 @@ const Comment = require("./Comment");
 const Team = require("./Team");
 const TeamMember = require("./TeamMember");
 const ProjectMeeting = require("./ProjectMeeting");
+const UserEmailConfig = require("./UserEmailConfig");
+const WorkspaceSetting = require("./WorkspaceSetting");
 
 module.exports = {
   User,
@@ -16,4 +18,6 @@ module.exports = {
   Team,
   TeamMember,
   ProjectMeeting,
+  UserEmailConfig,
+  WorkspaceSetting,
 };

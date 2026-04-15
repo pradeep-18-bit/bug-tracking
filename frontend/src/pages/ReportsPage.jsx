@@ -26,6 +26,7 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { ISSUE_STATUS, getIssueStatusLabel } from "@/lib/issues";
+import { hasAdminPanelAccess } from "@/lib/roles";
 import { cn, formatDate, getInitials } from "@/lib/utils";
 import { getWorkspaceScope } from "@/lib/workspace";
 import {
@@ -56,11 +57,11 @@ const PRIORITY_ORDER = ["High", "Medium", "Low"];
 const STATUS_ROW_META = {
   [OPEN_STATUS_KEY]: {
     tone: "blue",
-    helper: "Tap to focus",
+    helper: "",
   },
   [ISSUE_STATUS.DONE]: {
     tone: "green",
-    helper: "Tap to focus",
+    helper: "",
   },
 };
 const PRIORITY_ROW_META = {
@@ -195,6 +196,133 @@ const ActiveFilterChip = ({ label, onClear }) => (
   </button>
 );
 
+const getPercentage = (count, total) =>
+  total ? Math.round((Number(count || 0) / total) * 100) : 0;
+
+const getCountLabel = (count, singular, plural = `${singular}s`) =>
+  `${count} ${count === 1 ? singular : plural}`;
+
+const AnalyticsFilterChip = ({
+  active = false,
+  label,
+  onClick,
+  tone = "slate",
+}) => {
+  const toneClasses = {
+    slate: active
+      ? "border-slate-300 bg-slate-100 text-slate-900"
+      : "border-white/60 bg-white/72 text-slate-700 hover:border-slate-300 hover:text-slate-900",
+    blue: active
+      ? "border-blue-300 bg-blue-50 text-blue-700"
+      : "border-blue-200/80 bg-blue-50/80 text-blue-700 hover:border-blue-300 hover:bg-blue-100/80",
+    orange: active
+      ? "border-orange-300 bg-orange-50 text-orange-700"
+      : "border-orange-200/80 bg-orange-50/80 text-orange-700 hover:border-orange-300 hover:bg-orange-100/80",
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5",
+        toneClasses[tone] || toneClasses.slate
+      )}
+    >
+      {label}
+    </button>
+  );
+};
+
+const StatusDonutChart = ({
+  activeKey,
+  onSelect,
+  rows,
+  total,
+}) => {
+  const drawableRows = rows.filter((row) => row.count > 0);
+  let accumulatedOffset = 0;
+  const chartRows = drawableRows.map((row) => {
+    const normalizedLength =
+      total && row.count ? Math.max((row.count / total) * 100 - 1.5, 0) : 0;
+    const chartRow = {
+      ...row,
+      normalizedLength,
+      offset: accumulatedOffset,
+    };
+
+    accumulatedOffset += (row.count / total) * 100;
+    return chartRow;
+  });
+  return (
+    <div className="relative mx-auto flex h-[224px] w-[224px] items-center justify-center">
+      <svg
+        viewBox="0 0 160 160"
+        className="relative z-10 h-full w-full -rotate-90 overflow-visible"
+        aria-label="Issues by status chart"
+      >
+        <defs>
+          <linearGradient id="reports-status-open-gradient" x1="0%" x2="100%" y1="0%" y2="100%">
+            <stop offset="0%" stopColor="#2563eb" />
+            <stop offset="100%" stopColor="#38bdf8" />
+          </linearGradient>
+          <linearGradient id="reports-status-closed-gradient" x1="0%" x2="100%" y1="0%" y2="100%">
+            <stop offset="0%" stopColor="#10b981" />
+            <stop offset="100%" stopColor="#34d399" />
+          </linearGradient>
+        </defs>
+
+        <circle
+          cx="80"
+          cy="80"
+          r="48"
+          fill="none"
+          pathLength="100"
+          strokeWidth="10"
+          className="stroke-slate-200/85"
+        />
+
+        {chartRows.map((row) => (
+          <circle
+            key={row.key}
+            cx="80"
+            cy="80"
+            r="48"
+            fill="none"
+            pathLength="100"
+            strokeWidth={activeKey === row.key ? 13 : 10}
+            stroke={row.key === OPEN_STATUS_KEY
+              ? "url(#reports-status-open-gradient)"
+              : "url(#reports-status-closed-gradient)"}
+            strokeDasharray={`${row.normalizedLength} ${100 - row.normalizedLength}`}
+            strokeDashoffset={-row.offset}
+            strokeLinecap="round"
+            className="cursor-pointer transition-all duration-300"
+            style={{
+              filter:
+                activeKey === row.key
+                  ? "drop-shadow(0 0 10px rgba(59,130,246,0.16))"
+                  : "drop-shadow(0 4px 10px rgba(15,23,42,0.06))",
+            }}
+            onClick={() => onSelect(row.key)}
+          />
+        ))}
+      </svg>
+
+      <div className="absolute inset-[52px] rounded-full border border-slate-200/80 bg-white/95 shadow-[0_8px_18px_-18px_rgba(15,23,42,0.24)]" />
+      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+          Total
+        </p>
+        <p className="mt-1.5 text-3xl font-semibold leading-none tracking-tight text-slate-950">
+          {total}
+        </p>
+      </div>
+    </div>
+  );
+};
+
 const sortByName = (left, right) =>
   (left?.name || left?.email || "").localeCompare(right?.name || right?.email || "");
 
@@ -324,7 +452,7 @@ const ReportsPage = () => {
     isTeamReportsLoading;
 
   const scopedTeams = useMemo(() => {
-    if (user?.role === "Admin") {
+    if (hasAdminPanelAccess(user?.role)) {
       return [...teams].sort(sortByName);
     }
 
@@ -443,37 +571,74 @@ const ReportsPage = () => {
 
     return issuesByStatus.map((entry) => {
       const meta = STATUS_ROW_META[entry.key] || STATUS_ROW_META[OPEN_STATUS_KEY];
-      const share = total ? Math.round((entry.count / total) * 100) : 0;
+      const percentage = getPercentage(entry.count, total);
 
       return {
         ...entry,
-        helper: activeStatusFilter === entry.key ? "Filter active" : meta.helper,
+        helper: meta.helper,
         tone: meta.tone,
-        shareLabel: total ? `${share}% of scope` : "No issues yet",
+        percentage,
+        shareLabel: total ? `${percentage}% of scope` : "No issues yet",
       };
     });
   }, [activeStatusFilter, issuesByStatus, summary.totalIssues]);
 
   const priorityRows = useMemo(() => {
     const total = summary.totalIssues || 0;
-    const maxCount = Math.max(...issuesByPriority.map((entry) => entry.count), 0);
 
     return issuesByPriority.map((entry) => {
       const meta = PRIORITY_ROW_META[entry.key] || PRIORITY_ROW_META.Medium;
-      const share = total ? Math.round((entry.count / total) * 100) : 0;
-      const width = maxCount
-        ? Math.max(Math.round((entry.count / maxCount) * 100), entry.count ? 12 : 0)
+      const percentage = getPercentage(entry.count, total);
+      const width = total
+        ? Math.max(percentage, entry.count ? 10 : 0)
         : 0;
 
       return {
         ...entry,
-        helper: filters.priority === entry.key ? "Priority filter active" : meta.helper,
+        helper: meta.helper,
         tone: meta.tone,
-        shareLabel: total ? `${share}% of all issues` : "No issues yet",
+        percentage,
+        shareLabel: total ? `${percentage}% of all issues` : "No issues yet",
         width,
       };
     });
   }, [filters.priority, issuesByPriority, summary.totalIssues]);
+  const openStatusRow = useMemo(
+    () => statusRows.find((entry) => entry.key === OPEN_STATUS_KEY) || null,
+    [statusRows]
+  );
+  const closedStatusRow = useMemo(
+    () => statusRows.find((entry) => entry.key === ISSUE_STATUS.DONE) || null,
+    [statusRows]
+  );
+  const statusInsight = useMemo(() => {
+    if (!summary.totalIssues || !openStatusRow || !closedStatusRow) {
+      return "Status balance appears here once issues enter the selected scope.";
+    }
+
+    if (openStatusRow.count === closedStatusRow.count) {
+      return "Open and closed issues are evenly balanced in the current scope.";
+    }
+
+    return openStatusRow.count > closedStatusRow.count
+      ? "Open issues are leading the current workload."
+      : "Closed issues are currently leading the scope.";
+  }, [closedStatusRow, openStatusRow, summary.totalIssues]);
+  const dominantPriority = useMemo(() => {
+    const [firstRow] = [...priorityRows].sort((left, right) => right.count - left.count);
+    return firstRow || null;
+  }, [priorityRows]);
+  const priorityInsight = useMemo(() => {
+    if (!summary.totalIssues || !dominantPriority?.count) {
+      return "Priority distribution will appear once issues exist in the current scope.";
+    }
+
+    if (dominantPriority.percentage >= 50) {
+      return `Most issues are ${dominantPriority.label.toLowerCase()} priority right now.`;
+    }
+
+    return `${dominantPriority.label} priority leads the current mix with ${dominantPriority.count} issues.`;
+  }, [dominantPriority, summary.totalIssues]);
 
   const projectReports = projectReportsData?.projects || [];
   const teamReports = teamReportsData?.teams || [];
@@ -899,48 +1064,153 @@ const ReportsPage = () => {
             />
           ) : (
             <>
-              <section className="grid gap-5 xl:grid-cols-[1.12fr_0.88fr]">
+              <section className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
                 <Card className={REPORT_PANEL_CLASS}>
-                  <CardHeader className="border-b border-white/45 p-5">
-                    <div className="flex items-start justify-between gap-3">
+                  <CardHeader className="border-b border-white/45 p-4">
+                    <div className="flex flex-col gap-2.5 lg:flex-row lg:items-start lg:justify-between">
                       <div>
-                        <CardTitle>Issues by Status</CardTitle>
+                        <CardTitle>Issues Overview</CardTitle>
                         <CardDescription>
-                          Focus the report by open and closed issue lanes.
+                          Open versus closed issue balance for the current report scope.
                         </CardDescription>
                       </div>
-                      <span className="report-tag">
-                        {statusFilterLabels[activeStatusFilter] || statusFilterLabels.all}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {activeStatusFilter !== "all" ? (
+                          <span className="rounded-full border border-slate-200/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
+                            {statusFilterLabels[activeStatusFilter] || activeStatusFilter}
+                          </span>
+                        ) : null}
+                        <AnalyticsFilterChip
+                          active={activeStatusFilter === "all"}
+                          label="All Issues"
+                          onClick={() => handleStatusFilter("all")}
+                          tone="blue"
+                        />
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="p-5">
+                  <CardContent className="p-4">
                     {isLoading ? (
-                      <Skeleton className="h-[320px] w-full rounded-[16px]" />
+                      <Skeleton className="h-[252px] w-full rounded-[16px]" />
                     ) : (
-                      <div className="report-card">
-                        <div className="report-status-list">
-                          {statusRows.map((entry) => (
-                            <button
-                              key={entry.key}
-                              type="button"
-                              onClick={() => handleStatusFilter(entry.key)}
-                              className={cn(
-                                "report-status-row",
-                                entry.tone,
-                                activeStatusFilter === entry.key ? "active" : ""
-                              )}
-                            >
-                              <div className="report-status-copy">
-                                <p>{entry.label}</p>
-                                <span>{entry.helper}</span>
+                      <div className="grid gap-5 lg:grid-cols-[236px_minmax(0,1fr)] lg:items-start">
+                        <div className="mx-auto flex w-full max-w-[240px] flex-col items-center gap-3.5">
+                          <StatusDonutChart
+                            activeKey={activeStatusFilter === "all" ? "" : activeStatusFilter}
+                            onSelect={handleStatusFilter}
+                            rows={statusRows}
+                            total={summary.totalIssues}
+                          />
+
+                          <div className="w-full space-y-2 text-center lg:text-left">
+                            <p className="text-sm leading-5 text-slate-500">{statusInsight}</p>
+                            <div className="flex flex-wrap items-center justify-center gap-2.5 lg:justify-start">
+                              <button
+                                type="button"
+                                onClick={() => handleStatusFilter(OPEN_STATUS_KEY)}
+                                className={cn(
+                                  "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-medium text-slate-600 transition hover:border-blue-200 hover:text-blue-700",
+                                  activeStatusFilter === OPEN_STATUS_KEY
+                                    ? "border-blue-200 bg-blue-50/80 text-blue-700"
+                                    : "border-slate-200/80 bg-white/78"
+                                )}
+                              >
+                                <span className="h-2 w-2 rounded-full bg-[linear-gradient(135deg,#2563eb,#38bdf8)]" />
+                                Open {openStatusRow?.count || 0}
+                                <span className="text-slate-400">
+                                  {openStatusRow?.percentage || 0}%
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleStatusFilter(ISSUE_STATUS.DONE)}
+                                className={cn(
+                                  "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-medium text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700",
+                                  activeStatusFilter === ISSUE_STATUS.DONE
+                                    ? "border-emerald-200 bg-emerald-50/80 text-emerald-700"
+                                    : "border-slate-200/80 bg-white/78"
+                                )}
+                              >
+                                <span className="h-2 w-2 rounded-full bg-[linear-gradient(135deg,#10b981,#34d399)]" />
+                                Closed {closedStatusRow?.count || 0}
+                                <span className="text-slate-400">
+                                  {closedStatusRow?.percentage || 0}%
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3.5">
+                          <button
+                            type="button"
+                            onClick={() => handleStatusFilter(OPEN_STATUS_KEY)}
+                            aria-pressed={activeStatusFilter === OPEN_STATUS_KEY}
+                            className={cn(
+                              "group w-full rounded-[18px] border px-3.5 py-3.5 text-left transition-all duration-200 hover:border-blue-200 hover:bg-white/55",
+                              activeStatusFilter === OPEN_STATUS_KEY
+                                ? "border-blue-300 bg-blue-50/75 shadow-[0_18px_38px_-30px_rgba(37,99,235,0.24)]"
+                                : "border-transparent bg-transparent"
+                            )}
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
+                                  Open Issues
+                                </p>
+                                <p className="mt-1.5 text-[2rem] font-semibold leading-none tracking-tight text-slate-950">
+                                  {openStatusRow?.count || 0}
+                                </p>
                               </div>
-                              <div className="report-status-metrics">
-                                <small>{entry.shareLabel}</small>
-                                <strong>{entry.count}</strong>
+                              <div className="text-right">
+                                <p className="text-xl font-semibold text-blue-700">
+                                  {openStatusRow?.percentage || 0}%
+                                </p>
+                                <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 transition group-hover:text-blue-600">
+                                  {activeStatusFilter === OPEN_STATUS_KEY ? "Active" : "Filter"}
+                                  <Filter className="h-3 w-3" />
+                                </span>
                               </div>
-                            </button>
-                          ))}
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleStatusFilter(ISSUE_STATUS.DONE)}
+                            aria-pressed={activeStatusFilter === ISSUE_STATUS.DONE}
+                            className={cn(
+                              "group flex w-full items-center justify-between gap-4 rounded-[18px] border px-3.5 py-3 text-left transition-all duration-200 hover:border-emerald-200 hover:bg-white/55",
+                              activeStatusFilter === ISSUE_STATUS.DONE
+                                ? "border-emerald-300 bg-emerald-50/75 shadow-[0_18px_38px_-30px_rgba(16,185,129,0.22)]"
+                                : "border-white/55 bg-white/38"
+                            )}
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span className="h-2.5 w-2.5 rounded-full bg-[linear-gradient(135deg,#10b981,#34d399)]" />
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-950">Closed</p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {closedStatusRow?.shareLabel || "No issues yet"}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-4">
+                              <div className="text-right">
+                                <p className="text-base font-semibold text-slate-950">
+                                  {closedStatusRow?.count || 0}
+                                </p>
+                                <p className="mt-0.5 text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                                  {closedStatusRow?.percentage || 0}%
+                                </p>
+                              </div>
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 transition group-hover:text-emerald-600">
+                                {activeStatusFilter === ISSUE_STATUS.DONE ? "Active" : "Filter"}
+                                <Filter className="h-3 w-3" />
+                              </span>
+                            </div>
+                          </button>
                         </div>
                       </div>
                     )}
@@ -948,52 +1218,182 @@ const ReportsPage = () => {
                 </Card>
 
                 <Card className={REPORT_PANEL_CLASS}>
-                  <CardHeader className="border-b border-white/45 p-5">
-                    <div className="flex items-start justify-between gap-3">
+                  <CardHeader className="border-b border-white/45 p-4">
+                    <div className="flex flex-col gap-2.5 lg:flex-row lg:items-start lg:justify-between">
                       <div>
-                        <CardTitle>Priority Mix</CardTitle>
+                        <CardTitle>Priority Distribution</CardTitle>
                         <CardDescription>
-                          Urgency bands for the current scope, with one-tap filtering.
+                          Urgency balance for the current scope with quick, lightweight
+                          filtering.
                         </CardDescription>
                       </div>
-                      <span className="report-tag">
-                        {filters.priority === "all" ? "All priorities" : filters.priority}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {filters.priority !== "all" ? (
+                          <span className="rounded-full border border-slate-200/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
+                            {filters.priority} priority
+                          </span>
+                        ) : null}
+                        <AnalyticsFilterChip
+                          active={filters.priority === "all"}
+                          label="All priorities"
+                          onClick={() =>
+                            setFilters((current) => ({
+                              ...current,
+                              priority: "all",
+                            }))
+                          }
+                          tone="orange"
+                        />
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-4 p-5">
+                  <CardContent className="space-y-3.5 p-4">
                     {isLoading ? (
-                      <Skeleton className="h-[320px] w-full rounded-[16px]" />
+                      <Skeleton className="h-[252px] w-full rounded-[16px]" />
                     ) : (
-                      <div className="report-card">
-                        <div className="report-priority-list">
-                          {priorityRows.map((entry) => (
-                            <button
-                              key={entry.key}
-                              type="button"
-                              onClick={() => handlePriorityFilter(entry.key)}
-                              className={cn(
-                                "report-priority-row",
-                                entry.tone,
-                                filters.priority === entry.key ? "active" : ""
-                              )}
-                            >
-                              <div className="report-priority-copy">
-                                <span>{entry.label}</span>
-                                <small>{entry.helper}</small>
-                              </div>
-                              <div className="report-bar">
-                                <div
-                                  className="report-bar-fill"
-                                  style={{ width: `${entry.width}%` }}
-                                />
-                              </div>
-                              <div className="report-priority-metrics">
-                                <strong>{entry.count}</strong>
-                                <small>{entry.shareLabel}</small>
-                              </div>
-                            </button>
-                          ))}
+                      <div className="space-y-3">
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between gap-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
+                              Distribution
+                            </p>
+                            {dominantPriority?.count ? (
+                              <span className="rounded-full border border-slate-200/80 bg-white/78 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
+                                {dominantPriority.label} leads
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <div className="overflow-hidden rounded-full bg-slate-100/90">
+                            <div className="flex h-2 w-full overflow-hidden rounded-full">
+                              {priorityRows.map((entry) => {
+                                if (!entry.count || !summary.totalIssues) {
+                                  return null;
+                                }
+
+                                const fillClass =
+                                  entry.key === "High"
+                                    ? "bg-[linear-gradient(90deg,#ef4444,#f97316)]"
+                                    : entry.key === "Medium"
+                                      ? "bg-[linear-gradient(90deg,#fb923c,#fbbf24)]"
+                                      : "bg-[linear-gradient(90deg,#94a3b8,#cbd5e1)]";
+
+                                return (
+                                  <button
+                                    key={entry.key}
+                                    type="button"
+                                    onClick={() => handlePriorityFilter(entry.key)}
+                                    aria-label={`${entry.label} priority: ${entry.count} issues`}
+                                    className={cn(
+                                      "h-full transition-all duration-200 hover:brightness-105",
+                                      fillClass,
+                                      filters.priority === entry.key ? "brightness-110" : ""
+                                    )}
+                                    style={{
+                                      width: `${Math.max(entry.percentage, 8)}%`,
+                                    }}
+                                  />
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-orange-200/70 bg-orange-50/70 px-3 py-1 text-[11px] font-medium text-orange-800 shadow-sm">
+                            <Sparkles className="h-3.5 w-3.5 shrink-0 text-orange-600" />
+                            <span className="truncate">{priorityInsight}</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          {priorityRows.map((entry) => {
+                            const isActive = filters.priority === entry.key;
+                            const accentClasses =
+                              entry.key === "High"
+                                ? {
+                                    wrapper: isActive
+                                      ? "border-red-200 bg-red-50/70 shadow-[0_16px_30px_-26px_rgba(239,68,68,0.2)]"
+                                      : "border-white/60 bg-white/58 hover:border-red-200/70",
+                                    dot: "bg-[linear-gradient(135deg,#ef4444,#f97316)]",
+                                    fill: "bg-[linear-gradient(90deg,#ef4444,#f97316)]",
+                                    count: "text-red-700",
+                                  }
+                                : entry.key === "Medium"
+                                  ? {
+                                      wrapper: isActive
+                                        ? "border-orange-200 bg-orange-50/70 shadow-[0_16px_30px_-26px_rgba(249,115,22,0.18)]"
+                                        : "border-white/60 bg-white/58 hover:border-orange-200/70",
+                                      dot: "bg-[linear-gradient(135deg,#fb923c,#fbbf24)]",
+                                      fill: "bg-[linear-gradient(90deg,#fb923c,#fbbf24)]",
+                                      count: "text-orange-700",
+                                    }
+                                  : {
+                                      wrapper: isActive
+                                        ? "border-slate-200 bg-slate-100/80 shadow-[0_16px_30px_-26px_rgba(100,116,139,0.16)]"
+                                        : "border-white/60 bg-white/58 hover:border-slate-200/80",
+                                      dot: "bg-[linear-gradient(135deg,#94a3b8,#cbd5e1)]",
+                                      fill: "bg-[linear-gradient(90deg,#94a3b8,#cbd5e1)]",
+                                      count: "text-slate-700",
+                                    };
+
+                            return (
+                              <button
+                                key={entry.key}
+                                type="button"
+                                onClick={() => handlePriorityFilter(entry.key)}
+                                aria-pressed={isActive}
+                                className={cn(
+                                  "w-full rounded-[18px] border px-3.5 py-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_30px_-24px_rgba(15,23,42,0.18)]",
+                                  accentClasses.wrapper
+                                )}
+                              >
+                                <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span
+                                        className={cn(
+                                          "h-2.5 w-2.5 rounded-full",
+                                          accentClasses.dot
+                                        )}
+                                      />
+                                      <span className="text-sm font-semibold text-slate-950">
+                                        {entry.label}
+                                      </span>
+                                    </div>
+                                    <p className="mt-0.5 text-[11px] leading-5 text-slate-500">
+                                      {entry.helper}
+                                    </p>
+                                  </div>
+
+                                  <div className="flex items-baseline justify-end gap-3 text-right sm:min-w-[94px]">
+                                    <p className={cn("text-base font-semibold", accentClasses.count)}>
+                                      {entry.count}
+                                    </p>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                                      {entry.percentage}%
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="mt-2.5 space-y-1">
+                                  <div className="h-1.5 overflow-hidden rounded-full bg-slate-100/90">
+                                    <div
+                                      className={cn(
+                                        "h-full rounded-full transition-all duration-500 ease-out",
+                                        accentClasses.fill
+                                      )}
+                                      style={{
+                                        width: `${entry.width}%`,
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3 text-[10px] text-slate-500">
+                                    <span>{entry.shareLabel}</span>
+                                    <span>{getCountLabel(entry.count, "issue")}</span>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     )}

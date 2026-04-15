@@ -16,6 +16,7 @@ const {
   normalizeIssueStatus,
 } = require("../utils/issueStatus");
 const { buildProjectAccessQuery } = require("../utils/projectRelations");
+const { hasAdminAccess } = require("../utils/roles");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 
 const populateIssueQuery = (query) =>
@@ -35,7 +36,7 @@ const populateIssueDocument = (issue) =>
     { path: "teamId", select: "name description workspaceId" },
   ]);
 
-const isAdmin = (user) => user?.role === "Admin";
+const isAdmin = (user) => hasAdminAccess(user?.role);
 const escapeRegExp = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -633,7 +634,7 @@ const getIssues = asyncHandler(async (req, res) => {
 const getMyIssues = asyncHandler(async (req, res) => {
   if (isAdmin(req.user)) {
     res.status(403);
-    throw new Error("Admins do not have access to personal task views");
+    throw new Error("Admins and managers do not have access to personal task views");
   }
 
   const query = await buildIssueQueryFromRequest(req, res, {
@@ -1111,11 +1112,41 @@ const createIssue = asyncHandler(async (req, res) => {
   await populateIssueDocument(issue);
 
   const emails = getIssueNotificationEmails(issue);
+  const emailWorkspaceId = normalizeWorkspaceId(project.workspaceId || workspaceId);
+  const emailPayload = buildIssueCreatedEmailPayload(issue);
+  const creatorUserId = req.user?.id || req.user?._id || "";
 
   if (emails.length > 0) {
     try {
+      console.log("[issues] Issue-created email context", {
+        issueId: String(issue._id),
+        reqUserWorkspaceId: workspaceId,
+        projectWorkspaceId: project.workspaceId || "",
+        emailWorkspaceId,
+        issueCreatorId: String(creatorUserId || ""),
+        issueCreatorEmail: req.user?.email || "",
+        issueCreatorRole: req.user?.role || "",
+      });
       console.log("[issues] Sending email to:", emails);
-      await sendIssueEmail(emails, buildIssueCreatedEmailPayload(issue));
+      const emailResult = await sendIssueEmail(emails, emailPayload, {
+        creatorUserId,
+        workspaceId: emailWorkspaceId,
+      });
+      console.log("[issues] Issue-created final sender", {
+        issueId: String(issue._id),
+        creatorUserId: String(creatorUserId || ""),
+        creatorUserEmail: req.user?.email || "",
+        creatorUserRole: req.user?.role || "",
+        finalSenderSource: emailResult?.senderSource || "unknown",
+        finalFrom: emailResult?.from || "",
+        finalAuthUser: emailResult?.authUser || "",
+      });
+      console.log("[issues] Issue-created email sent", {
+        issueId: String(issue._id),
+        senderSource: emailResult?.senderSource || "unknown",
+        from: emailResult?.from || "",
+        workspaceId: emailWorkspaceId,
+      });
     } catch (error) {
       console.error("[issues] Failed to send issue-created email", {
         issueId: String(issue._id),

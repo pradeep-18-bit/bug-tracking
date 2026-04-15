@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Team = require("../models/Team");
 const User = require("../models/User");
 const asyncHandler = require("../utils/asyncHandler");
+const { hasAdminAccess } = require("../utils/roles");
 const { attachMembersToTeams, populateTeam } = require("../utils/teamRelations");
 const {
   hasWorkspaceAccess,
@@ -11,9 +12,9 @@ const {
 const TeamMember = require("../models/TeamMember");
 
 const requireAdmin = (req, res) => {
-  if (req.user.role !== "Admin") {
+  if (!hasAdminAccess(req.user.role)) {
     res.status(403);
-    throw new Error("Only admins can manage teams");
+    throw new Error("Only admins and managers can manage teams");
   }
 };
 

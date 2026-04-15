@@ -5,45 +5,49 @@ Full-stack Jira-like bug tracking and project management app with:
 - `frontend/`: React + Vite + Tailwind
 - `backend/`: Express + Mongoose API
 - `deploy/mongo/`: MongoDB image and repo-local backup restore assets
+- `docs/`: project documentation and API/flow guide
 - `docker-compose.yml`: production-style local deployment
 
 ## Deployment Structure
 
 ```text
 .
-├─ backend/
-│  ├─ Dockerfile
-│  ├─ .dockerignore
-│  ├─ .env.example
-│  ├─ config/
-│  ├─ controllers/
-│  ├─ middleware/
-│  ├─ models/
-│  ├─ routes/
-│  ├─ scripts/
-│  │  └─ exportMongoBackup.js
-│  ├─ utils/
-│  └─ server.js
-├─ frontend/
-│  ├─ Dockerfile
-│  ├─ .dockerignore
-│  ├─ .env.example
-│  ├─ nginx.conf
-│  └─ src/
-├─ deploy/
-│  └─ mongo/
-│     ├─ Dockerfile
-│     ├─ restore.js
-│     └─ backup/
-│        └─ bugtracker/
-│           ├─ manifest.json
-│           ├─ users.json
-│           ├─ projects.json
-│           ├─ issues.json
-│           └─ ...
-├─ docker-compose.yml
-├─ .env.example
-└─ README.md
+|-- backend/
+|   |-- Dockerfile
+|   |-- .dockerignore
+|   |-- .env.example
+|   |-- config/
+|   |-- controllers/
+|   |-- middleware/
+|   |-- models/
+|   |-- routes/
+|   |-- scripts/
+|   |   `-- exportMongoBackup.js
+|   |-- services/
+|   |-- utils/
+|   `-- server.js
+|-- frontend/
+|   |-- Dockerfile
+|   |-- .dockerignore
+|   |-- .env.example
+|   |-- nginx.conf
+|   `-- src/
+|-- deploy/
+|   `-- mongo/
+|       |-- Dockerfile
+|       |-- restore.js
+|       `-- backup/
+|           `-- bugtracker/
+|               |-- manifest.json
+|               |-- users.json
+|               |-- projects.json
+|               |-- issues.json
+|               `-- ...
+|-- docs/
+|   `-- PROJECT_API_AND_FLOW.md
+|-- docker-compose.yml
+|-- .env.example
+`-- README.md
 ```
 
 ## What Is Included
@@ -56,8 +60,8 @@ Full-stack Jira-like bug tracking and project management app with:
 
 ## Documentation
 
-- `README.md`: setup and deployment
-- `PROJECT_API_AND_FLOW.md`: API usage, technologies, and end-to-end application flow
+- [README.md](README.md): setup and deployment
+- [docs/PROJECT_API_AND_FLOW.md](docs/PROJECT_API_AND_FLOW.md): API usage, technologies, and end-to-end application flow
 
 ## Environment Files
 
@@ -72,8 +76,12 @@ MONGO_ROOT_PASSWORD=bugtracker
 MONGO_APP_DATABASE=bugtracker
 JWT_SECRET=change-me
 ALLOW_ADMIN_CREDENTIALS=false
-EMAIL_USER=your_gmail@gmail.com
-EMAIL_PASS=your_gmail_app_password
+EMAIL_HOST=smtp.hostinger.com
+EMAIL_PORT=465
+EMAIL_USER=your-email@example.com
+EMAIL_PASS=your-smtp-password
+EMAIL_SECURE=true
+EMAIL_FROM=Pirnav Support <your-email@example.com>
 APP_URL=http://localhost
 VITE_API_BASE_URL=/api
 ```
@@ -111,6 +119,7 @@ docker compose up --build
 - Frontend: `http://localhost`
 - Backend API: `http://localhost:5000`
 - Test email route: `http://localhost:5000/test-email`
+- Optional override recipient: `http://localhost:5000/test-email?to=someone@example.com`
 - MongoDB: `mongodb://localhost:27017`
 
 ## Mongo Restore Behavior
@@ -160,7 +169,7 @@ npm run dev
 - The frontend container serves static files through Nginx and proxies `/api` to the backend container.
 - The frontend Nginx config also proxies `/test-email` to the backend for quick mail verification in Dockerized runs.
 - The backend container connects to Mongo using compose network DNS (`mongo`).
-- Mail notifications in Docker require `EMAIL_USER`, `EMAIL_PASS`, and `APP_URL` in the root compose `.env`.
+- Mail notifications in Docker require `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USER`, `EMAIL_PASS`, `EMAIL_SECURE`, `EMAIL_FROM`, and `APP_URL` in the root compose `.env`.
 - The backend still seeds the default admin user on startup.
 - Workspace isolation remains intact because the existing app logic and Mongo data are unchanged.
 

@@ -278,14 +278,18 @@ Current mail flow:
 
 1. Backend receives or updates issue data.
 2. Backend resolves recipient email addresses.
-3. `backend/services/emailService.js` creates a Gmail transporter.
-4. Email is sent using `EMAIL_USER` and `EMAIL_PASS`.
+3. `backend/services/emailService.js` creates an SMTP transporter from env values.
+4. Email is sent using the configured SMTP credentials and `EMAIL_FROM`.
 5. Frontend/developers can verify mail configuration with `/test-email`.
 
 Required backend env values:
 
+- `EMAIL_HOST`
+- `EMAIL_PORT`
 - `EMAIL_USER`
 - `EMAIL_PASS`
+- `EMAIL_SECURE`
+- `EMAIL_FROM`
 - `APP_URL`
 
 ## 9. Important Environment Variables
@@ -296,8 +300,12 @@ Required backend env values:
 - `MONGO_URI`
 - `JWT_SECRET`
 - `ALLOW_ADMIN_CREDENTIALS`
+- `EMAIL_HOST`
+- `EMAIL_PORT`
 - `EMAIL_USER`
 - `EMAIL_PASS`
+- `EMAIL_SECURE`
+- `EMAIL_FROM`
 - `APP_URL`
 
 ### Frontend
@@ -314,8 +322,12 @@ Required backend env values:
 - `MONGO_APP_DATABASE`
 - `JWT_SECRET`
 - `ALLOW_ADMIN_CREDENTIALS`
+- `EMAIL_HOST`
+- `EMAIL_PORT`
 - `EMAIL_USER`
 - `EMAIL_PASS`
+- `EMAIL_SECURE`
+- `EMAIL_FROM`
 - `APP_URL`
 - `VITE_API_BASE_URL`
 
@@ -372,7 +384,7 @@ Authorization: Bearer <token>
 If someone is new to the project, this is a good path:
 
 1. `README.md`
-2. `PROJECT_API_AND_FLOW.md`
+2. `docs/PROJECT_API_AND_FLOW.md`
 3. `backend/server.js`
 4. `frontend/src/lib/api.js`
 5. `backend/routes/*`

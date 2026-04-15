@@ -30,7 +30,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import DeveloperDashboardPage from "@/pages/DeveloperDashboardPage";
 import TesterDashboardPage from "@/pages/TesterDashboardPage";
-import { ROLE_ADMIN, ROLE_TESTER } from "@/lib/roles";
+import { hasAdminPanelAccess, ROLE_TESTER } from "@/lib/roles";
 
 const isValidIssueType = (value) => ["Bug", "Task", "Story"].includes(value);
 const ALL_PROJECTS_VALUE = "ALL";
@@ -511,7 +511,7 @@ const AdminIssuesPage = () => {
 const IssuesPage = () => {
   const { role } = useAuth();
 
-  if (role !== ROLE_ADMIN) {
+  if (!hasAdminPanelAccess(role)) {
     return role === ROLE_TESTER ? <TesterDashboardPage /> : <DeveloperDashboardPage />;
   }
 

@@ -6,25 +6,28 @@ const ToastNotice = ({ toast, onDismiss }) => {
   }
 
   const isSuccess = toast.type === "success";
+  const isWarning = toast.type === "warning";
+  const containerClass = isSuccess
+    ? "border-emerald-200 bg-emerald-50/95 text-emerald-900"
+    : isWarning
+      ? "border-amber-200 bg-amber-50/95 text-amber-900"
+      : "border-rose-200 bg-rose-50/95 text-rose-900";
+  const iconClass = isSuccess
+    ? "bg-emerald-100 text-emerald-700"
+    : isWarning
+      ? "bg-amber-100 text-amber-700"
+      : "bg-rose-100 text-rose-700";
+  const title =
+    toast.title || (isSuccess ? "Success" : isWarning ? "Heads up" : "Something went wrong");
 
   return (
     <div className="fixed right-4 top-4 z-50 w-[calc(100%-2rem)] max-w-sm sm:right-6 sm:top-6">
       <div
-        className={`rounded-[26px] border px-4 py-4 shadow-[0_28px_60px_-30px_rgba(15,23,42,0.42)] backdrop-blur-xl ${
-          isSuccess
-            ? "border-emerald-200 bg-emerald-50/95 text-emerald-900"
-            : "border-rose-200 bg-rose-50/95 text-rose-900"
-        }`}
+        className={`rounded-[26px] border px-4 py-4 shadow-[0_28px_60px_-30px_rgba(15,23,42,0.42)] backdrop-blur-xl ${containerClass}`}
         role={isSuccess ? "status" : "alert"}
       >
         <div className="flex items-start gap-3">
-          <div
-            className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
-              isSuccess
-                ? "bg-emerald-100 text-emerald-700"
-                : "bg-rose-100 text-rose-700"
-            }`}
-          >
+          <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${iconClass}`}>
             {isSuccess ? (
               <CheckCircle2 className="h-5 w-5" />
             ) : (
@@ -32,9 +35,7 @@ const ToastNotice = ({ toast, onDismiss }) => {
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold">
-              {toast.title || (isSuccess ? "Success" : "Something went wrong")}
-            </p>
+            <p className="text-sm font-semibold">{title}</p>
             <p className="mt-1 text-sm leading-6">{toast.message}</p>
           </div>
           <button

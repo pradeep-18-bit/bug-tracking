@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import Select from "react-select";
 import {
+  AlertTriangle,
   Bug,
   CheckCircle2,
   ChevronLeft,
@@ -13,6 +14,7 @@ import {
   LoaderCircle,
   Plus,
   RotateCcw,
+  Trash2,
   Video,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -27,15 +29,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { fetchProjectMeetings } from "@/lib/api";
 import { formatDate, getInitials } from "@/lib/utils";
-import {
-  getProjectMembers,
-  getProjectTeams,
-} from "@/lib/project-teams";
-import {
-  memberSelectStyles,
-} from "@/components/projects/memberSelectTheme";
+import { getProjectTeams } from "@/lib/project-teams";
+import { memberSelectStyles } from "@/components/projects/memberSelectTheme";
 
 const MEETING_DURATION_OPTIONS = [
   { label: "30 min", value: 30 },
@@ -206,38 +204,20 @@ const StatusBadge = ({ isCompleted }) => (
   </span>
 );
 
-const ProjectMembersPreview = ({ members = [], teams = [] }) => {
-  const visibleMembers = members.slice(0, 4);
-  const overflowCount = Math.max(members.length - visibleMembers.length, 0);
+const ProjectTeamsPreview = ({ teams = [] }) => {
   const visibleTeams = teams.slice(0, 3);
   const overflowTeams = Math.max(teams.length - visibleTeams.length, 0);
 
   return (
-    <div className="flex max-w-full flex-col items-end gap-2">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <span className="text-sm font-semibold text-white/90">Members:</span>
-        <div className="flex items-center">
-          {visibleMembers.map((member, index) => (
-            <Avatar
-              key={member._id}
-              className={`avatar-pop-in h-9 w-9 rounded-xl border-2 border-white/80 bg-white/18 text-xs text-white shadow-lg backdrop-blur ${index === 0 ? "" : "-ml-2"}`}
-              style={{ animationDelay: `${index * 40}ms` }}
-            >
-              <AvatarFallback className="bg-transparent text-white">
-                {getInitials(member.name)}
-              </AvatarFallback>
-            </Avatar>
-          ))}
-        </div>
-        {overflowCount ? (
-          <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-xl border border-white/25 bg-white/12 px-2 text-xs font-semibold text-white shadow-sm backdrop-blur">
-            +{overflowCount}
-          </span>
-        ) : null}
+    <div className="flex max-w-full flex-col items-start gap-2 rounded-[24px] border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-lg lg:items-end">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-white/70">
+        <span>Attached Teams</span>
+        <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-white/25 bg-white/14 px-2 text-[10px] font-semibold text-white">
+          {teams.length}
+        </span>
       </div>
 
       <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
-        <span className="text-sm font-semibold text-white/90">Teams:</span>
         {visibleTeams.length ? (
           visibleTeams.map((team) => (
             <span
@@ -269,14 +249,18 @@ const ProjectCard = ({
   canManageProject = false,
   onAttachTeam,
   onUpdateStatus,
+  onDeleteProject,
   onOpenTeamsComposer,
   isAttachingTeam = false,
   isUpdatingStatus = false,
+  isDeletingProject = false,
   teamsErrorMessage = "",
 }) => {
   const navigate = useNavigate();
   const [isTeamDialogOpen, setIsTeamDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState("");
+  const [deleteConfirmationValue, setDeleteConfirmationValue] = useState("");
   const [teamError, setTeamError] = useState("");
   const [statusError, setStatusError] = useState("");
   const defaultMeetingDateTime = useMemo(() => buildDefaultMeetingDateTime(), []);
@@ -296,7 +280,6 @@ const ProjectCard = ({
   });
   const calendarPopoverRef = useRef(null);
 
-  const members = useMemo(() => getProjectMembers(project), [project]);
   const attachedTeams = useMemo(() => getProjectTeams(project), [project]);
   const attachedTeamIds = useMemo(
     () =>
@@ -442,6 +425,11 @@ const ProjectCard = ({
   }, [project?._id]);
 
   useEffect(() => {
+    setDeleteConfirmationValue("");
+    setIsDeleteDialogOpen(false);
+  }, [project?._id]);
+
+  useEffect(() => {
     if (!isCalendarOpen) {
       return undefined;
     }
@@ -462,6 +450,18 @@ const ProjectCard = ({
     if (!open) {
       setTeamError("");
       setSelectedTeamId("");
+    }
+  };
+
+  const handleDeleteDialogChange = (open) => {
+    if (isDeletingProject && !open) {
+      return;
+    }
+
+    setIsDeleteDialogOpen(open);
+
+    if (!open) {
+      setDeleteConfirmationValue("");
     }
   };
 
@@ -499,6 +499,24 @@ const ProjectCard = ({
     }
   };
 
+  const handleDeleteProject = async () => {
+    if (typeof onDeleteProject !== "function") {
+      return;
+    }
+
+    await onDeleteProject(project._id);
+
+    navigate("/projects", {
+      replace: true,
+      state: {
+        toast: {
+          type: "success",
+          message: "Project deleted successfully",
+        },
+      },
+    });
+  };
+
   const handleScheduleMeeting = async (event) => {
     event.preventDefault();
 
@@ -521,6 +539,8 @@ const ProjectCard = ({
 
   const actionButtonClass =
     "interactive-button h-10 rounded-2xl border border-slate-200 bg-white/88 px-4 text-sm font-semibold text-slate-900 shadow-sm hover:border-slate-300 hover:bg-white";
+  const isDeleteConfirmationValid =
+    deleteConfirmationValue.trim() === String(project.name || "").trim();
 
   return (
     <>
@@ -556,25 +576,42 @@ const ProjectCard = ({
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge isCompleted={Boolean(project.isCompleted)} />
                 {canManageProject ? (
-                  <Button
-                    className="interactive-button h-10 rounded-2xl border border-white/25 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur hover:bg-white/18"
-                    disabled={isUpdatingStatus}
-                    type="button"
-                    onClick={handleStatusToggle}
-                  >
-                    {isUpdatingStatus ? (
-                      <LoaderCircle className="h-4 w-4 animate-spin" />
-                    ) : project.isCompleted ? (
-                      <RotateCcw className="h-4 w-4" />
-                    ) : (
-                      <CheckCircle2 className="h-4 w-4" />
-                    )}
-                    {project.isCompleted ? "Reopen Project" : "Mark as Completed"}
-                  </Button>
+                  <>
+                    <Button
+                      className="interactive-button h-10 rounded-2xl border border-white/25 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur hover:bg-white/18"
+                      disabled={isUpdatingStatus}
+                      type="button"
+                      onClick={handleStatusToggle}
+                    >
+                      {isUpdatingStatus ? (
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                      ) : project.isCompleted ? (
+                        <RotateCcw className="h-4 w-4" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4" />
+                      )}
+                      {project.isCompleted ? "Reopen Project" : "Mark as Completed"}
+                    </Button>
+                    <Button
+                      className="interactive-button h-10 w-10 rounded-2xl border border-rose-300/45 bg-rose-500/18 p-0 text-rose-50 shadow-[0_18px_36px_-24px_rgba(244,63,94,0.95)] backdrop-blur hover:bg-rose-500/28"
+                      disabled={isDeletingProject}
+                      size="icon"
+                      title="Delete Project"
+                      type="button"
+                      onClick={() => handleDeleteDialogChange(true)}
+                    >
+                      {isDeletingProject ? (
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      <span className="sr-only">Delete Project</span>
+                    </Button>
+                  </>
                 ) : null}
               </div>
 
-              <ProjectMembersPreview members={members} teams={attachedTeams} />
+              <ProjectTeamsPreview teams={attachedTeams} />
             </div>
           </div>
         </div>
@@ -1074,6 +1111,78 @@ const ProjectCard = ({
                 <Link2 className="h-4 w-4" />
               )}
               {isAttachingTeam ? "Attaching..." : "Attach Team"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDeleteDialogOpen} onOpenChange={handleDeleteDialogChange}>
+        <DialogContent className="max-w-lg border-white/70 bg-white/94 shadow-[0_28px_80px_-40px_rgba(15,23,42,0.52)] backdrop-blur-2xl">
+          <DialogHeader className="space-y-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 text-rose-600 shadow-sm">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div className="space-y-2">
+              <DialogTitle>Delete Project</DialogTitle>
+              <DialogDescription>
+                This action will permanently delete the project and all associated
+                data.
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-[24px] border border-rose-200 bg-[linear-gradient(145deg,rgba(255,241,242,0.96),rgba(255,255,255,0.98))] p-4 text-sm text-rose-900 shadow-sm">
+              <p className="font-semibold">This action cannot be undone.</p>
+              <p className="mt-2 leading-6 text-rose-700">
+                Type the project name exactly as shown to confirm the deletion.
+              </p>
+            </div>
+
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/85 p-4 shadow-sm">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                Project Name
+              </p>
+              <p className="mt-2 break-words text-lg font-semibold text-slate-950">
+                {project.name}
+              </p>
+            </div>
+
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-700">
+                Confirmation
+              </span>
+              <Input
+                autoComplete="off"
+                className="rounded-[20px] border-slate-300"
+                disabled={isDeletingProject}
+                placeholder={`Type "${project.name}"`}
+                value={deleteConfirmationValue}
+                onChange={(event) => setDeleteConfirmationValue(event.target.value)}
+              />
+            </label>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => handleDeleteDialogChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!isDeleteConfirmationValid || isDeletingProject}
+              type="button"
+              onClick={handleDeleteProject}
+            >
+              {isDeletingProject ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              {isDeletingProject ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

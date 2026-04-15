@@ -1,4 +1,5 @@
 const asyncHandler = require("../utils/asyncHandler");
+const { hasAdminAccess } = require("../utils/roles");
 
 const adminOnly = asyncHandler(async (req, res, next) => {
   if (!req.user) {
@@ -6,9 +7,9 @@ const adminOnly = asyncHandler(async (req, res, next) => {
     throw new Error("Unauthorized");
   }
 
-  if (req.user.role !== "Admin") {
+  if (!hasAdminAccess(req.user.role)) {
     res.status(403);
-    throw new Error("Admin access required");
+    throw new Error("Admin or manager access required");
   }
 
   next();

@@ -2,6 +2,7 @@ const express = require("express");
 const {
   getProjects,
   createProject,
+  deleteProject,
   attachProjectTeam,
   detachProjectTeam,
   updateProjectStatus,
@@ -14,6 +15,7 @@ const router = express.Router();
 
 router.get("/", auth, getProjects);
 router.post("/", auth, createProject);
+router.delete("/:id", auth, deleteProject);
 router.post("/:id/teams", auth, attachProjectTeam);
 router.delete("/:id/teams/:teamId", auth, detachProjectTeam);
 router.patch("/:id/status", auth, updateProjectStatus);

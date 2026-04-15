@@ -4,6 +4,7 @@ const Issue = require("../models/Issue");
 const Project = require("../models/Project");
 const asyncHandler = require("../utils/asyncHandler");
 const { buildProjectAccessQuery } = require("../utils/projectRelations");
+const { hasAdminAccess } = require("../utils/roles");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 
 const isAssignedToUser = (issue, userId) =>
@@ -25,7 +26,7 @@ const getAccessibleIssue = async (user, issueId) => {
     return null;
   }
 
-  if (user.role !== "Admin" && isAssignedToUser(issue, user._id)) {
+  if (!hasAdminAccess(user.role) && isAssignedToUser(issue, user._id)) {
     return issue;
   }
 

@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderKanban } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   attachProjectTeam,
   createProject,
+  deleteProject,
   fetchProjects,
   fetchTeams,
   detachProjectTeam,
@@ -16,10 +18,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import EmptyState from "@/components/shared/EmptyState";
 import ToastNotice from "@/components/shared/ToastNotice";
 import { useAuth } from "@/hooks/use-auth";
+import { hasAdminPanelAccess } from "@/lib/roles";
 import { getWorkspaceScope } from "@/lib/workspace";
 
 const ProjectsPage = () => {
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const workspaceScope = getWorkspaceScope(user);
   const [toast, setToast] = useState(null);
@@ -43,6 +48,22 @@ const ProjectsPage = () => {
 
     return () => window.clearTimeout(timer);
   }, [toast?.id]);
+
+  useEffect(() => {
+    if (!location.state?.toast) {
+      return;
+    }
+
+    setToast({
+      id: Date.now(),
+      ...location.state.toast,
+    });
+
+    navigate(location.pathname, {
+      replace: true,
+      state: null,
+    });
+  }, [location.pathname, location.state, navigate]);
 
   const {
     data: projects = [],
@@ -87,6 +108,26 @@ const ProjectsPage = () => {
     mutationFn: updateProjectStatus,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+
+  const deleteProjectMutation = useMutation({
+    mutationFn: deleteProject,
+    onSuccess: async (_, deletedProjectId) => {
+      queryClient.removeQueries({
+        queryKey: ["project-meetings", deletedProjectId],
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["issues"] }),
+        queryClient.invalidateQueries({ queryKey: ["reports"] }),
+      ]);
+    },
+    onError: (error) => {
+      showToast(
+        "error",
+        error.response?.data?.message || "Unable to delete this project right now."
+      );
     },
   });
 
@@ -135,7 +176,7 @@ const ProjectsPage = () => {
             projects.map((project, index) => (
               <ProjectCard
                 key={project._id}
-                canManageProject={user?.role === "Admin"}
+                canManageProject={hasAdminPanelAccess(user?.role)}
                 index={index}
                 isAttachingTeam={
                   attachProjectTeamMutation.isPending &&
@@ -160,8 +201,15 @@ const ProjectsPage = () => {
                 onUpdateStatus={(payload) =>
                   updateProjectStatusMutation.mutateAsync(payload)
                 }
+                onDeleteProject={(projectId) =>
+                  deleteProjectMutation.mutateAsync(projectId)
+                }
                 onOpenTeamsComposer={() =>
                   showToast("success", "Opening Microsoft Teams...")
+                }
+                isDeletingProject={
+                  deleteProjectMutation.isPending &&
+                  deleteProjectMutation.variables === project._id
                 }
                 project={project}
                 workspaceTeams={teams}

@@ -1,12 +1,12 @@
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
 const { normalizeWorkspaceId } = require("../utils/workspace");
+const { USER_ROLE_OPTIONS } = require("../utils/roles");
 
 const { Schema, model, models } = mongoose;
 
 const isBcryptHash = (value = "") => /^\$2[aby]\$\d{2}\$/.test(value);
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const USER_ROLE_OPTIONS = ["Admin", "Developer", "Tester"];
 
 const userSchema = new Schema(
   {
@@ -56,6 +56,22 @@ const userSchema = new Schema(
       trim: true,
       index: true,
       default: normalizeWorkspaceId(),
+    },
+    senderPreference: {
+      userId: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+      updatedBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+      updatedAt: {
+        type: Date,
+        default: null,
+      },
     },
     createdAt: {
       type: Date,

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const Comment = require("../models/Comment");
 const Issue = require("../models/Issue");
 const Project = require("../models/Project");
 const ProjectMeeting = require("../models/ProjectMeeting");
@@ -9,6 +10,7 @@ const User = require("../models/User");
 const { sendProjectMeetingInviteEmail } = require("../services/emailService");
 const { createOnlineMeeting } = require("../services/microsoftGraphService");
 const asyncHandler = require("../utils/asyncHandler");
+const { hasAdminAccess } = require("../utils/roles");
 const {
   buildProjectAccessQuery,
   loadSerializedProjectById,
@@ -46,7 +48,7 @@ const parseProjectCompletedValue = (value) => {
 const buildProjectQuery = async (user) => {
   const accessQuery = await buildProjectAccessQuery(user);
 
-  if (user.role === "Admin") {
+  if (hasAdminAccess(user.role)) {
     return accessQuery;
   }
 
@@ -323,9 +325,9 @@ const createProject = asyncHandler(async (req, res) => {
     throw new Error("Unauthorized");
   }
 
-  if (req.user.role !== "Admin") {
+  if (!hasAdminAccess(req.user.role)) {
     res.status(403);
-    throw new Error("Only admins can create projects");
+    throw new Error("Only admins and managers can create projects");
   }
 
   if (!name || !name.trim()) {
@@ -344,15 +346,76 @@ const createProject = asyncHandler(async (req, res) => {
   res.status(201).json(await buildProjectResponse(project._id));
 });
 
+const deleteProject = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Unauthorized");
+  }
+
+  if (!hasAdminAccess(req.user.role)) {
+    res.status(403);
+    throw new Error("Only admins and managers can delete projects");
+  }
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid project id");
+  }
+
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const project = await Project.findOne({
+    _id: req.params.id,
+    workspaceId,
+  })
+    .select("_id")
+    .lean();
+
+  if (!project) {
+    res.status(404);
+    throw new Error("Project not found");
+  }
+
+  const issueIds = await Issue.find({
+    projectId: project._id,
+  }).distinct("_id");
+
+  await Promise.all([
+    issueIds.length
+      ? Comment.deleteMany({
+          issueId: {
+            $in: issueIds,
+          },
+        })
+      : Promise.resolve(),
+    Issue.deleteMany({
+      projectId: project._id,
+    }),
+    ProjectTeam.deleteMany({
+      projectId: project._id,
+    }),
+    ProjectMeeting.deleteMany({
+      projectId: project._id,
+    }),
+    Project.deleteOne({
+      _id: project._id,
+      workspaceId,
+    }),
+  ]);
+
+  res.status(200).json({
+    message: "Project deleted successfully",
+  });
+});
+
 const attachProjectTeam = asyncHandler(async (req, res) => {
   if (!req.user) {
     res.status(401);
     throw new Error("Unauthorized");
   }
 
-  if (req.user.role !== "Admin") {
+  if (!hasAdminAccess(req.user.role)) {
     res.status(403);
-    throw new Error("Only admins can attach teams to projects");
+    throw new Error("Only admins and managers can attach teams to projects");
   }
 
   if (!mongoose.isValidObjectId(req.params.id)) {
@@ -419,9 +482,9 @@ const detachProjectTeam = asyncHandler(async (req, res) => {
     throw new Error("Unauthorized");
   }
 
-  if (req.user.role !== "Admin") {
+  if (!hasAdminAccess(req.user.role)) {
     res.status(403);
-    throw new Error("Only admins can detach teams from projects");
+    throw new Error("Only admins and managers can detach teams from projects");
   }
 
   if (!mongoose.isValidObjectId(req.params.id)) {
@@ -487,9 +550,9 @@ const updateProjectStatus = asyncHandler(async (req, res) => {
     throw new Error("Unauthorized");
   }
 
-  if (req.user.role !== "Admin") {
+  if (!hasAdminAccess(req.user.role)) {
     res.status(403);
-    throw new Error("Only admins can update project status");
+    throw new Error("Only admins and managers can update project status");
   }
 
   if (!mongoose.isValidObjectId(req.params.id)) {
@@ -561,6 +624,7 @@ const scheduleProjectMeeting = asyncHandler(async (req, res) => {
   }
 
   const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const mailWorkspaceId = normalizeWorkspaceId(project.workspaceId || workspaceId);
   const participants = await getAttachedTeamParticipants({
     projectId: project._id,
     workspaceId,
@@ -615,6 +679,9 @@ const scheduleProjectMeeting = asyncHandler(async (req, res) => {
         startDateTime: meeting.startDateTime,
         endDateTime: meeting.endDateTime,
         projectName: project.name,
+      },
+      {
+        workspaceId: mailWorkspaceId,
       }
     );
   } catch (inviteError) {
@@ -669,6 +736,7 @@ const getProjectMeetings = asyncHandler(async (req, res) => {
 module.exports = {
   getProjects,
   createProject,
+  deleteProject,
   attachProjectTeam,
   detachProjectTeam,
   updateProjectStatus,

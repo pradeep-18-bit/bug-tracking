@@ -13,6 +13,7 @@ const commentRoutes = require("./routes/commentRoutes");
 const issueRoutes = require("./routes/issueRoutes");
 const projectRoutes = require("./routes/projectRoutes");
 const reportRoutes = require("./routes/reportRoutes");
+const settingsRoutes = require("./routes/settingsRoutes");
 const teamRoutes = require("./routes/teamRoutes");
 const testRoutes = require("./routes/testRoutes");
 const userRoutes = require("./routes/userRoutes");
@@ -43,6 +44,7 @@ app.use("/api/teams", teamRoutes);
 app.use("/api/issues", issueRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/comments", commentRoutes);
+app.use("/api/settings", settingsRoutes);
 app.use("/", testRoutes);
 
 app.use(notFound);
