@@ -8,6 +8,8 @@ const { normalizeWorkspaceId } = require("./workspace");
 const toPlainObject = (value) =>
   typeof value?.toObject === "function" ? value.toObject() : value;
 
+const sanitizeProjectUser = (value) => sanitizeUser(value) || null;
+
 const buildEffectiveMembers = (teams = []) => {
   const members = [];
   const seenIds = new Set();
@@ -101,6 +103,13 @@ const serializeProjectsWithRelations = async (projects = []) => {
       ...projectWithoutLegacyMembers,
       workspaceId: normalizeWorkspaceId(project.workspaceId),
       createdBy: sanitizeUser(project.createdBy),
+      manager: sanitizeProjectUser(project.manager),
+      teamLead: sanitizeProjectUser(project.teamLead),
+      epics: Array.isArray(project.epics)
+        ? project.epics
+            .map((epic) => (typeof epic === "string" ? epic.trim() : ""))
+            .filter(Boolean)
+        : [],
       teams: (project.teams || []).map((team) => ({
         ...team,
         workspaceId: normalizeWorkspaceId(team.workspaceId),

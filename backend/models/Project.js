@@ -16,6 +16,27 @@ const projectSchema = new Schema(
       trim: true,
       default: "",
     },
+    epics: {
+      type: [
+        {
+          type: String,
+          trim: true,
+        },
+      ],
+      default: [],
+    },
+    manager: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    teamLead: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
     workspaceId: {
       type: String,
       required: true,

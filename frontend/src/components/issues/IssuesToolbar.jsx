@@ -1,0 +1,130 @@
+import { Plus, Search } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+
+const ALL_PROJECTS_VALUE = "ALL";
+
+const IssuesToolbar = ({
+  filters,
+  projects = [],
+  teams = [],
+  visibleIssueCount = 0,
+  activeStatusLabel = "",
+  selectedProject = null,
+  canCreateIssue = true,
+  isCreateDisabled = false,
+  onProjectChange,
+  onTeamChange,
+  onSearchChange,
+  onCreateIssue,
+}) => {
+  const showTeamWarning = Boolean(selectedProject) && !teams.length;
+
+  return (
+    <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
+      <CardContent className="space-y-4 p-4 sm:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-slate-900">
+              {visibleIssueCount} issue{visibleIssueCount === 1 ? "" : "s"} in view
+            </p>
+            <p className="text-sm leading-6 text-slate-600">
+              Filter issues and move work across the board without changing the light
+              Pirnav UI.
+            </p>
+          </div>
+
+          <Button
+            className="w-full sm:w-auto"
+            type="button"
+            disabled={isCreateDisabled}
+            onClick={onCreateIssue}
+          >
+            <Plus className="h-4 w-4" />
+            Create Issue
+          </Button>
+        </div>
+
+        <div className="grid gap-3 xl:grid-cols-[220px_220px_minmax(0,1fr)]">
+          <label className="space-y-2">
+            <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+              Project
+            </span>
+            <select
+              className="field-select"
+              value={filters.projectId}
+              onChange={(event) => onProjectChange(event.target.value)}
+            >
+              <option value={ALL_PROJECTS_VALUE}>All projects</option>
+              {projects.map((project) => (
+                <option key={project._id} value={project._id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-2">
+            <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+              Team
+            </span>
+            <select
+              className="field-select"
+              value={filters.teamId}
+              onChange={(event) => onTeamChange(event.target.value)}
+              disabled={!teams.length}
+            >
+              <option value="all">All teams</option>
+              {teams.map((team) => (
+                <option key={team._id} value={team._id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-2">
+            <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+              Search
+            </span>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                className="pl-11"
+                placeholder="Search issues"
+                value={filters.search}
+                onChange={(event) => onSearchChange(event.target.value)}
+              />
+            </div>
+          </label>
+        </div>
+
+        {showTeamWarning ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            Attach a team to <span className="font-semibold">{selectedProject.name}</span>{" "}
+            before creating or assigning issues in this project.
+          </div>
+        ) : null}
+
+        {activeStatusLabel ? (
+          <div className="flex items-center">
+            <Badge className="rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
+              {activeStatusLabel}
+            </Badge>
+          </div>
+        ) : null}
+
+        {!canCreateIssue ? (
+          <p className="text-xs text-slate-500">
+            Issue creation is limited for your role, but the board layout and issue
+            actions remain consistent.
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+};
+
+export default IssuesToolbar;

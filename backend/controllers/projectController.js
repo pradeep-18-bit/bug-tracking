@@ -18,7 +18,11 @@ const {
 } = require("../utils/projectRelations");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 
-const projectPopulation = [{ path: "createdBy", select: "name email role workspaceId" }];
+const projectPopulation = [
+  { path: "createdBy", select: "name email role workspaceId" },
+  { path: "manager", select: "name email role workspaceId" },
+  { path: "teamLead", select: "name email role workspaceId" },
+];
 
 const populateProject = (target) => target.populate(projectPopulation);
 
@@ -42,6 +46,85 @@ const parseProjectCompletedValue = (value) => {
       status: 400,
       message: "Project status must include isCompleted as a boolean",
     },
+  };
+};
+
+const normalizeProjectEpics = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const uniqueEpics = new Map();
+
+  value.forEach((epic) => {
+    if (typeof epic !== "string") {
+      return;
+    }
+
+    const normalizedEpic = epic.trim();
+
+    if (!normalizedEpic) {
+      return;
+    }
+
+    const dedupeKey = normalizedEpic.toLowerCase();
+
+    if (!uniqueEpics.has(dedupeKey)) {
+      uniqueEpics.set(dedupeKey, normalizedEpic);
+    }
+  });
+
+  return Array.from(uniqueEpics.values());
+};
+
+const loadWorkspaceUserAssignment = async ({
+  userId,
+  workspaceId,
+  label,
+  allowedRoles = [],
+}) => {
+  if (userId === null || userId === "" || typeof userId === "undefined") {
+    return {
+      value: null,
+    };
+  }
+
+  if (!mongoose.isValidObjectId(userId)) {
+    return {
+      error: {
+        status: 400,
+        message: `Invalid ${label} user`,
+      },
+    };
+  }
+
+  const user = await User.findOne({
+    _id: userId,
+    workspaceId: normalizeWorkspaceId(workspaceId),
+  })
+    .select("_id name email role workspaceId")
+    .lean();
+
+  if (!user) {
+    return {
+      error: {
+        status: 404,
+        message: `${label} could not be found in this workspace`,
+      },
+    };
+  }
+
+  if (allowedRoles.length && !allowedRoles.includes(user.role)) {
+    return {
+      error: {
+        status: 400,
+        message: `${label} must have one of these roles: ${allowedRoles.join(", ")}`,
+      },
+    };
+  }
+
+  return {
+    value: user._id,
   };
 };
 
@@ -318,7 +401,13 @@ const createProject = asyncHandler(async (req, res) => {
 
   const userId = req.user.id || req.user._id;
   const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
-  const { name, description = "" } = req.body;
+  const {
+    name,
+    description = "",
+    epics = [],
+    manager = null,
+    teamLead = null,
+  } = req.body;
 
   if (!userId) {
     res.status(401);
@@ -335,9 +424,37 @@ const createProject = asyncHandler(async (req, res) => {
     throw new Error("Project name is required");
   }
 
+  const [managerResult, teamLeadResult] = await Promise.all([
+    loadWorkspaceUserAssignment({
+      userId: manager,
+      workspaceId,
+      label: "Manager",
+      allowedRoles: ["Admin", "Manager"],
+    }),
+    loadWorkspaceUserAssignment({
+      userId: teamLead,
+      workspaceId,
+      label: "Team lead",
+      allowedRoles: ["Admin", "Manager", "Developer"],
+    }),
+  ]);
+
+  if (managerResult.error) {
+    res.status(managerResult.error.status);
+    throw new Error(managerResult.error.message);
+  }
+
+  if (teamLeadResult.error) {
+    res.status(teamLeadResult.error.status);
+    throw new Error(teamLeadResult.error.message);
+  }
+
   const project = await Project.create({
     name: name.trim(),
     description: typeof description === "string" ? description.trim() : "",
+    epics: normalizeProjectEpics(epics),
+    manager: managerResult.value,
+    teamLead: teamLeadResult.value,
     workspaceId,
     createdBy: userId,
     isCompleted: false,

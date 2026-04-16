@@ -1,6 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import {
   createIssue,
@@ -9,32 +8,24 @@ import {
   fetchProjects,
   updateIssue,
 } from "@/lib/api";
+import { ISSUE_STATUS, normalizeIssueStatus } from "@/lib/issues";
 import {
-  getIssuePriorityVariant,
-  getIssueStatusLabel,
-  getIssueStatusVariant,
-  ISSUE_STATUS,
-  normalizeIssueStatus,
-  resolveIssueAssignee,
-} from "@/lib/issues";
-import { findProjectById, getProjectTeams } from "@/lib/project-teams";
-import { formatDateTime } from "@/lib/utils";
+  findProjectById,
+  getProjectTeams,
+  resolveTeamId,
+} from "@/lib/project-teams";
+import IssueBoard from "@/components/issues/IssueBoard";
 import IssueCreateDialog from "@/components/issues/IssueCreateDialog";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
+import IssuesToolbar from "@/components/issues/IssuesToolbar";
 import EmptyState from "@/components/shared/EmptyState";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
-import DeveloperDashboardPage from "@/pages/DeveloperDashboardPage";
-import TesterDashboardPage from "@/pages/TesterDashboardPage";
-import { hasAdminPanelAccess, ROLE_TESTER } from "@/lib/roles";
+import { canCreateIssues, canDeleteIssues, hasAdminPanelAccess } from "@/lib/roles";
 
 const isValidIssueType = (value) => ["Bug", "Task", "Story"].includes(value);
 const ALL_PROJECTS_VALUE = "ALL";
-const PROJECT_DIVIDER_VALUE = "__project-divider__";
 const OPEN_ISSUES_QUERY_VALUE = "OPEN";
 const CLOSED_ISSUES_QUERY_VALUE = "CLOSED";
 
@@ -71,10 +62,52 @@ const sanitizeComposeParams = (searchParams, setSearchParams) => {
   setSearchParams(nextParams, { replace: true });
 };
 
-const formatDueAt = (value) => (value ? formatDateTime(value) : "No due date");
+const getAvailableTeams = (projects = [], projectId = ALL_PROJECTS_VALUE) => {
+  if (projectId !== ALL_PROJECTS_VALUE) {
+    return getProjectTeams(findProjectById(projects, projectId));
+  }
 
-const AdminIssuesPage = () => {
+  const uniqueTeams = new Map();
+
+  projects.forEach((project) => {
+    getProjectTeams(project).forEach((team) => {
+      const teamId = resolveTeamId(team);
+
+      if (!teamId || uniqueTeams.has(teamId)) {
+        return;
+      }
+
+      uniqueTeams.set(teamId, team);
+    });
+  });
+
+  return Array.from(uniqueTeams.values()).sort((left, right) =>
+    (left.name || "").localeCompare(right.name || "")
+  );
+};
+
+const IssueBoardSkeleton = () => (
+  <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
+    <CardContent className="grid gap-4 p-4 xl:grid-cols-3">
+      {Array.from({ length: 3 }, (_, index) => (
+        <div
+          key={`issue-column-skeleton-${index}`}
+          className="rounded-[28px] border border-slate-200 bg-slate-50/80 p-4"
+        >
+          <div className="space-y-3">
+            <Skeleton className="h-6 w-32 rounded-full" />
+            <Skeleton className="h-40 w-full rounded-[24px]" />
+            <Skeleton className="h-40 w-full rounded-[24px]" />
+          </div>
+        </div>
+      ))}
+    </CardContent>
+  </Card>
+);
+
+const IssuesPage = () => {
   const queryClient = useQueryClient();
+  const { role } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState({
     projectId: normalizeProjectFilterValue(searchParams.get("projectId")),
@@ -82,23 +115,28 @@ const AdminIssuesPage = () => {
     search: searchParams.get("search") || "",
   });
   const [selectedIssue, setSelectedIssue] = useState(null);
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(
-    searchParams.get("compose") === "1"
-  );
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const deferredSearch = useDeferredValue(filters.search);
   const activeStatusFilter = useMemo(
     () => normalizeStatusFilterValue(searchParams.get("status")),
     [searchParams]
   );
+  const isAdminView = hasAdminPanelAccess(role);
+  const canCreateIssue = canCreateIssues(role);
+  const canDeleteIssue = canDeleteIssues(role);
 
   const {
-    data: projects = [],
+    data: projectsData = [],
     isLoading: isProjectsLoading,
     error: projectsError,
   } = useQuery({
     queryKey: ["projects"],
     queryFn: fetchProjects,
   });
+  const projects = useMemo(
+    () => (Array.isArray(projectsData) ? projectsData : []),
+    [projectsData]
+  );
 
   useEffect(() => {
     if (!projects.length) {
@@ -115,13 +153,12 @@ const AdminIssuesPage = () => {
           : findProjectById(projects, requestedProjectId);
       const nextProjectId = nextProject?._id || ALL_PROJECTS_VALUE;
       const requestedTeamId = searchParams.get("teamId") || current.teamId;
-      const nextTeamId =
-        nextProject &&
-        getProjectTeams(nextProject).some(
-          (team) => String(team._id) === String(requestedTeamId)
-        )
-          ? String(requestedTeamId)
-          : "all";
+      const nextAvailableTeams = getAvailableTeams(projects, nextProjectId);
+      const nextTeamId = nextAvailableTeams.some(
+        (team) => resolveTeamId(team) === String(requestedTeamId)
+      )
+        ? String(requestedTeamId)
+        : "all";
       const nextSearch = searchParams.get("search") || current.search;
 
       if (
@@ -141,28 +178,39 @@ const AdminIssuesPage = () => {
   }, [projects, searchParams]);
 
   useEffect(() => {
-    if (searchParams.get("compose") === "1" && projects.length) {
+    if (searchParams.get("compose") !== "1") {
+      return;
+    }
+
+    if (!canCreateIssue) {
+      sanitizeComposeParams(searchParams, setSearchParams);
+      setIsCreateDialogOpen(false);
+      return;
+    }
+
+    if (projects.length) {
       setIsCreateDialogOpen(true);
     }
-  }, [projects.length, searchParams]);
+  }, [canCreateIssue, projects.length, searchParams, setSearchParams]);
 
   const selectedProject = useMemo(
     () => findProjectById(projects, filters.projectId),
     [filters.projectId, projects]
   );
   const availableTeams = useMemo(
-    () => getProjectTeams(selectedProject),
-    [selectedProject]
+    () => getAvailableTeams(projects, filters.projectId),
+    [filters.projectId, projects]
   );
 
   const {
-    data: issues = [],
+    data: issuesData = [],
     isLoading: isIssuesLoading,
     error: issuesError,
   } = useQuery({
     queryKey: [
       "issues",
-      "admin-issues",
+      "issues-page",
+      role,
       filters.projectId,
       filters.teamId,
       deferredSearch,
@@ -171,12 +219,16 @@ const AdminIssuesPage = () => {
       fetchIssues({
         projectId:
           filters.projectId === ALL_PROJECTS_VALUE ? "" : filters.projectId,
-        teamId:
-          filters.projectId === ALL_PROJECTS_VALUE ? "all" : filters.teamId,
+        teamId: filters.teamId,
         search: deferredSearch,
-      }),
+    }),
     enabled: Boolean(projects.length),
   });
+  const issues = useMemo(
+    () => (Array.isArray(issuesData) ? issuesData : []),
+    [issuesData]
+  );
+
   const filteredIssues = useMemo(() => {
     if (!activeStatusFilter) {
       return issues;
@@ -196,6 +248,7 @@ const AdminIssuesPage = () => {
 
     return issues;
   }, [activeStatusFilter, issues]);
+
   const activeStatusLabel = useMemo(() => {
     if (activeStatusFilter === OPEN_ISSUES_QUERY_VALUE) {
       return "Showing: Open Issues";
@@ -208,11 +261,17 @@ const AdminIssuesPage = () => {
     return "";
   }, [activeStatusFilter]);
 
-  const { data: dependencyIssues = [] } = useQuery({
-    queryKey: ["issues", "admin-issue-options"],
+  const { data: dependencyIssuesData = [] } = useQuery({
+    queryKey: ["issues", "issues-page", "dependency-options", role],
     queryFn: () => fetchIssues(),
-    enabled: Boolean(projects.length),
+    enabled:
+      Boolean(projects.length) &&
+      Boolean(isCreateDialogOpen || (isAdminView && selectedIssue)),
   });
+  const dependencyIssues = useMemo(
+    () => (Array.isArray(dependencyIssuesData) ? dependencyIssuesData : []),
+    [dependencyIssuesData]
+  );
 
   useEffect(() => {
     if (!selectedIssue) {
@@ -250,14 +309,45 @@ const AdminIssuesPage = () => {
   });
 
   const handleProjectChange = (projectId) => {
+    const nextProjectId = normalizeProjectFilterValue(projectId);
+    const nextAvailableTeams = getAvailableTeams(projects, nextProjectId);
+
     setFilters((current) => ({
       ...current,
-      projectId: normalizeProjectFilterValue(projectId),
-      teamId: "all",
+      projectId: nextProjectId,
+      teamId: nextAvailableTeams.some(
+        (team) => resolveTeamId(team) === String(current.teamId)
+      )
+        ? current.teamId
+        : "all",
+    }));
+  };
+
+  const handleTeamChange = (teamId) => {
+    setFilters((current) => ({
+      ...current,
+      teamId,
+    }));
+  };
+
+  const handleSearchChange = (search) => {
+    setFilters((current) => ({
+      ...current,
+      search,
     }));
   };
 
   const error = projectsError || issuesError;
+  const composeType = isValidIssueType(searchParams.get("type"))
+    ? searchParams.get("type")
+    : "Task";
+  const lockComposeType = searchParams.get("type") === "Task";
+  const hasVisibleFilters = Boolean(
+    activeStatusFilter ||
+      filters.projectId !== ALL_PROJECTS_VALUE ||
+      filters.teamId !== "all" ||
+      filters.search.trim()
+  );
 
   if (error) {
     return (
@@ -278,193 +368,51 @@ const AdminIssuesPage = () => {
     );
   }
 
-  const composeType = isValidIssueType(searchParams.get("type"))
-    ? searchParams.get("type")
-    : "Task";
-  const lockComposeType = searchParams.get("type") === "Task";
-
   return (
     <div className="space-y-4">
-      <Card className="border-slate-200 shadow-sm">
-        <CardContent className="space-y-3 p-4">
-          <div className="grid gap-3 xl:grid-cols-[minmax(0,220px)_minmax(0,220px)_minmax(0,1fr)_auto]">
-            <label className="min-w-0 space-y-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Project
-              </span>
-              <select
-                className="field-select"
-                value={filters.projectId}
-                onChange={(event) => handleProjectChange(event.target.value)}
-              >
-                <option value={ALL_PROJECTS_VALUE}>All Projects</option>
-                {projects.length ? (
-                  <option value={PROJECT_DIVIDER_VALUE} disabled>
-                    -----------
-                  </option>
-                ) : null}
-                {projects.map((project) => (
-                  <option key={project._id} value={project._id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+      <IssuesToolbar
+        filters={filters}
+        projects={projects}
+        teams={availableTeams}
+        visibleIssueCount={filteredIssues.length}
+        activeStatusLabel={activeStatusLabel}
+        selectedProject={selectedProject}
+        canCreateIssue={canCreateIssue}
+        isCreateDisabled={!projects.length || !canCreateIssue}
+        onProjectChange={handleProjectChange}
+        onTeamChange={handleTeamChange}
+        onSearchChange={handleSearchChange}
+        onCreateIssue={() => setIsCreateDialogOpen(true)}
+      />
 
-            <label className="min-w-0 space-y-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Team
-              </span>
-              <select
-                className="field-select"
-                value={filters.teamId}
-                onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
-                    teamId: event.target.value,
-                  }))
-                }
-                disabled={!availableTeams.length}
-              >
-                <option value="all">All teams</option>
-                {availableTeams.map((team) => (
-                  <option key={team._id} value={team._id}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="min-w-0 space-y-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Search
-              </span>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input
-                  className="pl-10"
-                  placeholder="Search issues"
-                  value={filters.search}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      search: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-            </label>
-
-            <div className="flex items-end">
-              <Button
-                className="w-full xl:w-auto"
-                type="button"
-                onClick={() => setIsCreateDialogOpen(true)}
-                disabled={!filters.projectId || !availableTeams.length}
-              >
-                <Plus className="h-4 w-4" />
-                Create Issue
-              </Button>
-            </div>
-          </div>
-
-          {!availableTeams.length && selectedProject ? (
-            <p className="text-sm text-amber-700">
-              Attach a team to <span className="font-semibold">{selectedProject.name}</span>{" "}
-              before creating issues.
-            </p>
-          ) : null}
-
-          {activeStatusLabel ? (
-            <div className="flex items-center">
-              <Badge className="rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
-                {activeStatusLabel}
-              </Badge>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Card className="border-slate-200 shadow-sm">
-        <CardContent className="p-0">
-          {isProjectsLoading || isIssuesLoading ? (
-            <div className="space-y-3 p-4">
-              <Skeleton className="h-12 w-full rounded-xl" />
-              <Skeleton className="h-12 w-full rounded-xl" />
-              <Skeleton className="h-12 w-full rounded-xl" />
-              <Skeleton className="h-12 w-full rounded-xl" />
-            </div>
-          ) : filteredIssues.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-[900px] w-full text-left">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-[0.22em] text-slate-500">
-                    <th className="px-4 py-3 font-semibold">Title</th>
-                    <th className="px-4 py-3 font-semibold">Team</th>
-                    <th className="px-4 py-3 font-semibold">Assignee</th>
-                    <th className="px-4 py-3 font-semibold">Priority</th>
-                    <th className="px-4 py-3 font-semibold">Due Date</th>
-                    <th className="px-4 py-3 font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredIssues.map((issue) => {
-                    const assignee = resolveIssueAssignee(issue);
-
-                    return (
-                      <tr
-                        key={issue._id}
-                        className="cursor-pointer border-b border-slate-200/80 transition hover:bg-slate-50"
-                        onClick={() => setSelectedIssue(issue)}
-                      >
-                        <td className="px-4 py-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-slate-900">
-                              {issue.title}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              #{issue._id.slice(-6)}
-                            </p>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-700">
-                          {issue.teamId?.name || "No team"}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-700">
-                          {assignee?.name || "Unassigned"}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant={getIssuePriorityVariant(issue.priority)}>
-                            {issue.priority}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-700">
-                          {formatDueAt(issue.dueAt)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant={getIssueStatusVariant(issue.status)}>
-                            {getIssueStatusLabel(issue.status)}
-                          </Badge>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="p-6">
-              <EmptyState
-                title="No issues in this view"
-                description="Adjust the project or team filter, or create the first issue for this project."
-              />
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {isProjectsLoading || isIssuesLoading ? (
+        <IssueBoardSkeleton />
+      ) : (
+        <IssueBoard
+          issues={filteredIssues}
+          updatingId={updateIssueMutation.isPending ? updateIssueMutation.variables?.id : ""}
+          canEditIssue={isAdminView}
+          canChangeStatus
+          onSelectIssue={setSelectedIssue}
+          onStatusChange={(id, status) =>
+            updateIssueMutation.mutateAsync({
+              id,
+              payload: { status },
+            })
+          }
+          emptyStateTitle={
+            hasVisibleFilters ? "No issues match this board view" : "No issues in this board"
+          }
+          emptyStateDescription={
+            hasVisibleFilters
+              ? "Adjust the project, team, or search filters to widen the board."
+              : "Create the first issue to populate the kanban board."
+          }
+        />
+      )}
 
       <IssueCreateDialog
-        open={isCreateDialogOpen}
+        open={canCreateIssue && isCreateDialogOpen}
         onOpenChange={(open) => {
           setIsCreateDialogOpen(open);
 
@@ -474,7 +422,9 @@ const AdminIssuesPage = () => {
         }}
         projects={projects}
         availableIssues={dependencyIssues}
-        defaultProjectId={filters.projectId}
+        defaultProjectId={
+          filters.projectId === ALL_PROJECTS_VALUE ? "" : filters.projectId
+        }
         defaultTeamId={filters.teamId !== "all" ? filters.teamId : ""}
         defaultType={composeType}
         lockType={lockComposeType}
@@ -502,20 +452,13 @@ const AdminIssuesPage = () => {
         onDeleteIssue={(id) => deleteIssueMutation.mutateAsync(id)}
         updatingId={updateIssueMutation.isPending ? updateIssueMutation.variables?.id : ""}
         deletingId={deleteIssueMutation.isPending ? deleteIssueMutation.variables : ""}
-        canEditCoreDetails
+        canEditCoreDetails={isAdminView}
+        canEditPriority={isAdminView}
+        canEditAssignee={isAdminView}
+        canDeleteIssue={canDeleteIssue}
       />
     </div>
   );
-};
-
-const IssuesPage = () => {
-  const { role } = useAuth();
-
-  if (!hasAdminPanelAccess(role)) {
-    return role === ROLE_TESTER ? <TesterDashboardPage /> : <DeveloperDashboardPage />;
-  }
-
-  return <AdminIssuesPage />;
 };
 
 export default IssuesPage;
