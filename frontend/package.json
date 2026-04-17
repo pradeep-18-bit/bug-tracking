@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "description": "React frontend for the Jira-like project management app",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
