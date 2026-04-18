@@ -122,6 +122,36 @@ docker compose up --build
 - Optional override recipient: `http://localhost:5000/test-email?to=someone@example.com`
 - MongoDB: `mongodb://localhost:27017`
 
+## Frontend Setup (Ubuntu/macOS)
+
+Use the repo-pinned Node version before installing frontend dependencies. The repo now includes both `.nvmrc` and `.node-version`, and the frontend install preflight enforces the same Node/npm range as `frontend/package.json`.
+
+```bash
+nvm install 20.19.0
+nvm use 20.19.0
+node -v
+npm -v
+
+cd frontend
+npm run preflight
+npm ci
+npm run dev
+```
+
+Expected toolchain:
+
+- Node `20.19.0` or newer on the `20.x` line, or `22.12.0+`
+- npm `10+`
+
+For Dockerized runs from a fresh clone:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+The frontend Docker build intentionally uses `npm ci`, so `frontend/package-lock.json` must stay committed and in sync with `frontend/package.json`.
+
 ## Mongo Restore Behavior
 
 - The Mongo image restores the backup from `deploy/mongo/backup/bugtracker/` only on the first boot of an empty Mongo volume.
@@ -152,7 +182,7 @@ Backend:
 
 ```bash
 cd backend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -160,9 +190,16 @@ Frontend:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
+
+## Frontend Dependency Workflow
+
+- Use `npm ci` for fresh clones, local verification, and Docker builds.
+- Only use `npm install` or `npm uninstall` inside `frontend/` when you are intentionally changing dependencies.
+- Always commit both `frontend/package.json` and `frontend/package-lock.json` after dependency changes.
+- Before pushing dependency updates, verify them with `cd frontend && npm ci && npm run build`.
 
 ## Deployment Notes
 

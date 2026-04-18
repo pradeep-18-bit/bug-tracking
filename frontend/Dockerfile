@@ -1,8 +1,10 @@
+# Keep Docker on the same supported Node line documented for local development.
 FROM node:20.19.0-bookworm-slim AS build
 
 WORKDIR /app
 
 COPY package*.json ./
+# Keep npm ci here so Docker fails fast when the committed lockfile is out of sync.
 RUN npm ci
 
 COPY . .
