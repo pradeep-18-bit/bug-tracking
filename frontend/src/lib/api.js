@@ -1,5 +1,6 @@
 import axios from "axios";
 import { readStoredSession } from "@/lib/session";
+import { normalizeWorkspaceSenderResponse } from "@/lib/workspaceSender";
 import { CURRENT_WORKSPACE_SCOPE } from "@/lib/workspace";
 
 const api = axios.create({
@@ -366,12 +367,12 @@ export const testEmailConfig = async (payload) => {
 
 export const fetchWorkspaceSender = async () => {
   const response = await api.get("/settings/workspace-sender");
-  return response.data;
+  return normalizeWorkspaceSenderResponse(response.data);
 };
 
 export const saveWorkspaceSender = async (payload) => {
   const response = await api.post("/settings/workspace-sender", payload);
-  return response.data;
+  return normalizeWorkspaceSenderResponse(response.data);
 };
 
 export const fetchEligibleSenders = async () => {

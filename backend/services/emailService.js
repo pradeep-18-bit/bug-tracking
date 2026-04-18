@@ -10,6 +10,7 @@ const UserEmailConfig = require("../models/UserEmailConfig");
 const WorkspaceSetting = require("../models/WorkspaceSetting");
 const { decryptSecret } = require("../utils/emailCrypto");
 const { isEligibleWorkspaceSenderRole } = require("../utils/roles");
+const { getWorkspaceSenderState } = require("../utils/workspaceSender");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ipv4Regex =
@@ -554,18 +555,27 @@ const loadWorkspaceMailerConfig = async (workspaceId) => {
   })
     .select("workspaceSender")
     .lean();
+  const { workspaceSender, workspaceSenderUserId, hasWorkspaceSender } =
+    getWorkspaceSenderState(settings);
 
   console.log("[email] Workspace sender settings lookup", {
     workspaceId: normalizedWorkspaceId,
     settingsDocument: settings
       ? {
           workspaceId: settings.workspaceId || normalizedWorkspaceId,
-          workspaceSender: settings.workspaceSender || null,
+          workspaceSender: workspaceSender || null,
         }
       : null,
   });
 
-  if (!settings?.workspaceSender?.enabled || !settings.workspaceSender.userId) {
+  if (!hasWorkspaceSender) {
+    console.log("[email] Workspace sender fallback engaged", {
+      workspaceId: normalizedWorkspaceId,
+      reason: workspaceSender
+        ? "workspaceSender disabled or missing userId"
+        : "settings or workspaceSender missing",
+    });
+
     return {
       config: null,
       fallbackReason: "No workspace default sender is configured.",
@@ -575,7 +585,7 @@ const loadWorkspaceMailerConfig = async (workspaceId) => {
   }
 
   return loadUserMailerConfig({
-    userId: settings.workspaceSender.userId,
+    userId: workspaceSenderUserId,
     workspaceId: normalizedWorkspaceId,
     sourceLabel: "Workspace default sender",
   });

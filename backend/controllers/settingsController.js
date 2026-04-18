@@ -16,6 +16,13 @@ const {
   ROLE_MANAGER,
   isEligibleWorkspaceSenderRole,
 } = require("../utils/roles");
+const {
+  DEFAULT_GLOBAL_FALLBACK_NOTE,
+  buildSenderSelectionPayload,
+  getWorkspaceSenderState,
+  buildEffectiveSenderSelection,
+  buildWorkspaceSenderResponse,
+} = require("../utils/workspaceSender");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 
 const MASKED_PASSWORD_PATTERN = /^(?:\*|â€¢|â—|âˆ™){6,}$/u;
@@ -143,15 +150,12 @@ const getUserSmtpConfigState = async ({ workspaceId, userId }) => {
   };
 };
 
-const buildSenderSelectionPayload = ({
-  enabled = false,
-  userId = "",
-  user = null,
-}) => ({
-  enabled,
-  userId: enabled && userId ? String(userId) : "",
-  user: enabled ? user : null,
-});
+const logSenderResolution = (step, payload = {}) => {
+  console.log("[settings] Workspace sender resolution", {
+    step,
+    ...payload,
+  });
+};
 
 const resolveEligibleSenderUser = async (userId, workspaceId, res) => {
   if (!mongoose.isValidObjectId(userId)) {
@@ -368,8 +372,17 @@ const loadWorkspaceDefaultSenderSelection = async ({
   })
     .select("workspaceSender")
     .lean();
+  const { workspaceSender, workspaceSenderUserId, hasWorkspaceSender } =
+    getWorkspaceSenderState(settings);
 
-  if (!settings?.workspaceSender?.enabled || !settings.workspaceSender.userId) {
+  if (!hasWorkspaceSender) {
+    logSenderResolution("workspace-default-missing", {
+      workspaceId: normalizedWorkspaceId,
+      reason: workspaceSender
+        ? "workspaceSender disabled or missing userId"
+        : "settings or workspaceSender missing",
+    });
+
     return {
       ...buildSenderSelectionPayload(),
       source: "workspace-default",
@@ -378,18 +391,24 @@ const loadWorkspaceDefaultSenderSelection = async ({
   }
 
   const senderUser = await User.findOne({
-    _id: settings.workspaceSender.userId,
+    _id: workspaceSenderUserId,
     workspaceId: normalizedWorkspaceId,
   })
     .select("_id name email role")
     .lean();
 
   if (!senderUser || !isEligibleWorkspaceSenderRole(senderUser.role)) {
+    logSenderResolution("workspace-default-invalid", {
+      workspaceId: normalizedWorkspaceId,
+      senderUserId: workspaceSenderUserId,
+      reason: senderUser ? `ineligible role ${senderUser.role}` : "user missing",
+    });
+
     if (clearInvalid) {
       await clearWorkspaceSenderSelection({
         workspaceId: normalizedWorkspaceId,
         userId: updatedByUserId,
-        matchUserId: settings.workspaceSender.userId,
+        matchUserId: workspaceSenderUserId,
       });
     }
 
@@ -407,6 +426,11 @@ const loadWorkspaceDefaultSenderSelection = async ({
   });
 
   if (!smtpConfigured) {
+    logSenderResolution("workspace-default-missing-smtp", {
+      workspaceId: normalizedWorkspaceId,
+      senderUserId: String(senderUser._id),
+    });
+
     if (clearInvalid) {
       await clearWorkspaceSenderSelection({
         workspaceId: normalizedWorkspaceId,
@@ -443,6 +467,12 @@ const loadUserManualSenderSelection = async ({
   const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
 
   if (!mongoose.isValidObjectId(ownerUserId)) {
+    logSenderResolution("manual-missing", {
+      workspaceId: normalizedWorkspaceId,
+      ownerUserId: String(ownerUserId || ""),
+      reason: "owner user id is invalid",
+    });
+
     return {
       ...buildSenderSelectionPayload(),
       source: "manual",
@@ -458,6 +488,12 @@ const loadUserManualSenderSelection = async ({
     .lean();
 
   if (!ownerUser?.senderPreference?.userId) {
+    logSenderResolution("manual-missing", {
+      workspaceId: normalizedWorkspaceId,
+      ownerUserId: String(ownerUserId || ""),
+      reason: "manual sender is not configured",
+    });
+
     return {
       ...buildSenderSelectionPayload(),
       source: "manual",
@@ -473,6 +509,13 @@ const loadUserManualSenderSelection = async ({
     .lean();
 
   if (!senderUser || !isEligibleWorkspaceSenderRole(senderUser.role)) {
+    logSenderResolution("manual-invalid", {
+      workspaceId: normalizedWorkspaceId,
+      ownerUserId: String(ownerUserId || ""),
+      senderUserId: String(ownerUser.senderPreference.userId || ""),
+      reason: senderUser ? `ineligible role ${senderUser.role}` : "user missing",
+    });
+
     if (clearInvalid) {
       await clearUserSenderPreference({
         workspaceId: normalizedWorkspaceId,
@@ -496,6 +539,12 @@ const loadUserManualSenderSelection = async ({
   });
 
   if (!smtpConfigured) {
+    logSenderResolution("manual-missing-smtp", {
+      workspaceId: normalizedWorkspaceId,
+      ownerUserId: String(ownerUserId || ""),
+      senderUserId: String(senderUser._id),
+    });
+
     if (clearInvalid) {
       await clearUserSenderPreference({
         workspaceId: normalizedWorkspaceId,
@@ -547,48 +596,22 @@ const resolveEffectiveSenderSelection = async ({
   const note = [manualSelection.note, workspaceDefault.note]
     .filter(Boolean)
     .join(" ");
+  const effectiveSelection = buildEffectiveSenderSelection({
+    manualSelection,
+    workspaceDefault,
+    globalFallbackNote: note || DEFAULT_GLOBAL_FALLBACK_NOTE,
+  });
 
-  if (manualSelection.enabled) {
-    return {
-      ...buildSenderSelectionPayload({
-        enabled: true,
-        userId: manualSelection.userId,
-        user: manualSelection.user,
-      }),
-      source: "manual",
-      manualSelection: buildSenderSelectionPayload({
-        enabled: true,
-        userId: manualSelection.userId,
-        user: manualSelection.user,
-      }),
-      workspaceDefault: buildSenderSelectionPayload(workspaceDefault),
-      note,
-    };
-  }
+  logSenderResolution("effective-selection", {
+    workspaceId: normalizedWorkspaceId,
+    ownerUserId: String(ownerUserId || ""),
+    source: effectiveSelection.source,
+    manualEnabled: Boolean(manualSelection?.enabled),
+    workspaceDefaultEnabled: Boolean(workspaceDefault?.enabled),
+    note: effectiveSelection.note,
+  });
 
-  if (workspaceDefault.enabled) {
-    return {
-      ...buildSenderSelectionPayload({
-        enabled: true,
-        userId: workspaceDefault.userId,
-        user: workspaceDefault.user,
-      }),
-      source: "workspace-default",
-      manualSelection: buildSenderSelectionPayload(manualSelection),
-      workspaceDefault: buildSenderSelectionPayload(workspaceDefault),
-      note,
-    };
-  }
-
-  return {
-    ...buildSenderSelectionPayload(),
-    source: "global-default",
-    manualSelection: buildSenderSelectionPayload(manualSelection),
-    workspaceDefault: buildSenderSelectionPayload(workspaceDefault),
-    note:
-      note ||
-      "No saved sender is available, so the app will use the global fallback sender.",
-  };
+  return effectiveSelection;
 };
 
 const getEmailConfig = asyncHandler(async (req, res) => {
@@ -825,7 +848,11 @@ const getWorkspaceSender = asyncHandler(async (req, res) => {
     clearInvalid: true,
   });
 
-  res.status(200).json(effectiveSender);
+  res.status(200).json(
+    buildWorkspaceSenderResponse({
+      senderSelection: effectiveSender,
+    })
+  );
 });
 
 const saveWorkspaceSender = asyncHandler(async (req, res) => {
@@ -847,12 +874,14 @@ const saveWorkspaceSender = asyncHandler(async (req, res) => {
       clearInvalid: true,
     });
 
-    res.status(200).json({
-      message: effectiveSender.workspaceDefault?.enabled
-        ? "Active sender reset to the workspace default."
-        : "Active sender reset. The global fallback sender will be used.",
-      ...effectiveSender,
-    });
+    res.status(200).json(
+      buildWorkspaceSenderResponse({
+        message: effectiveSender.workspaceDefault?.enabled
+          ? "Active sender reset to the workspace default."
+          : "Active sender reset. The global fallback sender will be used.",
+        senderSelection: effectiveSender,
+      })
+    );
     return;
   }
 
@@ -887,10 +916,12 @@ const saveWorkspaceSender = asyncHandler(async (req, res) => {
     clearInvalid: true,
   });
 
-  res.status(200).json({
-    message: `${senderUser.name} is now the active sender for your account`,
-    ...effectiveSender,
-  });
+  res.status(200).json(
+    buildWorkspaceSenderResponse({
+      message: `${senderUser.name} is now the active sender for your account`,
+      senderSelection: effectiveSender,
+    })
+  );
 });
 
 module.exports = {

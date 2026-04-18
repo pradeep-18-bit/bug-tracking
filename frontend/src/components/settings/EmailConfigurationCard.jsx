@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getWorkspaceSenderSelectionState } from "@/lib/workspaceSender";
 import { cn } from "@/lib/utils";
 
 const initialFormState = {
@@ -155,6 +156,8 @@ const EmailConfigurationCard = ({
   showToast,
 }) => {
   const selectedSenderId = selectedSender?._id || "";
+  const { workspaceSender, hasActiveSender } =
+    getWorkspaceSenderSelectionState(currentWorkspaceSender);
   const [formData, setFormData] = useState(initialFormState);
   const [hasStoredPassword, setHasStoredPassword] = useState(false);
   const [touched, setTouched] = useState({});
@@ -168,9 +171,8 @@ const EmailConfigurationCard = ({
     [savedConfig, selectedSender?.smtpConfigured]
   );
   const isSelectedSenderActive = Boolean(
-    currentWorkspaceSender?.enabled &&
-      currentWorkspaceSender?.userId &&
-      String(currentWorkspaceSender.userId) === String(selectedSenderId)
+    hasActiveSender &&
+      String(workspaceSender?.userId || "") === String(selectedSenderId)
   );
 
   useEffect(() => {

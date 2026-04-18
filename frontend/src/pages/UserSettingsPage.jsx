@@ -21,6 +21,7 @@ import {
   WORKSPACE_ROLE_OPTIONS,
 } from "@/lib/roles";
 import { formatDate, getInitials } from "@/lib/utils";
+import { getWorkspaceSenderResponseState } from "@/lib/workspaceSender";
 import { useAuth } from "@/hooks/use-auth";
 import { useEmailSettings } from "@/hooks/useEmailSettings";
 import { useWorkspaceSender } from "@/hooks/useWorkspaceSender";
@@ -223,16 +224,18 @@ const UserSettingsPage = () => {
   } = useWorkspaceSender();
 
   const eligibleSenders = eligibleSendersQuery.data || [];
-  const currentWorkspaceSender = workspaceSenderQuery.data || null;
-  const manualSenderId =
-    currentWorkspaceSender?.manualSelection?.enabled &&
-    currentWorkspaceSender?.manualSelection?.userId
-      ? currentWorkspaceSender.manualSelection.userId
-      : "";
-  const activeSenderId =
-    currentWorkspaceSender?.enabled && currentWorkspaceSender?.userId
-      ? currentWorkspaceSender.userId
-      : "";
+  const {
+    workspaceSender,
+    manualSelection,
+    workspaceDefaultSelection,
+    hasManualSender,
+    hasActiveSender,
+    manualSenderId,
+    activeSenderId,
+  } = useMemo(
+    () => getWorkspaceSenderResponseState(workspaceSenderQuery.data),
+    [workspaceSenderQuery.data]
+  );
   const currentUserSenderProfile = useMemo(() => {
     const authUserId = String(authUser?._id || "");
 
@@ -242,12 +245,12 @@ const UserSettingsPage = () => {
 
     return (
       eligibleSenders.find((user) => String(user._id) === authUserId) ||
-      (currentWorkspaceSender?.user &&
-      String(currentWorkspaceSender.user._id || "") === authUserId
-        ? currentWorkspaceSender.user
+      (workspaceSender?.user &&
+      String(workspaceSender.user._id || "") === authUserId
+        ? workspaceSender.user
         : null)
     );
-  }, [authUser?._id, currentWorkspaceSender?.user, eligibleSenders]);
+  }, [authUser?._id, eligibleSenders, workspaceSender?.user]);
   const preferredSenderId =
     manualSenderId || currentUserSenderProfile?._id || activeSenderId || "";
 
@@ -278,7 +281,7 @@ const UserSettingsPage = () => {
   ]);
 
   useEffect(() => {
-    const note = currentWorkspaceSender?.note || "";
+    const note = workspaceSender?.note || "";
 
     if (!note) {
       workspaceSenderNoteRef.current = "";
@@ -291,7 +294,7 @@ const UserSettingsPage = () => {
 
     workspaceSenderNoteRef.current = note;
     showToast("warning", note);
-  }, [currentWorkspaceSender?.note]);
+  }, [workspaceSender?.note]);
 
   useEffect(() => {
     if (!selectedSenderId) {
@@ -302,7 +305,7 @@ const UserSettingsPage = () => {
       eligibleSenders.some(
         (user) => String(user._id) === String(selectedSenderId)
       ) ||
-      String(currentWorkspaceSender?.user?._id || "") === String(selectedSenderId);
+      String(workspaceSender?.user?._id || "") === String(selectedSenderId);
 
     if (
       !isStillEligible &&
@@ -313,11 +316,11 @@ const UserSettingsPage = () => {
       setIsSenderDirty(false);
     }
   }, [
-    currentWorkspaceSender?.user?._id,
     eligibleSenders,
     eligibleSendersQuery.isLoading,
     preferredSenderId,
     selectedSenderId,
+    workspaceSender?.user?._id,
     workspaceSenderQuery.isLoading,
   ]);
 
@@ -345,9 +348,9 @@ const UserSettingsPage = () => {
   const selectedSender = useMemo(() => {
     const senderCandidates = [
       ...eligibleSenders,
-      currentWorkspaceSender?.user,
-      currentWorkspaceSender?.manualSelection?.user,
-      currentWorkspaceSender?.workspaceDefault?.user,
+      workspaceSender?.user,
+      manualSelection?.user,
+      workspaceDefaultSelection?.user,
     ].filter(Boolean);
 
     if (!selectedSenderId) {
@@ -360,11 +363,11 @@ const UserSettingsPage = () => {
       ) || null
     );
   }, [
-    currentWorkspaceSender?.manualSelection?.user,
-    currentWorkspaceSender?.user,
-    currentWorkspaceSender?.workspaceDefault?.user,
     eligibleSenders,
+    manualSelection?.user,
     selectedSenderId,
+    workspaceDefaultSelection?.user,
+    workspaceSender?.user,
   ]);
   const activeSenderEmailConfig = activeSenderEmailConfigQuery.data?.config || null;
 
@@ -605,9 +608,12 @@ const UserSettingsPage = () => {
         userId: selectedSenderId,
         enabled: true,
       });
+      const responseWorkspaceSender = response?.workspaceSender;
 
       setSelectedSenderId(
-        response?.manualSelection?.userId || response?.userId || selectedSenderId
+        responseWorkspaceSender?.manualSelection?.userId ||
+          responseWorkspaceSender?.userId ||
+          selectedSenderId
       );
       setIsSenderDirty(false);
 
@@ -630,11 +636,12 @@ const UserSettingsPage = () => {
         userId: "",
         enabled: false,
       });
+      const responseWorkspaceSender = response?.workspaceSender;
 
       setSelectedSenderId(
         currentUserSenderProfile?._id ||
-          response?.workspaceDefault?.userId ||
-          response?.userId ||
+          responseWorkspaceSender?.workspaceDefault?.userId ||
+          responseWorkspaceSender?.userId ||
           ""
       );
       setIsSenderDirty(false);
@@ -653,10 +660,10 @@ const UserSettingsPage = () => {
   };
 
   const handleTestActiveSender = async () => {
-    if (!activeSenderId || !currentWorkspaceSender?.user?.smtpConfigured) {
+    if (!activeSenderId || !workspaceSender?.user?.smtpConfigured) {
       showToast(
         "error",
-        currentWorkspaceSender?.source === "global-default"
+        workspaceSender?.source === "global-default"
           ? "The current sender is using the global fallback, so there is no saved user SMTP profile to test."
           : "The active sender needs SMTP setup before sending a test email."
       );
@@ -997,7 +1004,7 @@ const UserSettingsPage = () => {
       <section className="space-y-6">
         <WorkspaceMailSenderCard
           currentUser={authUser}
-          currentWorkspaceSender={currentWorkspaceSender}
+          currentWorkspaceSender={workspaceSender}
           eligibleSenders={eligibleSenders}
           errorMessage={
             eligibleSendersQuery.error?.response?.data?.message ||
@@ -1009,7 +1016,7 @@ const UserSettingsPage = () => {
           isTesting={activeSenderTestEmailMutation.isPending}
           canSendTestMail={Boolean(
             activeSenderId &&
-              currentWorkspaceSender?.user?.smtpConfigured &&
+              workspaceSender?.user?.smtpConfigured &&
               activeSenderEmailConfig &&
               !activeSenderEmailConfigQuery.isLoading
           )}
@@ -1024,7 +1031,7 @@ const UserSettingsPage = () => {
         />
 
         <EmailConfigurationCard
-          currentWorkspaceSender={currentWorkspaceSender}
+          currentWorkspaceSender={workspaceSender}
           emailConfigQuery={emailConfigQuery}
           saveEmailConfigMutation={saveEmailConfigMutation}
           selectedSender={selectedSender}

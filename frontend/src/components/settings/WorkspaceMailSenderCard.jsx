@@ -11,6 +11,7 @@ import {
   formatMemberOptionLabel,
   memberSelectStyles,
 } from "@/components/projects/memberSelectTheme";
+import { getWorkspaceSenderSelectionState } from "@/lib/workspaceSender";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,7 +65,7 @@ const getSourceStatusLabel = (source) => {
     return "Using workspace default";
   }
 
-  return "Active";
+  return "Using global fallback";
 };
 
 const getSourceBadgeLabel = (source) => {
@@ -96,7 +97,7 @@ const getFallbackLabel = ({ source, workspaceDefaultSender }) => {
     return `${workspaceDefaultSender.name} (${workspaceDefaultSender.role})`;
   }
 
-  return "System default";
+  return "Global fallback sender";
 };
 
 const WorkspaceMailSenderCard = ({
@@ -115,6 +116,13 @@ const WorkspaceMailSenderCard = ({
   selectedSenderId,
 }) => {
   const [showSenderPicker, setShowSenderPicker] = useState(false);
+  const {
+    workspaceSender,
+    hasActiveSender,
+    activeSenderUser,
+    manualSenderUser,
+    workspaceDefaultSender,
+  } = getWorkspaceSenderSelectionState(currentWorkspaceSender);
 
   const senderOptions = eligibleSenders.map((user) => ({
     value: user._id,
@@ -127,33 +135,38 @@ const WorkspaceMailSenderCard = ({
     senderOptions.find(
       (option) => String(option.value) === String(selectedSenderId)
     ) || null;
-  const source = currentWorkspaceSender?.source || "global-default";
-  const activeSenderUser =
-    currentWorkspaceSender?.enabled && currentWorkspaceSender?.user
-      ? currentWorkspaceSender.user
-      : null;
-  const manualSenderUser =
-    currentWorkspaceSender?.manualSelection?.enabled &&
-    currentWorkspaceSender?.manualSelection?.user
-      ? currentWorkspaceSender.manualSelection.user
-      : null;
-  const workspaceDefaultSender =
-    currentWorkspaceSender?.workspaceDefault?.enabled &&
-    currentWorkspaceSender?.workspaceDefault?.user
-      ? currentWorkspaceSender.workspaceDefault.user
-      : null;
-  const isUsingGlobalFallback = !activeSenderUser && source === "global-default";
-  const activeSenderTitle = activeSenderUser
+  const source = workspaceSender?.source || "global-default";
+  const isUsingGlobalFallback = !hasActiveSender;
+  const activeSenderTitle = activeSenderUser?.name
     ? `${activeSenderUser.name} (${activeSenderUser.role})`
     : "Using global fallback sender";
   const activeSenderEmail = activeSenderUser?.email || "No sender configured for your account.";
-  const activeSenderStatus = getSourceStatusLabel(source);
+  const activeSenderStatus = hasActiveSender
+    ? getSourceStatusLabel(source)
+    : "Using global fallback";
   const currentUserProfile =
     eligibleSenders.find((user) => String(user._id) === String(currentUser?._id || "")) ||
     null;
   const currentUserNeedsSmtpSetup = Boolean(
     currentUserProfile && !currentUserProfile.smtpConfigured
   );
+  const activeSenderBadges = [
+    {
+      label: activeSenderUser?.smtpConfigured ? "SMTP Configured" : "Using global fallback",
+      variant: activeSenderUser?.smtpConfigured ? "success" : "secondary",
+    },
+    {
+      label: getSourceBadgeLabel(source),
+      variant: getSourceBadgeVariant(source),
+    },
+  ];
+
+  if (hasActiveSender) {
+    activeSenderBadges.push({
+      label: "Active sender",
+      variant: "default",
+    });
+  }
 
   return (
     <Card className="shadow-[0_24px_64px_-42px_rgba(15,23,42,0.32)]">
@@ -196,21 +209,13 @@ const WorkspaceMailSenderCard = ({
                   </div>
                 </div>
 
-                {!isUsingGlobalFallback ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant={activeSenderUser?.smtpConfigured ? "success" : "secondary"}>
-                      {activeSenderUser?.smtpConfigured
-                        ? "SMTP Configured"
-                        : "Using global fallback"}
+                <div className="flex flex-wrap gap-2">
+                  {activeSenderBadges.map((badge) => (
+                    <Badge key={badge.label} variant={badge.variant}>
+                      {badge.label}
                     </Badge>
-                    <Badge variant={getSourceBadgeVariant(source)}>
-                      {getSourceBadgeLabel(source)}
-                    </Badge>
-                    {activeSenderUser ? (
-                      <Badge variant="default">Active sender</Badge>
-                    ) : null}
-                  </div>
-                ) : null}
+                  ))}
+                </div>
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row">
@@ -293,10 +298,10 @@ const WorkspaceMailSenderCard = ({
               ) : null}
             </div>
 
-            {currentWorkspaceSender?.note ? (
+            {workspaceSender?.note ? (
               <div className="flex items-start gap-3 rounded-[22px] border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-800">
                 <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{currentWorkspaceSender.note}</span>
+                <span>{workspaceSender.note}</span>
               </div>
             ) : null}
 
