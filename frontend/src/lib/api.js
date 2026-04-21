@@ -334,6 +334,159 @@ export const fetchTeamReports = async (filters = {}) => {
   return response.data;
 };
 
+export const fetchSprintReports = async (filters = {}) => {
+  const response = await api.get("/reports/sprints", {
+    params: buildParams(filters),
+  });
+  return response.data;
+};
+
+export const fetchSelectedSprintReport = async (sprintId) => {
+  const response = await api.get(`/reports/sprints/${sprintId}`);
+  return response.data;
+};
+
+export const fetchBacklogBoard = async (filters = {}) => {
+  const response = await api.get("/backlog", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const reorderIssuePlanning = async (payload) => {
+  const response = await api.post("/backlog/reorder", payload);
+  return response.data;
+};
+
+export const fetchEpics = async ({ projectId }) => {
+  const response = await api.get("/epics", {
+    params: buildParams({
+      projectId,
+    }),
+  });
+  return response.data;
+};
+
+export const createEpic = async (payload) => {
+  const response = await api.post("/epics", payload);
+  return response.data;
+};
+
+export const updateEpic = async ({ id, payload }) => {
+  const response = await api.patch(`/epics/${id}`, payload);
+  return response.data;
+};
+
+export const deleteEpic = async ({ id, payload = {} }) => {
+  const response = await api.delete(`/epics/${id}`, {
+    data: payload,
+  });
+  return response.data;
+};
+
+export const fetchSprints = async (filters = {}) => {
+  const response = await api.get("/sprints", {
+    params: buildParams(filters),
+  });
+  return response.data;
+};
+
+export const fetchSprintIssues = async (sprintId) => {
+  const response = await api.get(`/sprints/${sprintId}/issues`);
+  return response.data;
+};
+
+export const createSprint = async (payload) => {
+  const response = await api.post("/sprints", payload);
+  return response.data;
+};
+
+export const updateSprint = async ({ id, payload }) => {
+  const response = await api.patch(`/sprints/${id}`, payload);
+  return response.data;
+};
+
+export const deleteSprint = async (id) => {
+  const response = await api.delete(`/sprints/${id}`);
+  return response.data;
+};
+
+export const startSprint = async (id) => {
+  const response = await api.post(`/sprints/${id}/start`);
+  return response.data;
+};
+
+export const completeSprint = async ({ id, payload }) => {
+  const response = await api.post(`/sprints/${id}/complete`, payload);
+  return response.data;
+};
+
+export const updateIssuePlanning = async ({ id, payload }) => {
+  const response = await api.patch(`/issues/${id}/planning`, payload);
+  return response.data;
+};
+
+export const moveIssueToSprint = async ({ id, sprintId }) => {
+  const response = await api.post(`/issues/${id}/sprint`, {
+    sprintId,
+  });
+  return response.data;
+};
+
+export const removeIssueFromSprint = async (id) => {
+  const response = await api.delete(`/issues/${id}/sprint`);
+  return response.data;
+};
+
+export const fetchIssueAttachments = async (issueId) => {
+  const response = await api.get(`/issues/${issueId}/attachments`);
+  return response.data;
+};
+
+export const uploadIssueAttachment = async ({ issueId, file }) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await api.post(`/issues/${issueId}/attachments`, formData);
+  return response.data;
+};
+
+export const fetchIssueWorklogs = async (issueId) => {
+  const response = await api.get(`/issues/${issueId}/worklogs`);
+  return response.data;
+};
+
+export const createIssueWorklog = async ({ issueId, payload }) => {
+  const response = await api.post(`/issues/${issueId}/worklogs`, payload);
+  return response.data;
+};
+
+export const fetchIssueHistory = async (issueId) => {
+  const response = await api.get(`/issues/${issueId}/history`);
+  return response.data;
+};
+
+export const suggestIssuePriority = async ({ issueId, payload }) => {
+  const response = await api.post(`/issues/${issueId}/suggest-priority`, payload);
+  return response.data;
+};
+
+export const resolveApiAssetUrl = (assetPath = "") => {
+  if (!assetPath) {
+    return "";
+  }
+
+  if (/^https?:\/\//i.test(assetPath)) {
+    return assetPath;
+  }
+
+  try {
+    return new URL(assetPath, api.defaults.baseURL).toString();
+  } catch (error) {
+    return assetPath;
+  }
+};
+
 export const inviteUser = async (payload) => {
   const response = await api.post("/users/invite", payload);
   return response.data;

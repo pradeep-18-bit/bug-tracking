@@ -8,11 +8,20 @@ import {
   fetchProjects,
   updateIssue,
 } from "@/lib/api";
-import { ISSUE_STATUS, normalizeIssueStatus } from "@/lib/issues";
+import {
+  ISSUE_STATUS,
+  ISSUE_TYPE_OPTIONS,
+  filterIssues,
+  normalizeIssueStatus,
+  sortIssues,
+} from "@/lib/issues";
 import {
   findProjectById,
+  getProjectMembers,
+  getProjectTeamMembers,
   getProjectTeams,
   resolveTeamId,
+  resolveUserId,
 } from "@/lib/project-teams";
 import IssueBoard from "@/components/issues/IssueBoard";
 import IssueCreateDialog from "@/components/issues/IssueCreateDialog";
@@ -24,7 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { canCreateIssues, canDeleteIssues, hasAdminPanelAccess } from "@/lib/roles";
 
-const isValidIssueType = (value) => ["Bug", "Task", "Story"].includes(value);
+const isValidIssueType = (value) => ISSUE_TYPE_OPTIONS.includes(value);
 const ALL_PROJECTS_VALUE = "ALL";
 const OPEN_ISSUES_QUERY_VALUE = "OPEN";
 const CLOSED_ISSUES_QUERY_VALUE = "CLOSED";
@@ -86,6 +95,60 @@ const getAvailableTeams = (projects = [], projectId = ALL_PROJECTS_VALUE) => {
   );
 };
 
+const getAvailableAssignees = (
+  projects = [],
+  projectId = ALL_PROJECTS_VALUE,
+  teamId = "all"
+) => {
+  const uniqueAssignees = new Map();
+  const collectAssignees = (assignees = []) => {
+    assignees.forEach((assignee) => {
+      const assigneeId = resolveUserId(assignee);
+
+      if (!assigneeId || uniqueAssignees.has(assigneeId)) {
+        return;
+      }
+
+      uniqueAssignees.set(assigneeId, assignee);
+    });
+  };
+
+  if (projectId !== ALL_PROJECTS_VALUE) {
+    const project = findProjectById(projects, projectId);
+    collectAssignees(
+      teamId !== "all"
+        ? getProjectTeamMembers(project, teamId)
+        : getProjectMembers(project)
+    );
+
+    return Array.from(uniqueAssignees.values()).sort((left, right) =>
+      (left.name || "").localeCompare(right.name || "")
+    );
+  }
+
+  projects.forEach((project) => {
+    collectAssignees(
+      teamId !== "all"
+        ? getProjectTeamMembers(project, teamId)
+        : getProjectMembers(project)
+    );
+  });
+
+  return Array.from(uniqueAssignees.values()).sort((left, right) =>
+    (left.name || "").localeCompare(right.name || "")
+  );
+};
+
+const buildIssueListCacheFilters = (queryKey = []) => ({
+  search: queryKey[8] || "",
+  status: "all",
+  priority: "all",
+  projectId: queryKey[4] || ALL_PROJECTS_VALUE,
+  teamId: queryKey[5] || "all",
+  assigneeId: queryKey[6] || "all",
+  type: queryKey[7] || "all",
+});
+
 const IssueBoardSkeleton = () => (
   <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
     <CardContent className="grid gap-4 p-4 xl:grid-cols-3">
@@ -112,6 +175,8 @@ const IssuesPage = () => {
   const [filters, setFilters] = useState({
     projectId: normalizeProjectFilterValue(searchParams.get("projectId")),
     teamId: searchParams.get("teamId") || "all",
+    assigneeId: "all",
+    type: "all",
     search: searchParams.get("search") || "",
   });
   const [selectedIssue, setSelectedIssue] = useState(null);
@@ -172,6 +237,8 @@ const IssuesPage = () => {
       return {
         projectId: nextProjectId,
         teamId: nextTeamId,
+        assigneeId: current.assigneeId,
+        type: current.type,
         search: nextSearch,
       };
     });
@@ -201,6 +268,26 @@ const IssuesPage = () => {
     () => getAvailableTeams(projects, filters.projectId),
     [filters.projectId, projects]
   );
+  const availableAssignees = useMemo(
+    () => getAvailableAssignees(projects, filters.projectId, filters.teamId),
+    [filters.projectId, filters.teamId, projects]
+  );
+
+  useEffect(() => {
+    if (
+      filters.assigneeId === "all" ||
+      availableAssignees.some(
+        (assignee) => resolveUserId(assignee) === String(filters.assigneeId)
+      )
+    ) {
+      return;
+    }
+
+    setFilters((current) => ({
+      ...current,
+      assigneeId: "all",
+    }));
+  }, [availableAssignees, filters.assigneeId]);
 
   const {
     data: issuesData = [],
@@ -210,9 +297,12 @@ const IssuesPage = () => {
     queryKey: [
       "issues",
       "issues-page",
+      "list",
       role,
       filters.projectId,
       filters.teamId,
+      filters.assigneeId,
+      filters.type,
       deferredSearch,
     ],
     queryFn: () =>
@@ -220,8 +310,10 @@ const IssuesPage = () => {
         projectId:
           filters.projectId === ALL_PROJECTS_VALUE ? "" : filters.projectId,
         teamId: filters.teamId,
+        assigneeId: filters.assigneeId,
+        type: filters.type,
         search: deferredSearch,
-    }),
+      }),
     enabled: Boolean(projects.length),
   });
   const issues = useMemo(
@@ -251,11 +343,11 @@ const IssuesPage = () => {
 
   const activeStatusLabel = useMemo(() => {
     if (activeStatusFilter === OPEN_ISSUES_QUERY_VALUE) {
-      return "Showing: Open Issues";
+      return "Showing: Open Work";
     }
 
     if (activeStatusFilter === CLOSED_ISSUES_QUERY_VALUE) {
-      return "Showing: Closed Issues";
+      return "Showing: Completed Work";
     }
 
     return "";
@@ -282,51 +374,151 @@ const IssuesPage = () => {
     setSelectedIssue(nextIssue || null);
   }, [filteredIssues, selectedIssue]);
 
+  const syncIssueDependencyOptions = (issue, mode = "upsert") => {
+    queryClient.setQueryData(["issues", "issues-page", "dependency-options", role], (current) => {
+      if (!Array.isArray(current)) {
+        return current;
+      }
+
+      if (mode === "remove") {
+        return current.filter((currentIssue) => String(currentIssue._id) !== String(issue));
+      }
+
+      return sortIssues(
+        [
+          issue,
+          ...current.filter((currentIssue) => String(currentIssue._id) !== String(issue._id)),
+        ],
+        "newest"
+      );
+    });
+  };
+
+  const syncIssueWorkspaceLists = (issue, mode = "upsert") => {
+    queryClient
+      .getQueriesData({
+        queryKey: ["issues", "issues-page", "list"],
+      })
+      .forEach(([queryKey, currentData]) => {
+        if (!Array.isArray(currentData)) {
+          return;
+        }
+
+        const cacheFilters = buildIssueListCacheFilters(queryKey);
+        const nextIssues = currentData.filter(
+          (currentIssue) => String(currentIssue._id) !== String(issue?._id || issue)
+        );
+
+        if (mode === "remove") {
+          queryClient.setQueryData(queryKey, nextIssues);
+          return;
+        }
+
+        const shouldInclude = filterIssues([issue], cacheFilters).length > 0;
+        queryClient.setQueryData(
+          queryKey,
+          shouldInclude ? sortIssues([issue, ...nextIssues], "newest") : nextIssues
+        );
+      });
+  };
+
+  const invalidateIssueWorkspaceQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["issues"] }),
+      queryClient.invalidateQueries({ queryKey: ["backlog"] }),
+      queryClient.invalidateQueries({ queryKey: ["projects"] }),
+      queryClient.invalidateQueries({ queryKey: ["reports"] }),
+    ]);
+  };
+
   const createIssueMutation = useMutation({
     mutationFn: createIssue,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
+    onSuccess: async (createdIssue) => {
+      syncIssueWorkspaceLists(createdIssue);
+      syncIssueDependencyOptions(createdIssue);
+      await invalidateIssueWorkspaceQueries();
     },
   });
 
   const updateIssueMutation = useMutation({
     mutationFn: updateIssue,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
+    onSuccess: async (updatedIssue) => {
+      syncIssueWorkspaceLists(updatedIssue);
+      syncIssueDependencyOptions(updatedIssue);
+      await invalidateIssueWorkspaceQueries();
     },
   });
 
   const deleteIssueMutation = useMutation({
     mutationFn: deleteIssue,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
+    onSuccess: async (_response, deletedIssueId) => {
+      syncIssueWorkspaceLists(deletedIssueId, "remove");
+      syncIssueDependencyOptions(deletedIssueId, "remove");
+      setSelectedIssue((current) =>
+        String(current?._id || "") === String(deletedIssueId) ? null : current
+      );
+      await invalidateIssueWorkspaceQueries();
     },
   });
 
   const handleProjectChange = (projectId) => {
     const nextProjectId = normalizeProjectFilterValue(projectId);
-    const nextAvailableTeams = getAvailableTeams(projects, nextProjectId);
 
-    setFilters((current) => ({
-      ...current,
-      projectId: nextProjectId,
-      teamId: nextAvailableTeams.some(
+    setFilters((current) => {
+      const nextAvailableTeams = getAvailableTeams(projects, nextProjectId);
+      const nextTeamId = nextAvailableTeams.some(
         (team) => resolveTeamId(team) === String(current.teamId)
       )
         ? current.teamId
+        : "all";
+      const nextAvailableAssignees = getAvailableAssignees(
+        projects,
+        nextProjectId,
+        nextTeamId
+      );
+
+      return {
+        ...current,
+        projectId: nextProjectId,
+        teamId: nextTeamId,
+        assigneeId: nextAvailableAssignees.some(
+          (assignee) => resolveUserId(assignee) === String(current.assigneeId)
+        )
+          ? current.assigneeId
+          : "all",
+      };
+    });
+  };
+
+  const handleTeamChange = (teamId) => {
+    const nextAvailableAssignees = getAvailableAssignees(
+      projects,
+      filters.projectId,
+      teamId
+    );
+
+    setFilters((current) => ({
+      ...current,
+      teamId,
+      assigneeId: nextAvailableAssignees.some(
+        (assignee) => resolveUserId(assignee) === String(current.assigneeId)
+      )
+        ? current.assigneeId
         : "all",
     }));
   };
 
-  const handleTeamChange = (teamId) => {
+  const handleAssigneeChange = (assigneeId) => {
     setFilters((current) => ({
       ...current,
-      teamId,
+      assigneeId,
+    }));
+  };
+
+  const handleTypeChange = (type) => {
+    setFilters((current) => ({
+      ...current,
+      type,
     }));
   };
 
@@ -341,11 +533,13 @@ const IssuesPage = () => {
   const composeType = isValidIssueType(searchParams.get("type"))
     ? searchParams.get("type")
     : "Task";
-  const lockComposeType = searchParams.get("type") === "Task";
+  const lockComposeType = isValidIssueType(searchParams.get("type"));
   const hasVisibleFilters = Boolean(
     activeStatusFilter ||
       filters.projectId !== ALL_PROJECTS_VALUE ||
       filters.teamId !== "all" ||
+      filters.assigneeId !== "all" ||
+      filters.type !== "all" ||
       filters.search.trim()
   );
 
@@ -353,7 +547,7 @@ const IssuesPage = () => {
     return (
       <Card>
         <CardContent className="p-6 text-sm text-rose-700">
-          {error.response?.data?.message || "Unable to load issue data."}
+          {error.response?.data?.message || "Unable to load the issue workspace."}
         </CardContent>
       </Card>
     );
@@ -362,8 +556,8 @@ const IssuesPage = () => {
   if (!isProjectsLoading && !projects.length) {
     return (
       <EmptyState
-        title="Create a project before managing issues"
-        description="Projects and attached teams define who can own work. Add a project first, then attach a team to start tracking issues."
+        title="Create a project before planning work"
+        description="Projects and attached teams define who can own delivery work. Add a project first, then attach a team to start managing issues and backlog items."
       />
     );
   }
@@ -374,6 +568,7 @@ const IssuesPage = () => {
         filters={filters}
         projects={projects}
         teams={availableTeams}
+        assignees={availableAssignees}
         visibleIssueCount={filteredIssues.length}
         activeStatusLabel={activeStatusLabel}
         selectedProject={selectedProject}
@@ -381,6 +576,8 @@ const IssuesPage = () => {
         isCreateDisabled={!projects.length || !canCreateIssue}
         onProjectChange={handleProjectChange}
         onTeamChange={handleTeamChange}
+        onAssigneeChange={handleAssigneeChange}
+        onTypeChange={handleTypeChange}
         onSearchChange={handleSearchChange}
         onCreateIssue={() => setIsCreateDialogOpen(true)}
       />
@@ -401,12 +598,12 @@ const IssuesPage = () => {
             })
           }
           emptyStateTitle={
-            hasVisibleFilters ? "No issues match this board view" : "No issues in this board"
+            hasVisibleFilters ? "No work items match this view" : "No work items in this board"
           }
           emptyStateDescription={
             hasVisibleFilters
-              ? "Adjust the project, team, or search filters to widen the board."
-              : "Create the first issue to populate the kanban board."
+              ? "Adjust the project, team, assignee, type, or search filters to widen the board."
+              : "Create the first work item to populate this workflow board."
           }
         />
       )}

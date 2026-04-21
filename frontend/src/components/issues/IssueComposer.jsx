@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bug, ClipboardList, Flag, Sparkle, UserCircle2, Users2 } from "lucide-react";
+import { ClipboardList, Flag, Sparkle, UserCircle2, Users2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ISSUE_STATUS } from "@/lib/issues";
+import { ISSUE_STATUS, ISSUE_TYPE_OPTIONS, ISSUE_WORKFLOW_STATUS_OPTIONS } from "@/lib/issues";
 import {
   findProjectById,
   getProjectTeamMembers,
@@ -20,7 +20,7 @@ import {
   resolveUserId,
 } from "@/lib/project-teams";
 
-const defaultTypeOptions = ["Bug", "Task", "Story"];
+const defaultTypeOptions = ISSUE_TYPE_OPTIONS;
 
 const resolveProjectSelection = (defaultProjectId, projects = []) => {
   if (
@@ -82,13 +82,13 @@ const IssueComposer = ({
   onSubmit,
   isPending,
   allowedTypes = defaultTypeOptions,
-  defaultType = "Bug",
+  defaultType = "Task",
   defaultStatus = ISSUE_STATUS.TODO,
   defaultAssigneeId = "",
   lockType = false,
   showAssigneeField = true,
   showStatusField = true,
-  submitLabel = "Create Issue",
+  submitLabel = "Create Work Item",
   variant = "card",
 }) => {
   const resolvedDefaultType = allowedTypes.includes(defaultType)
@@ -218,7 +218,7 @@ const IssueComposer = ({
 
   const submitBlockedMessage = useMemo(() => {
     if (!projects.length) {
-      return "Create a project before tracking issues.";
+      return "Create a project before planning work.";
     }
 
     if (!selectedProject) {
@@ -226,7 +226,7 @@ const IssueComposer = ({
     }
 
     if (!availableTeams.length) {
-      return "Attach a team to this project before creating issues.";
+      return "Attach a team to this project before creating work items.";
     }
 
     if (!showAssigneeField && defaultAssigneeKey && !defaultAssigneeInTeam) {
@@ -286,7 +286,7 @@ const IssueComposer = ({
       );
     } catch (submitError) {
       setError(
-        submitError.response?.data?.message || "Unable to create the issue."
+        submitError.response?.data?.message || "Unable to create the work item."
       );
     }
   };
@@ -410,7 +410,7 @@ const IssueComposer = ({
       >
         <label className="space-y-2">
           <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
-            <Bug className="h-4 w-4 text-blue-600" />
+            <ClipboardList className="h-4 w-4 text-blue-600" />
             Type
           </span>
           <select
@@ -454,9 +454,11 @@ const IssueComposer = ({
               value={formData.status}
               onChange={handleChange}
             >
-              <option value={ISSUE_STATUS.TODO}>To Do</option>
-              <option value={ISSUE_STATUS.IN_PROGRESS}>In Progress</option>
-              <option value={ISSUE_STATUS.DONE}>Done</option>
+              {ISSUE_WORKFLOW_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
         ) : null}
@@ -484,7 +486,7 @@ const IssueComposer = ({
         <div className="space-y-1">
           <div className="inline-flex w-fit items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-blue-600">
             <Sparkle className="h-3.5 w-3.5" />
-            Create Issue
+            Create Work Item
           </div>
           <h2 className="text-xl font-semibold tracking-tight text-slate-950">
             Add work to the selected project
@@ -504,9 +506,9 @@ const IssueComposer = ({
       <CardHeader>
         <div className="inline-flex w-fit items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-blue-600">
           <Sparkle className="h-3.5 w-3.5" />
-          New Issue
+          New Work Item
         </div>
-        <CardTitle>Add work to the tracker</CardTitle>
+        <CardTitle>Add work to the planning workspace</CardTitle>
         <CardDescription>
           Create project-scoped work with team ownership and assignees limited to
           the selected delivery team.

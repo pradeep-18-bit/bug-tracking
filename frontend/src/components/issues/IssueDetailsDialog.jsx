@@ -11,8 +11,11 @@ import {
 } from "lucide-react";
 import { createComment, fetchComments } from "@/lib/api";
 import {
+  getIssueDisplayKey,
   getIssuePriorityVariant,
   ISSUE_STATUS,
+  ISSUE_TYPE_OPTIONS,
+  ISSUE_WORKFLOW_STATUS_OPTIONS,
   normalizeIssueStatus,
   resolveIssueAssignee,
   resolveIssueAssigneeId,
@@ -63,7 +66,7 @@ const toDateTimeLocalValue = (value) => {
 const formatDueAt = (value) => (value ? formatDateTime(value) : "No due date");
 
 const formatDependencyLabel = (issue) =>
-  issue ? `#${issue._id.slice(-6)} ${issue.title}` : "No dependency";
+  issue ? `${getIssueDisplayKey(issue)} ${issue.title}` : "No dependency";
 
 const buildDetailDraft = (issue) => ({
   title: issue?.title || "",
@@ -234,6 +237,7 @@ const IssueDetailsDialog = ({
   const issueDependency = resolveIssueDependency(issue);
   const issueDependencyId = resolveIssueDependencyId(issue);
   const issueTeamName = issue.teamId?.name || "No team assigned";
+  const issueKey = getIssueDisplayKey(issue);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -251,7 +255,12 @@ const IssueDetailsDialog = ({
               </Badge>
             ) : null}
           </div>
-          <DialogTitle className="pr-10">{issue.title}</DialogTitle>
+          <DialogTitle className="pr-10">
+            <span className="mr-3 font-mono text-sm uppercase tracking-[0.22em] text-slate-400">
+              {issueKey}
+            </span>
+            {issue.title}
+          </DialogTitle>
           <DialogDescription>
             {issue.description || "No detailed description has been added yet."}
           </DialogDescription>
@@ -287,14 +296,14 @@ const IssueDetailsDialog = ({
                     });
                   } catch (error) {
                     setDetailsError(
-                      error.response?.data?.message || "Unable to save issue details."
+                      error.response?.data?.message || "Unable to save work item details."
                     );
                   }
                 }}
               >
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                   <PencilLine className="h-4 w-4 text-blue-600" />
-                  <span>Edit issue details</span>
+                  <span>Edit work item details</span>
                 </div>
 
                 <div className="space-y-2">
@@ -428,9 +437,11 @@ const IssueDetailsDialog = ({
                         }))
                       }
                     >
-                      <option value="Bug">Bug</option>
-                      <option value="Task">Task</option>
-                      <option value="Story">Story</option>
+                      {ISSUE_TYPE_OPTIONS.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
                     </select>
                   </label>
 
@@ -468,9 +479,11 @@ const IssueDetailsDialog = ({
                         }))
                       }
                     >
-                      <option value={ISSUE_STATUS.TODO}>To Do</option>
-                      <option value={ISSUE_STATUS.IN_PROGRESS}>In Progress</option>
-                      <option value={ISSUE_STATUS.DONE}>Done</option>
+                      {ISSUE_WORKFLOW_STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                   </label>
                 </div>
@@ -518,7 +531,7 @@ const IssueDetailsDialog = ({
 
                 {!availableTeams.length ? (
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                    Attach a team to this project before assigning or moving this issue.
+                    Attach a team to this project before assigning or moving this work item.
                   </div>
                 ) : null}
 
@@ -598,7 +611,7 @@ const IssueDetailsDialog = ({
                     </p>
                   </>
                 ) : issueDependencyId ? (
-                  <p className="mt-2 text-sm font-semibold text-gray-900">Linked issue</p>
+                  <p className="mt-2 text-sm font-semibold text-gray-900">Linked work item</p>
                 ) : (
                   <p className="mt-2 text-sm font-semibold text-gray-900">No dependency</p>
                 )}
@@ -619,9 +632,11 @@ const IssueDetailsDialog = ({
                     }
                     disabled={!canEditStatus || isUpdatingCurrentIssue}
                   >
-                    <option value={ISSUE_STATUS.TODO}>To Do</option>
-                    <option value={ISSUE_STATUS.IN_PROGRESS}>In Progress</option>
-                    <option value={ISSUE_STATUS.DONE}>Done</option>
+                    {ISSUE_WORKFLOW_STATUS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                 </label>
 

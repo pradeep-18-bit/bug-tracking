@@ -8,6 +8,11 @@ const TeamMember = require("./TeamMember");
 const ProjectMeeting = require("./ProjectMeeting");
 const UserEmailConfig = require("./UserEmailConfig");
 const WorkspaceSetting = require("./WorkspaceSetting");
+const Epic = require("./Epic");
+const Sprint = require("./Sprint");
+const IssueAttachment = require("./IssueAttachment");
+const IssueWorklog = require("./IssueWorklog");
+const IssueHistory = require("./IssueHistory");
 
 module.exports = {
   User,
@@ -20,4 +25,9 @@ module.exports = {
   ProjectMeeting,
   UserEmailConfig,
   WorkspaceSetting,
+  Epic,
+  Sprint,
+  IssueAttachment,
+  IssueWorklog,
+  IssueHistory,
 };

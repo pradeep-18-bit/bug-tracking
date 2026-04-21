@@ -1,10 +1,19 @@
 const ISSUE_STATUS = Object.freeze({
   TODO: "TODO",
   IN_PROGRESS: "IN_PROGRESS",
+  BLOCKED: "BLOCKED",
+  REVIEW: "REVIEW",
+  QA: "QA",
   DONE: "DONE",
 });
 
 const ISSUE_STATUS_VALUES = Object.freeze(Object.values(ISSUE_STATUS));
+const ACTIVE_ISSUE_STATUS_VALUES = Object.freeze([
+  ISSUE_STATUS.IN_PROGRESS,
+  ISSUE_STATUS.BLOCKED,
+  ISSUE_STATUS.REVIEW,
+  ISSUE_STATUS.QA,
+]);
 
 const normalizeIssueStatus = (value, fallback = "") => {
   if (value === null || typeof value === "undefined") {
@@ -28,6 +37,14 @@ const normalizeIssueStatus = (value, fallback = "") => {
     return ISSUE_STATUS.TODO;
   }
 
+  if (normalizedValue === "IN_REVIEW") {
+    return ISSUE_STATUS.REVIEW;
+  }
+
+  if (normalizedValue === "READY_FOR_QA") {
+    return ISSUE_STATUS.QA;
+  }
+
   return normalizedValue;
 };
 
@@ -48,11 +65,14 @@ const isClosedIssueStatus = (value) =>
   getCanonicalIssueStatus(value, ISSUE_STATUS.TODO) === ISSUE_STATUS.DONE;
 
 const isInProgressIssueStatus = (value) =>
-  getCanonicalIssueStatus(value, ISSUE_STATUS.TODO) === ISSUE_STATUS.IN_PROGRESS;
+  ACTIVE_ISSUE_STATUS_VALUES.includes(
+    getCanonicalIssueStatus(value, ISSUE_STATUS.TODO)
+  );
 
 module.exports = {
   ISSUE_STATUS,
   ISSUE_STATUS_VALUES,
+  ACTIVE_ISSUE_STATUS_VALUES,
   normalizeIssueStatus,
   isValidIssueStatus,
   getCanonicalIssueStatus,

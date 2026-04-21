@@ -73,7 +73,9 @@ const IssueColumn = ({
             isDropTarget && "border-blue-200 text-blue-700"
           )}
         >
-          {isDropTarget ? `Drop here to move into ${column.label}.` : "No issues in this lane."}
+          {isDropTarget
+            ? `Drop here to move work into ${column.label}.`
+            : "No work items in this lane."}
         </div>
       )}
     </div>

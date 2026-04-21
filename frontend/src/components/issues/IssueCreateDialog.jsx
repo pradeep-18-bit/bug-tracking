@@ -9,7 +9,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ISSUE_STATUS, resolveIssueProjectId } from "@/lib/issues";
+import {
+  ISSUE_STATUS,
+  ISSUE_TYPE_OPTIONS,
+  getIssueDisplayKey,
+  resolveIssueProjectId,
+} from "@/lib/issues";
 import {
   findProjectById,
   getProjectTeamMembers,
@@ -20,7 +25,7 @@ import {
 } from "@/lib/project-teams";
 import { getInitials } from "@/lib/utils";
 
-const ISSUE_TYPES = ["Bug", "Task", "Story"];
+const ISSUE_TYPES = ISSUE_TYPE_OPTIONS;
 const ISSUE_PRIORITIES = ["Low", "Medium", "High"];
 const SELECT_MENU_MAX_HEIGHT = 220;
 const PROJECT_COLOR_PALETTE = [
@@ -80,7 +85,7 @@ const buildInitialState = ({
   };
 };
 
-const formatDependencyOption = (issue) => `#${issue._id.slice(-6)} ${issue.title}`;
+const formatDependencyOption = (issue) => `${getIssueDisplayKey(issue)} ${issue.title}`;
 
 const hashValue = (value = "") =>
   String(value)
@@ -282,7 +287,7 @@ const IssueCreateDialog = ({
 }) => {
   const resolvedDefaultType = ISSUE_TYPES.includes(defaultType)
     ? defaultType
-    : ISSUE_TYPES[1];
+    : ISSUE_TYPES[0];
   const [formData, setFormData] = useState(() =>
     buildInitialState({
       projects,
@@ -443,7 +448,7 @@ const IssueCreateDialog = ({
 
   const blockedMessage = useMemo(() => {
     if (!projects.length) {
-      return "Create a project before adding issues.";
+      return "Create a project before adding work items.";
     }
 
     if (!selectedProject) {
@@ -451,7 +456,7 @@ const IssueCreateDialog = ({
     }
 
     if (!availableTeams.length) {
-      return "Attach a team to this project before creating issues.";
+      return "Attach a team to this project before creating work items.";
     }
 
     return "";
@@ -546,11 +551,11 @@ const IssueCreateDialog = ({
       onOpenChange(false);
     } catch (submitError) {
       const message =
-        submitError.response?.data?.message || "Unable to create the issue.";
+        submitError.response?.data?.message || "Unable to create the work item.";
 
       setError(
         createdCount > 0
-          ? `Created ${createdCount} issue${createdCount === 1 ? "" : "s"} before the next assignment failed. ${message}`
+          ? `Created ${createdCount} work item${createdCount === 1 ? "" : "s"} before the next assignment failed. ${message}`
           : message
       );
     } finally {
@@ -564,7 +569,7 @@ const IssueCreateDialog = ({
         <div className="max-h-[90vh] overflow-y-auto overflow-x-visible">
           <DialogHeader className="sticky top-0 z-20 border-b border-slate-200/80 bg-white px-5 py-3.5 sm:px-6">
             <DialogTitle className="text-2xl tracking-tight text-slate-950">
-              Create Issue
+              Create Work Item
             </DialogTitle>
           </DialogHeader>
 
@@ -593,7 +598,7 @@ const IssueCreateDialog = ({
               </div>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-semibold text-slate-900">Issue Title</span>
+                <span className="text-sm font-semibold text-slate-900">Work Item Title</span>
                 <Input
                   className="h-12 rounded-2xl border-slate-200 text-base shadow-none focus-visible:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-500/10"
                   name="title"
@@ -614,7 +619,7 @@ const IssueCreateDialog = ({
               <div className="space-y-3">
                 <SectionLabel
                   title="Assign"
-                  description="Quickly assign this issue"
+                  description="Quickly assign this work item"
                 />
 
                 <div className="grid items-start gap-3 md:grid-cols-2">
@@ -697,7 +702,7 @@ const IssueCreateDialog = ({
                             Assign to entire team
                           </span>
                           <span className="block text-slate-500">
-                            When enabled, this creates one issue for each teammate.
+                            When enabled, this creates one work item for each teammate.
                           </span>
                         </span>
                       </label>
@@ -705,7 +710,7 @@ const IssueCreateDialog = ({
                       {assignEntireTeam ? (
                         <div className="rounded-2xl border border-blue-100 bg-blue-50/80 px-3 py-2.5 text-sm text-blue-900">
                           {availableAssignees.length
-                            ? `This issue will be created for ${availableAssignees.length} team member${availableAssignees.length === 1 ? "" : "s"}.`
+                            ? `This work item will be created for ${availableAssignees.length} team member${availableAssignees.length === 1 ? "" : "s"}.`
                             : "This team does not have any members available yet."}
                         </div>
                       ) : null}
@@ -822,7 +827,7 @@ const IssueCreateDialog = ({
                   placeholder="No dependency"
                   noOptionsMessage={() =>
                     formData.projectId
-                      ? "No issues available in this project."
+                      ? "No work items available in this project."
                       : "Select a project first."
                   }
                 />
@@ -848,7 +853,7 @@ const IssueCreateDialog = ({
                 type="submit"
                 disabled={isSubmitPending || Boolean(blockedMessage)}
               >
-                {isSubmitPending ? "Creating..." : "Create Issue"}
+                {isSubmitPending ? "Creating..." : "Create Work Item"}
               </Button>
             </div>
           </form>

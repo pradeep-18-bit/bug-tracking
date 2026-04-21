@@ -7,10 +7,11 @@ import {
 } from "lucide-react";
 import {
   getIssuePriorityVariant,
+  getIssueDisplayKey,
   getIssueStatusLabel,
+  ISSUE_WORKFLOW_STATUS_OPTIONS,
   getIssueStatusVariant,
   getIssueTypeVariant,
-  ISSUE_STATUS,
   normalizeIssueStatus,
   resolveIssueAssignee,
 } from "@/lib/issues";
@@ -32,6 +33,7 @@ const IssueCard = ({
   onDragEnd,
 }) => {
   const assignee = resolveIssueAssignee(issue);
+  const issueKey = getIssueDisplayKey(issue);
 
   return (
     <article
@@ -82,9 +84,11 @@ const IssueCard = ({
                 }}
                 onClick={(event) => event.stopPropagation()}
               >
-                <option value={ISSUE_STATUS.TODO}>To Do</option>
-                <option value={ISSUE_STATUS.IN_PROGRESS}>In Progress</option>
-                <option value={ISSUE_STATUS.DONE}>Done</option>
+                {ISSUE_WORKFLOW_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             ) : (
               <Badge
@@ -103,7 +107,7 @@ const IssueCard = ({
               </span>
             ) : null}
             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-500">
-              #{issue._id.slice(-6)}
+              {issueKey}
             </span>
             <Badge className="px-2.5 py-0.5 text-[11px]" variant={getIssuePriorityVariant(issue.priority)}>
               {issue.priority}
@@ -113,6 +117,23 @@ const IssueCard = ({
                 {issue.type}
               </Badge>
             ) : null}
+            <Badge className="px-2.5 py-0.5 text-[11px]" variant={getIssueStatusVariant(issue.status)}>
+              {getIssueStatusLabel(issue.status)}
+            </Badge>
+            {issue.epicId?.name ? (
+              <span className="rounded-full border border-violet-100 bg-violet-50 px-2.5 py-0.5 text-[11px] font-medium text-violet-700">
+                {issue.epicId.name}
+              </span>
+            ) : null}
+            {issue.sprintId?.name ? (
+              <span className="rounded-full border border-sky-100 bg-sky-50 px-2.5 py-0.5 text-[11px] font-medium text-sky-700">
+                {issue.sprintId.name}
+              </span>
+            ) : (
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-medium text-slate-600">
+                Backlog
+              </span>
+            )}
           </div>
         </div>
 
@@ -171,7 +192,9 @@ const IssueCard = ({
         </div>
 
         <p className="truncate text-xs text-slate-500">
-          {issue.projectId?.name || "Unknown project"}
+          {[issue.projectId?.name || "Unknown project", issue.teamId?.name || "No team context"]
+            .filter(Boolean)
+            .join(" • ")}
         </p>
       </div>
     </article>

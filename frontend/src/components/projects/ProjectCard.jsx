@@ -30,6 +30,32 @@ import { getProjectTeams } from "@/lib/project-teams";
 import { memberSelectStyles } from "@/components/projects/memberSelectTheme";
 
 const TEAMS_NEW_MEETING_BASE_URL = "https://teams.microsoft.com/l/meeting/new";
+const PROJECT_CARD_PALETTES = [
+  {
+    headerGradient: "linear-gradient(135deg, #2563eb 0%, #0f766e 100%)",
+    glowColor: "rgba(125, 211, 252, 0.24)",
+  },
+  {
+    headerGradient: "linear-gradient(135deg, #ea580c 0%, #db2777 100%)",
+    glowColor: "rgba(253, 186, 116, 0.26)",
+  },
+  {
+    headerGradient: "linear-gradient(135deg, #059669 0%, #0284c7 100%)",
+    glowColor: "rgba(110, 231, 183, 0.24)",
+  },
+  {
+    headerGradient: "linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%)",
+    glowColor: "rgba(147, 197, 253, 0.22)",
+  },
+  {
+    headerGradient: "linear-gradient(135deg, #0891b2 0%, #4338ca 100%)",
+    glowColor: "rgba(103, 232, 249, 0.24)",
+  },
+  {
+    headerGradient: "linear-gradient(135deg, #65a30d 0%, #0f766e 100%)",
+    glowColor: "rgba(190, 242, 100, 0.22)",
+  },
+];
 
 const buildTeamOption = (team) => ({
   value: team._id,
@@ -93,12 +119,14 @@ const getProjectAssignmentName = (value) => {
   return name || email || "Unassigned";
 };
 
-const ProjectAssignmentChip = ({ label, value }) => (
-  <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 py-1.5 text-[12px] leading-5 text-white/85 backdrop-blur">
-    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/60">
-      {label}
-    </span>
-    <span className="truncate font-medium text-white/95">{value}</span>
+const ProjectAssignmentsSummary = ({ managerName, teamLeadName }) => (
+  <div
+    className="mt-4 flex min-w-0 items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-2 text-sm font-medium text-white/90 backdrop-blur"
+    title={`${managerName} | ${teamLeadName}`}
+  >
+    <span className="min-w-0 flex-1 truncate">{managerName}</span>
+    <span className="shrink-0 text-white/45">|</span>
+    <span className="min-w-0 flex-1 truncate">{teamLeadName}</span>
   </div>
 );
 
@@ -107,7 +135,7 @@ const ProjectTeamsPreview = ({ teams = [] }) => {
   const overflowTeams = Math.max(teams.length - visibleTeams.length, 0);
 
   return (
-    <div className="flex max-w-full flex-col items-start gap-2 rounded-[24px] border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-lg lg:items-end">
+    <div className="flex min-h-[88px] w-full max-w-full flex-col justify-between gap-2 rounded-[24px] border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-lg xl:w-auto xl:items-end">
       <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-white/70">
         <span>Attached Teams</span>
         <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-white/25 bg-white/14 px-2 text-[10px] font-semibold text-white">
@@ -164,6 +192,9 @@ const ProjectCard = ({
   const [teamsActionError, setTeamsActionError] = useState("");
   const managerName = getProjectAssignmentName(project?.manager);
   const teamLeadName = getProjectAssignmentName(project?.teamLead);
+  const palette = PROJECT_CARD_PALETTES[index % PROJECT_CARD_PALETTES.length];
+  const projectTitle = String(project?.name || "").trim() || "Untitled project";
+  const projectCreatedAt = project?.createdAt ? formatDate(project.createdAt) : "Unknown";
 
   const attachedTeams = useMemo(() => getProjectTeams(project), [project]);
   const attachedTeamIds = useMemo(
@@ -321,82 +352,95 @@ const ProjectCard = ({
   return (
     <>
       <Card
-        className="page-shell-enter interactive-card min-w-0 overflow-hidden border-white/60 bg-white/76 shadow-[0_28px_70px_-38px_rgba(15,23,42,0.34)] backdrop-blur-xl"
+        className="page-shell-enter interactive-card flex h-full min-w-0 flex-col overflow-hidden border-white/60 bg-white/76 shadow-[0_28px_70px_-38px_rgba(15,23,42,0.34)] backdrop-blur-xl"
         style={{ animationDelay: `${index * 45}ms` }}
       >
         <div
-          className="relative overflow-hidden px-5 py-5 text-white backdrop-blur-xl sm:px-6"
-          style={{ backgroundImage: "linear-gradient(135deg, #6366f1, #ec4899)" }}
+          className="relative min-h-[290px] overflow-hidden px-5 py-5 text-white backdrop-blur-xl sm:px-6 lg:min-h-[304px] xl:min-h-[248px]"
+          style={{ backgroundImage: palette.headerGradient }}
         >
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.18),transparent_34%),radial-gradient(circle_at_bottom_left,_rgba(255,255,255,0.16),transparent_38%)]" />
-          <div className="pointer-events-none absolute -right-16 top-0 h-36 w-36 rounded-full bg-white/18 blur-3xl" />
+          <div
+            className="pointer-events-none absolute -right-16 top-0 h-36 w-36 rounded-full blur-3xl"
+            style={{ backgroundColor: palette.glowColor }}
+          />
 
-          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/70">
+          <div className="relative flex h-full flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/70">
                 <span>Project</span>
                 <span className="h-1 w-1 rounded-full bg-white/70" />
-                <span>Created {formatDate(project.createdAt)}</span>
               </div>
-              <h3 className="mt-2 break-words text-2xl font-semibold leading-tight text-white">
-                {project.name}
+              <p className="mt-2 text-[11px] font-medium uppercase tracking-[0.2em] text-white/62">
+                Created {projectCreatedAt}
+              </p>
+              <h3
+                className="mt-3 truncate whitespace-nowrap text-2xl font-semibold leading-tight text-white"
+                title={projectTitle}
+              >
+                {projectTitle}
               </h3>
-              <div className="mt-3 flex flex-wrap items-center gap-2.5">
-                <ProjectAssignmentChip label="Manager" value={managerName} />
-                <ProjectAssignmentChip label="Team Lead" value={teamLeadName} />
-              </div>
-              {project.description ? (
-                <p className="mt-3 max-w-2xl line-clamp-2 text-sm leading-6 text-white/85">
-                  {project.description}
-                </p>
-              ) : null}
+              <ProjectAssignmentsSummary
+                managerName={managerName}
+                teamLeadName={teamLeadName}
+              />
             </div>
 
-            <div className="flex min-w-0 flex-col items-start gap-3 lg:items-end">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge isCompleted={Boolean(project.isCompleted)} />
-                {canManageProject ? (
-                  <>
-                    <Button
-                      className="interactive-button h-10 rounded-2xl border border-white/25 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur hover:bg-white/18"
-                      disabled={isUpdatingStatus}
-                      type="button"
-                      onClick={handleStatusToggle}
-                    >
-                      {isUpdatingStatus ? (
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
-                      ) : project.isCompleted ? (
-                        <RotateCcw className="h-4 w-4" />
-                      ) : (
-                        <CheckCircle2 className="h-4 w-4" />
-                      )}
-                      {project.isCompleted ? "Reopen Project" : "Mark as Completed"}
-                    </Button>
-                    <Button
-                      className="interactive-button h-10 w-10 rounded-2xl border border-rose-300/45 bg-rose-500/18 p-0 text-rose-50 shadow-[0_18px_36px_-24px_rgba(244,63,94,0.95)] backdrop-blur hover:bg-rose-500/28"
-                      disabled={isDeletingProject}
-                      size="icon"
-                      title="Delete Project"
-                      type="button"
-                      onClick={() => handleDeleteDialogChange(true)}
-                    >
-                      {isDeletingProject ? (
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                      <span className="sr-only">Delete Project</span>
-                    </Button>
-                  </>
-                ) : null}
-              </div>
+            <div className="flex min-w-0 w-full flex-col gap-3 xl:w-[240px] xl:items-end">
+              {canManageProject ? (
+                <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                  <Button
+                    className="interactive-button h-10 rounded-2xl border border-white/25 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur hover:bg-white/18"
+                    disabled={isUpdatingStatus}
+                    type="button"
+                    onClick={handleStatusToggle}
+                  >
+                    {isUpdatingStatus ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : project.isCompleted ? (
+                      <RotateCcw className="h-4 w-4" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4" />
+                    )}
+                    {project.isCompleted ? "Reopen Project" : "Mark as Completed"}
+                  </Button>
+                  <Button
+                    className="interactive-button h-10 w-10 rounded-2xl border border-rose-300/45 bg-rose-500/18 p-0 text-rose-50 shadow-[0_18px_36px_-24px_rgba(244,63,94,0.95)] backdrop-blur hover:bg-rose-500/28"
+                    disabled={isDeletingProject}
+                    size="icon"
+                    title="Delete Project"
+                    type="button"
+                    onClick={() => handleDeleteDialogChange(true)}
+                  >
+                    {isDeletingProject ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                    <span className="sr-only">Delete Project</span>
+                  </Button>
+                </div>
+              ) : null}
 
-              <ProjectTeamsPreview teams={attachedTeams} />
+              <div className="flex w-full min-w-0 flex-col items-start gap-2 xl:items-end">
+                <ProjectTeamsPreview teams={attachedTeams} />
+                <div className="flex w-full justify-start xl:justify-end">
+                  <StatusBadge isCompleted={Boolean(project.isCompleted)} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <CardContent className="space-y-4 p-5 sm:p-6">
+        <CardContent className="flex flex-1 flex-col gap-4 p-5 sm:p-6">
+          {project.description ? (
+            <p className="line-clamp-2 text-sm leading-6 text-slate-600">
+              {project.description}
+            </p>
+          ) : (
+            <div className="min-h-[3rem]" aria-hidden="true" />
+          )}
+
           {statusError ? (
             <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {statusError}
@@ -421,7 +465,7 @@ const ProjectCard = ({
             ))}
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="mt-auto flex flex-wrap gap-2">
             <Button
               className={actionButtonClass}
               type="button"

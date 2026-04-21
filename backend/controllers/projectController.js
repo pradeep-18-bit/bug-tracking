@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Comment = require("../models/Comment");
+const Epic = require("../models/Epic");
 const Issue = require("../models/Issue");
 const Project = require("../models/Project");
 const ProjectMeeting = require("../models/ProjectMeeting");
@@ -17,6 +18,7 @@ const {
   serializeProjectsWithRelations,
 } = require("../utils/projectRelations");
 const { normalizeWorkspaceId } = require("../utils/workspace");
+const { PLANNING_ORDER_INCREMENT } = require("../utils/planningOrder");
 
 const projectPopulation = [
   { path: "createdBy", select: "name email role workspaceId" },
@@ -459,6 +461,22 @@ const createProject = asyncHandler(async (req, res) => {
     createdBy: userId,
     isCompleted: false,
   });
+  const normalizedEpics = normalizeProjectEpics(epics);
+
+  if (normalizedEpics.length) {
+    await Epic.insertMany(
+      normalizedEpics.map((epicName, index) => ({
+        projectId: project._id,
+        workspaceId,
+        name: epicName,
+        description: "",
+        color: "#3B82F6",
+        planningOrder: (index + 1) * PLANNING_ORDER_INCREMENT,
+        status: "ACTIVE",
+        createdBy: userId,
+      }))
+    );
+  }
 
   res.status(201).json(await buildProjectResponse(project._id));
 });

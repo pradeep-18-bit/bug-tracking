@@ -4,6 +4,11 @@ const {
   ISSUE_STATUS_VALUES,
   getCanonicalIssueStatus,
 } = require("../utils/issueStatus");
+const {
+  ISSUE_TYPES,
+  ISSUE_TYPE_VALUES,
+  getCanonicalIssueType,
+} = require("../utils/issueTypes");
 
 const { Schema, model, models } = mongoose;
 
@@ -23,10 +28,11 @@ const issueSchema = new Schema(
     type: {
       type: String,
       enum: {
-        values: ["Bug", "Task", "Story"],
-        message: "Type must be Bug, Task, or Story",
+        values: ISSUE_TYPE_VALUES,
+        message: `Type must be ${ISSUE_TYPE_VALUES.join(", ")}`,
       },
-      default: "Task",
+      default: ISSUE_TYPES.TASK,
+      set: (value) => getCanonicalIssueType(value),
     },
     status: {
       type: String,
@@ -80,6 +86,28 @@ const issueSchema = new Schema(
       default: null,
       index: true,
     },
+    epicId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Epic",
+      default: null,
+      index: true,
+    },
+    sprintId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Sprint",
+      default: null,
+      index: true,
+    },
+    planningOrder: {
+      type: Number,
+      default: 1024,
+      index: true,
+    },
+    storyPoints: {
+      type: Number,
+      default: null,
+      min: [0, "Story points cannot be negative"],
+    },
     createdAt: {
       type: Date,
       default: Date.now,
@@ -97,5 +125,8 @@ const issueSchema = new Schema(
 
 issueSchema.index({ projectId: 1, teamId: 1, status: 1, priority: 1 });
 issueSchema.index({ projectId: 1, dueAt: 1 });
+issueSchema.index({ projectId: 1, sprintId: 1, planningOrder: 1 });
+issueSchema.index({ projectId: 1, epicId: 1, planningOrder: 1 });
+issueSchema.index({ assignee: 1, sprintId: 1, status: 1 });
 
 module.exports = models.Issue || model("Issue", issueSchema);

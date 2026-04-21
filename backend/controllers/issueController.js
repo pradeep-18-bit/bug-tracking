@@ -3,11 +3,19 @@ const Comment = require("../models/Comment");
 const Issue = require("../models/Issue");
 const Project = require("../models/Project");
 const ProjectTeam = require("../models/ProjectTeam");
+const Sprint = require("../models/Sprint");
 const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const User = require("../models/User");
 const { sendIssueEmail } = require("../services/emailService");
 const asyncHandler = require("../utils/asyncHandler");
+const { recordIssueHistory } = require("../utils/issueHistory");
+const {
+  populateIssueDocument,
+  populateIssueQuery,
+  serializeIssue,
+  serializeIssues,
+} = require("../utils/issuePresentation");
 const {
   ISSUE_STATUS,
   ISSUE_STATUS_VALUES,
@@ -15,26 +23,17 @@ const {
   isInProgressIssueStatus,
   normalizeIssueStatus,
 } = require("../utils/issueStatus");
+const {
+  ISSUE_TYPES,
+  ISSUE_TYPE_VALUES,
+  getCanonicalIssueType,
+  isValidIssueType,
+} = require("../utils/issueTypes");
+const { getNextPlanningOrder } = require("../utils/planningOrder");
+const { canManageProjectPlanning } = require("../utils/backlogAccess");
 const { buildProjectAccessQuery } = require("../utils/projectRelations");
 const { hasAdminAccess } = require("../utils/roles");
 const { normalizeWorkspaceId } = require("../utils/workspace");
-
-const populateIssueQuery = (query) =>
-  query
-    .populate("assignee", "name email role")
-    .populate("dependsOnIssueId", "title status dueAt")
-    .populate("reporter", "name email role")
-    .populate("projectId", "name description createdBy isCompleted")
-    .populate("teamId", "name description workspaceId");
-
-const populateIssueDocument = (issue) =>
-  issue.populate([
-    { path: "assignee", select: "name email role" },
-    { path: "dependsOnIssueId", select: "title status dueAt" },
-    { path: "reporter", select: "name email role" },
-    { path: "projectId", select: "name description createdBy isCompleted" },
-    { path: "teamId", select: "name description workspaceId" },
-  ]);
 
 const isAdmin = (user) => hasAdminAccess(user?.role);
 const escapeRegExp = (value = "") =>
@@ -119,37 +118,6 @@ const resolveAssigneeFilterInput = (payload = {}) => {
 
   return undefined;
 };
-
-const serializeIssue = (issue) => {
-  const serializedIssue =
-    typeof issue?.toObject === "function"
-      ? issue.toObject()
-      : {
-          ...issue,
-        };
-  const assigneeReference =
-    serializedIssue?.assignee?._id || serializedIssue?.assignee || null;
-  const dependencyIssue =
-    serializedIssue?.dependsOnIssueId &&
-    typeof serializedIssue.dependsOnIssueId === "object"
-      ? {
-          ...serializedIssue.dependsOnIssueId,
-          status: getCanonicalIssueStatus(
-            serializedIssue.dependsOnIssueId.status,
-            ISSUE_STATUS.TODO
-          ),
-        }
-      : serializedIssue?.dependsOnIssueId || null;
-
-  return {
-    ...serializedIssue,
-    status: getCanonicalIssueStatus(serializedIssue.status, ISSUE_STATUS.TODO),
-    dependsOnIssueId: dependencyIssue,
-    assigneeId: assigneeReference ? String(assigneeReference) : null,
-  };
-};
-
-const serializeIssues = (issues = []) => issues.map(serializeIssue);
 
 const buildIssueCreatedEmailPayload = (issue) => ({
   _id: String(issue._id),
@@ -522,6 +490,17 @@ const buildIssueQueryFromRequest = async (
     query.priority = req.query.priority;
   }
 
+  if (req.query.type && req.query.type !== "all") {
+    const normalizedType = getCanonicalIssueType(req.query.type, "");
+
+    if (!isValidIssueType(normalizedType)) {
+      res.status(400);
+      throw new Error(`Type must be ${ISSUE_TYPE_VALUES.join(", ")}`);
+    }
+
+    query.type = normalizedType;
+  }
+
   if (req.query.teamId && req.query.teamId !== "all") {
     if (!mongoose.isValidObjectId(req.query.teamId)) {
       res.status(400);
@@ -529,6 +508,49 @@ const buildIssueQueryFromRequest = async (
     }
 
     query.teamId = req.query.teamId;
+  }
+
+  if (req.query.sprintId && req.query.sprintId !== "all") {
+    if (req.query.sprintId === "backlog") {
+      query.sprintId = null;
+    } else {
+      if (!mongoose.isValidObjectId(req.query.sprintId)) {
+        res.status(400);
+        throw new Error("Invalid sprint id filter");
+      }
+
+      query.sprintId = req.query.sprintId;
+    }
+  }
+
+  if (req.query.sprintState && req.query.sprintState !== "all") {
+    const sprintState = String(req.query.sprintState).trim().toUpperCase();
+
+    if (!["PLANNED", "ACTIVE", "COMPLETED"].includes(sprintState)) {
+      res.status(400);
+      throw new Error("Invalid sprint state filter");
+    }
+
+    const sprintQuery = {
+      projectId:
+        typeof query.projectId === "object" && query.projectId.$in
+          ? { $in: query.projectId.$in }
+          : query.projectId,
+      state: sprintState,
+    };
+
+    if (query.teamId) {
+      sprintQuery.teamId = query.teamId;
+    }
+
+    const sprintIds = await Sprint.find(sprintQuery).distinct("_id");
+    query.sprintId = sprintIds.length
+      ? {
+          $in: sprintIds,
+        }
+      : {
+          $in: [],
+        };
   }
 
   if (req.query.search?.trim()) {
@@ -651,6 +673,9 @@ const getMyIssues = asyncHandler(async (req, res) => {
 const statusLabelMap = {
   [ISSUE_STATUS.TODO]: "To Do",
   [ISSUE_STATUS.IN_PROGRESS]: "In Progress",
+  [ISSUE_STATUS.BLOCKED]: "Blocked",
+  [ISSUE_STATUS.REVIEW]: "Review",
+  [ISSUE_STATUS.QA]: "QA",
   [ISSUE_STATUS.DONE]: "Done",
 };
 
@@ -658,6 +683,9 @@ const priorityOrder = ["High", "Medium", "Low"];
 const statusOrder = [
   ISSUE_STATUS.TODO,
   ISSUE_STATUS.IN_PROGRESS,
+  ISSUE_STATUS.BLOCKED,
+  ISSUE_STATUS.REVIEW,
+  ISSUE_STATUS.QA,
   ISSUE_STATUS.DONE,
 ];
 
@@ -707,7 +735,7 @@ const buildSummaryMetrics = (issues = []) =>
         summary.openIssues += 1;
       }
 
-      if (status === ISSUE_STATUS.IN_PROGRESS) {
+      if (isInProgressIssueStatus(status)) {
         summary.inProgressIssues += 1;
       }
 
@@ -741,7 +769,7 @@ const incrementEntityBucket = (bucket, issue) => {
     bucket.open += 1;
   }
 
-  if (status === ISSUE_STATUS.IN_PROGRESS) {
+  if (isInProgressIssueStatus(status)) {
     bucket.inProgress += 1;
   }
 
@@ -1012,6 +1040,7 @@ const createIssue = asyncHandler(async (req, res) => {
     dependsOnIssueId,
   } = req.body;
   const assigneeId = resolveAssigneeInput(req.body);
+  const normalizedType = getCanonicalIssueType(type, ISSUE_TYPES.TASK);
   const statusResult = parseIssueStatusInput(status, ISSUE_STATUS.TODO);
 
   if (!title || !projectId || !teamId) {
@@ -1029,12 +1058,17 @@ const createIssue = asyncHandler(async (req, res) => {
     throw new Error("Invalid project id");
   }
 
+  if (!isValidIssueType(normalizedType)) {
+    res.status(400);
+    throw new Error(`Type must be ${ISSUE_TYPE_VALUES.join(", ")}`);
+  }
+
   if (req.user.role === "Developer") {
     res.status(403);
     throw new Error("Developers cannot create new issues");
   }
 
-  if (req.user.role === "Tester" && type !== "Bug") {
+  if (req.user.role === "Tester" && normalizedType !== ISSUE_TYPES.BUG) {
     res.status(403);
     throw new Error("Testers can only report bug issues");
   }
@@ -1094,10 +1128,15 @@ const createIssue = asyncHandler(async (req, res) => {
     throw new Error(dependencyResult.error.message);
   }
 
+  const planningOrder = await getNextPlanningOrder(Issue, {
+    projectId,
+    sprintId: null,
+  });
+
   const issue = await Issue.create({
     title,
     description,
-    type,
+    type: normalizedType,
     status: statusResult.value,
     priority,
     assignee: assigneeId || null,
@@ -1106,10 +1145,25 @@ const createIssue = asyncHandler(async (req, res) => {
     teamId,
     dueAt: dueAtResult.value,
     dependsOnIssueId: dependsOnIssueId || null,
+    planningOrder,
     startedAt: isInProgressIssueStatus(statusResult.value) ? new Date() : null,
   });
 
   await populateIssueDocument(issue);
+  await recordIssueHistory({
+    issueId: issue._id,
+    projectId: issue.projectId,
+    actorId: req.user._id,
+    eventType: "ISSUE_CREATED",
+    field: "issue",
+    fromValue: null,
+    toValue: issue.title,
+    meta: {
+      type: issue.type,
+      priority: issue.priority,
+      status: issue.status,
+    },
+  });
 
   const emails = getIssueNotificationEmails(issue);
   const emailWorkspaceId = normalizeWorkspaceId(project.workspaceId || workspaceId);
@@ -1189,13 +1243,31 @@ const updateIssue = asyncHandler(async (req, res) => {
     throw new Error("You do not have access to this issue");
   }
 
+  const hasProjectLeadershipAccess = canManageProjectPlanning(req.user, targetProject);
+
   if (!isAdmin(req.user)) {
-    if (!issue.assignee || String(issue.assignee) !== String(req.user._id)) {
+    if (
+      !hasProjectLeadershipAccess &&
+      (!issue.assignee || String(issue.assignee) !== String(req.user._id))
+    ) {
       res.status(403);
       throw new Error("You can only update issues assigned to you");
     }
 
-    const allowedFields = ["status"];
+    const allowedFields = hasProjectLeadershipAccess
+      ? [
+          "title",
+          "description",
+          "type",
+          "priority",
+          "status",
+          "teamId",
+          "assigneeId",
+          "assignee",
+          "dueAt",
+          "dependsOnIssueId",
+        ]
+      : ["status"];
     const requestedFields = Object.keys(req.body);
 
     if (!requestedFields.every((field) => allowedFields.includes(field))) {
@@ -1205,6 +1277,7 @@ const updateIssue = asyncHandler(async (req, res) => {
   }
 
   const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const changeEntries = [];
 
   if (req.body.projectId) {
     if (!isAdmin(req.user)) {
@@ -1224,31 +1297,59 @@ const updateIssue = asyncHandler(async (req, res) => {
       throw new Error("You do not have access to the target project");
     }
 
+    const previousProjectId = issue.projectId;
     issue.projectId = targetProject._id;
+    changeEntries.push({
+      field: "projectId",
+      fromValue: previousProjectId,
+      toValue: targetProject._id,
+    });
   }
 
-  const updatableFields = [
-    "title",
-    "description",
-    "type",
-    "priority",
-  ];
+  const updatableFields = ["title", "description", "priority"];
   const nextStatusResult = parseIssueStatusInput(req.body.status, issue.status);
+  const nextType = hasOwnField(req.body, "type")
+    ? getCanonicalIssueType(req.body.type, "")
+    : issue.type;
 
   if (nextStatusResult.error) {
     res.status(nextStatusResult.error.status);
     throw new Error(nextStatusResult.error.message);
   }
 
+  if (hasOwnField(req.body, "type") && !isValidIssueType(nextType)) {
+    res.status(400);
+    throw new Error(`Type must be ${ISSUE_TYPE_VALUES.join(", ")}`);
+  }
+
   const nextStatus = nextStatusResult.value;
 
   updatableFields.forEach((field) => {
     if (typeof req.body[field] !== "undefined") {
+      changeEntries.push({
+        field,
+        fromValue: issue[field],
+        toValue: req.body[field],
+      });
       issue[field] = req.body[field];
     }
   });
 
+  if (typeof req.body.type !== "undefined") {
+    changeEntries.push({
+      field: "type",
+      fromValue: issue.type,
+      toValue: nextType,
+    });
+    issue.type = nextType;
+  }
+
   if (typeof req.body.status !== "undefined") {
+    changeEntries.push({
+      field: "status",
+      fromValue: issue.status,
+      toValue: nextStatus,
+    });
     issue.status = nextStatus;
   }
 
@@ -1303,6 +1404,11 @@ const updateIssue = asyncHandler(async (req, res) => {
       throw new Error(dueAtResult.error.message);
     }
 
+    changeEntries.push({
+      field: "dueAt",
+      fromValue: issue.dueAt || null,
+      toValue: dueAtResult.value || null,
+    });
     issue.dueAt = dueAtResult.value;
   }
 
@@ -1320,6 +1426,11 @@ const updateIssue = asyncHandler(async (req, res) => {
   }
 
   if (hasTeamChange) {
+    changeEntries.push({
+      field: "teamId",
+      fromValue: issue.teamId || null,
+      toValue: nextTeamId || null,
+    });
     issue.teamId = nextTeamId;
   }
 
@@ -1329,19 +1440,50 @@ const updateIssue = asyncHandler(async (req, res) => {
       throw new Error("Only admins can reassign issues");
     }
 
+    const previousAssigneeId = issue.assignee || null;
+
     if (!nextAssigneeId) {
       issue.assignee = null;
     } else {
       issue.assignee = nextAssigneeId;
     }
+
+    changeEntries.push({
+      field: "assignee",
+      fromValue: previousAssigneeId,
+      toValue: nextAssigneeId || null,
+    });
   }
 
   if (hasDependencyChange) {
+    changeEntries.push({
+      field: "dependsOnIssueId",
+      fromValue: issue.dependsOnIssueId || null,
+      toValue: nextDependsOnIssueId || null,
+    });
     issue.dependsOnIssueId = nextDependsOnIssueId;
   }
 
   await issue.save();
   await populateIssueDocument(issue);
+  await Promise.all(
+    changeEntries
+      .filter((entry) => String(entry.fromValue || "") !== String(entry.toValue || ""))
+      .map((entry) =>
+        recordIssueHistory({
+          issueId: issue._id,
+          projectId: issue.projectId,
+          actorId: req.user._id,
+          eventType: "ISSUE_UPDATED",
+          field: entry.field,
+          fromValue: entry.fromValue,
+          toValue: entry.toValue,
+          meta: {
+            title: issue.title,
+          },
+        })
+      )
+  );
 
   res.status(200).json(serializeIssue(issue));
 });

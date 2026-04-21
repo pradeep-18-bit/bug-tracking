@@ -30,6 +30,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { hasAdminPanelAccess } from "@/lib/roles";
 import { getWorkspaceScope } from "@/lib/workspace";
 
+const PROJECT_GRID_SKELETON_COUNT = 3;
+
 const ProjectsPage = () => {
   const queryClient = useQueryClient();
   const location = useLocation();
@@ -173,10 +175,10 @@ const ProjectsPage = () => {
   }
 
   return (
-    <div className="mx-auto w-full max-w-screen-2xl space-y-6">
+    <div className="w-full space-y-6">
       <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
 
-      <section>
+      <section className="w-full">
         <Card className="overflow-hidden border-white/70 bg-white/90 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.3)] backdrop-blur-xl">
           <CardContent className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div className="flex items-center gap-4">
@@ -206,13 +208,15 @@ const ProjectsPage = () => {
         </Card>
       </section>
 
-      <section className="min-w-0">
-        <div className="grid min-w-0 gap-4 2xl:grid-cols-2">
+      <section className="min-w-0 w-full">
+        <div className="grid min-w-0 w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {isProjectsLoading ? (
-            <>
-              <Skeleton className="h-[360px] w-full rounded-[32px]" />
-              <Skeleton className="h-[360px] w-full rounded-[32px]" />
-            </>
+            Array.from({ length: PROJECT_GRID_SKELETON_COUNT }).map((_, index) => (
+              <Skeleton
+                key={`project-skeleton-${index}`}
+                className="h-[360px] w-full rounded-[32px]"
+              />
+            ))
           ) : projects.length ? (
             projects.map((project, index) => (
               <ProjectCard
@@ -258,7 +262,7 @@ const ProjectsPage = () => {
               />
             ))
           ) : (
-            <div className="2xl:col-span-2">
+            <div className="md:col-span-2 lg:col-span-3">
               <EmptyState
                 title="No projects yet"
                 description="Create a project, attach a team, and start organizing work in a tighter project space."

@@ -162,7 +162,11 @@ const buildProjectAccessQuery = async (user) => {
 
   const userId = user.id || user._id;
   const teamProjectIds = await getProjectIdsForUserThroughTeams(userId, workspaceId);
-  const accessConditions = [{ createdBy: userId }];
+  const accessConditions = [
+    { createdBy: userId },
+    { manager: userId },
+    { teamLead: userId },
+  ];
 
   if (teamProjectIds.length) {
     accessConditions.push({

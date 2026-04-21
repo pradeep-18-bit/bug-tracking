@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ISSUE_TYPE_OPTIONS } from "@/lib/issues";
 
 const ALL_PROJECTS_VALUE = "ALL";
 
@@ -10,6 +11,7 @@ const IssuesToolbar = ({
   filters,
   projects = [],
   teams = [],
+  assignees = [],
   visibleIssueCount = 0,
   activeStatusLabel = "",
   selectedProject = null,
@@ -17,6 +19,8 @@ const IssuesToolbar = ({
   isCreateDisabled = false,
   onProjectChange,
   onTeamChange,
+  onAssigneeChange,
+  onTypeChange,
   onSearchChange,
   onCreateIssue,
 }) => {
@@ -31,8 +35,8 @@ const IssuesToolbar = ({
               {visibleIssueCount} issue{visibleIssueCount === 1 ? "" : "s"} in view
             </p>
             <p className="text-sm leading-6 text-slate-600">
-              Filter issues and move work across the board without changing the light
-              Pirnav UI.
+              Filter issues, review ownership, and move work across the workflow with
+              a Jira-style planning lens.
             </p>
           </div>
 
@@ -43,11 +47,11 @@ const IssuesToolbar = ({
             onClick={onCreateIssue}
           >
             <Plus className="h-4 w-4" />
-            Create Issue
+            Create Work Item
           </Button>
         </div>
 
-        <div className="grid gap-3 xl:grid-cols-[220px_220px_minmax(0,1fr)]">
+        <div className="grid gap-3 xl:grid-cols-[220px_220px_220px_200px_minmax(0,1fr)]">
           <label className="space-y-2">
             <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
               Project
@@ -87,13 +91,50 @@ const IssuesToolbar = ({
 
           <label className="space-y-2">
             <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
-              Search
+              Assignee
+            </span>
+            <select
+              className="field-select"
+              value={filters.assigneeId}
+              onChange={(event) => onAssigneeChange(event.target.value)}
+              disabled={!assignees.length}
+            >
+              <option value="all">All assignees</option>
+              {assignees.map((assignee) => (
+                <option key={assignee._id} value={assignee._id}>
+                  {assignee.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-2">
+            <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+              Type
+            </span>
+            <select
+              className="field-select"
+              value={filters.type}
+              onChange={(event) => onTypeChange(event.target.value)}
+            >
+              <option value="all">Task / Story / Bug / Epic / Sub-task</option>
+              {ISSUE_TYPE_OPTIONS.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-2">
+            <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+              Filter Issues
             </span>
             <div className="relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
                 className="pl-11"
-                placeholder="Search issues"
+                placeholder="Search issue key, title, epic, team, or assignee"
                 value={filters.search}
                 onChange={(event) => onSearchChange(event.target.value)}
               />
@@ -104,7 +145,7 @@ const IssuesToolbar = ({
         {showTeamWarning ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
             Attach a team to <span className="font-semibold">{selectedProject.name}</span>{" "}
-            before creating or assigning issues in this project.
+            before creating or assigning work in this project.
           </div>
         ) : null}
 
@@ -118,8 +159,8 @@ const IssuesToolbar = ({
 
         {!canCreateIssue ? (
           <p className="text-xs text-slate-500">
-            Issue creation is limited for your role, but the board layout and issue
-            actions remain consistent.
+            Work item creation is limited for your role, but the workflow board and
+            work item actions remain consistent.
           </p>
         ) : null}
       </CardContent>

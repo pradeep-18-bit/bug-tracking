@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { FolderKanban } from "lucide-react";
-import { ISSUE_STATUS, normalizeIssueStatus } from "@/lib/issues";
+import { ISSUE_STATUS, getIssueWorkflowLane, normalizeIssueStatus } from "@/lib/issues";
 import EmptyState from "@/components/shared/EmptyState";
 import IssueColumn from "@/components/issues/IssueColumn";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,19 +9,19 @@ const BOARD_COLUMNS = [
   {
     key: ISSUE_STATUS.TODO,
     label: "To Do",
-    helper: "Planned work that is ready to be picked up.",
+    helper: "Backlog items and planned work that are ready for pickup.",
     accentClassName: "bg-slate-400",
   },
   {
     key: ISSUE_STATUS.IN_PROGRESS,
     label: "In Progress",
-    helper: "Work that is actively moving through delivery.",
+    helper: "Active work, blocked items, reviews, and QA handoffs.",
     accentClassName: "bg-amber-500",
   },
   {
     key: ISSUE_STATUS.DONE,
     label: "Done",
-    helper: "Completed issues that are already wrapped up.",
+    helper: "Completed work items that are ready to report.",
     accentClassName: "bg-emerald-500",
   },
 ];
@@ -33,8 +33,8 @@ const IssueBoard = ({
   canChangeStatus = false,
   onSelectIssue,
   onStatusChange,
-  emptyStateTitle = "No issues found",
-  emptyStateDescription = "Adjust the filters or create a new issue to populate the board.",
+  emptyStateTitle = "No work items found",
+  emptyStateDescription = "Adjust the filters or create a new work item to populate the board.",
 }) => {
   const [draggedIssueId, setDraggedIssueId] = useState("");
   const [activeColumnKey, setActiveColumnKey] = useState("");
@@ -43,9 +43,7 @@ const IssueBoard = ({
     () =>
       BOARD_COLUMNS.map((column) => ({
         ...column,
-        items: issues.filter(
-          (issue) => normalizeIssueStatus(issue.status) === column.key
-        ),
+        items: issues.filter((issue) => getIssueWorkflowLane(issue.status) === column.key),
       })),
     [issues]
   );

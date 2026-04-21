@@ -30,6 +30,7 @@ export const getRoleNavigation = (role) => {
       { label: "Dashboard", href: dashboardPathByRole[ROLE_ADMIN], icon: "dashboard" },
       { label: "Projects", href: "/projects", icon: "projects" },
       { label: "Teams", href: "/teams", icon: "teams" },
+      { label: "Backlog", href: "/backlog", icon: "backlog" },
       { label: "Issues", href: "/issues", icon: "issues" },
       { label: "Reports", href: "/reports", icon: "reports" },
       { label: "Settings", href: "/settings/users", icon: "settings" },
@@ -39,6 +40,7 @@ export const getRoleNavigation = (role) => {
   if (role === ROLE_TESTER) {
     return [
       { label: "Dashboard", href: dashboardPathByRole[ROLE_TESTER], icon: "dashboard" },
+      { label: "Backlog", href: "/backlog", icon: "backlog" },
       { label: "Tasks", href: "/tasks", icon: "tasks" },
       { label: "Reports", href: "/reports", icon: "reports" },
     ];
@@ -46,6 +48,7 @@ export const getRoleNavigation = (role) => {
 
   return [
     { label: "Dashboard", href: dashboardPathByRole[ROLE_DEVELOPER], icon: "dashboard" },
+    { label: "Backlog", href: "/backlog", icon: "backlog" },
     { label: "Tasks", href: "/tasks", icon: "tasks" },
     { label: "Reports", href: "/reports", icon: "reports" },
     { label: "Settings", href: "/dev/settings", icon: "settings" },
@@ -62,7 +65,7 @@ export const getPageMeta = (pathname, role) => {
     [dashboardPathByRole[ROLE_DEVELOPER]]: {
       title: "Developer Dashboard",
       description:
-        "Stay focused on your assigned issues, active priorities, and release-ready work.",
+        "Stay focused on your assigned work items, active priorities, and release-ready delivery.",
     },
     "/dev/settings": {
       title: "Developer Settings",
@@ -72,7 +75,7 @@ export const getPageMeta = (pathname, role) => {
     [dashboardPathByRole[ROLE_TESTER]]: {
       title: "Tester Dashboard",
       description:
-        "Track validation work, move bugs through triage, and report fresh defects quickly.",
+        "Track validation work, move bugs through triage, and keep QA signals visible across delivery.",
     },
     "/projects": {
       title: "Project Space",
@@ -83,6 +86,11 @@ export const getPageMeta = (pathname, role) => {
       title: "Workspace Teams",
       description:
         "Organize workspace members into delivery groups and keep team membership clean.",
+    },
+    "/backlog": {
+      title: "Backlog Planning",
+      description:
+        "Plan sprint work, organize epics, and keep backlog priorities aligned before execution starts.",
     },
     "/teams/create": {
       title: "Create Team",
@@ -97,7 +105,7 @@ export const getPageMeta = (pathname, role) => {
     "/reports": {
       title: "Reports",
       description:
-        "Review issue analytics, distribution trends, and project-level workload signals.",
+        "Review work item analytics, distribution trends, and project-level workload signals.",
     },
     "/settings/users": {
       title: "User Management",
@@ -109,9 +117,9 @@ export const getPageMeta = (pathname, role) => {
   if (pathname === "/issues") {
     if (hasAdminPanelAccess(role)) {
       return {
-        title: "Issue Tracker",
+        title: "Issue Workspace",
         description:
-          "Assign work, rebalance priorities, and manage execution from a structured issue registry.",
+          "Filter work across projects, rebalance priorities, and move items through a structured delivery workflow.",
       };
     }
 
@@ -119,14 +127,14 @@ export const getPageMeta = (pathname, role) => {
       return {
         title: "Testing Queue",
         description:
-          "Work through validation tasks, update bug status, and keep QA feedback visible in a clean list.",
+          "Work through validation tasks, update bug status, and keep QA feedback visible in a structured queue.",
       };
     }
 
     return {
       title: "My Assigned Work",
       description:
-        "Move your issues forward, keep status fresh, and stay on top of active delivery work.",
+        "Move your assigned work forward, keep status fresh, and stay on top of active delivery work.",
     };
   }
 
