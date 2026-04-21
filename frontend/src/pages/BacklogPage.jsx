@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flag, FolderKanban, Layers3 } from "lucide-react";
 import {
@@ -35,8 +35,31 @@ import ToastNotice from "@/components/shared/ToastNotice";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const BACKLOG_PROJECT_FILTER_STORAGE_KEY = "pirnav.backlog.projectId";
+
+const readStoredBacklogProjectId = () => {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.localStorage.getItem(BACKLOG_PROJECT_FILTER_STORAGE_KEY) || "";
+};
+
+const persistBacklogProjectId = (projectId) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (projectId) {
+    window.localStorage.setItem(BACKLOG_PROJECT_FILTER_STORAGE_KEY, String(projectId));
+    return;
+  }
+
+  window.localStorage.removeItem(BACKLOG_PROJECT_FILTER_STORAGE_KEY);
+};
+
 const createDefaultFilters = () => ({
-  projectId: "",
+  projectId: readStoredBacklogProjectId(),
   teamId: "all",
   assigneeId: "all",
   epicId: "all",
@@ -340,6 +363,7 @@ const BacklogPage = () => {
   });
   const [completionSprint, setCompletionSprint] = useState(null);
   const [isEpicSubmitting, setIsEpicSubmitting] = useState(false);
+  const previousProjectIdRef = useRef(filters.projectId);
   const deferredSearch = useDeferredValue(filters.search);
   const queryFilters = useMemo(
     () => ({
@@ -359,15 +383,36 @@ const BacklogPage = () => {
   });
 
   useEffect(() => {
-    if (!projects.length || filters.projectId) {
+    persistBacklogProjectId(filters.projectId);
+  }, [filters.projectId]);
+
+  useEffect(() => {
+    if (isProjectsLoading || !filters.projectId) {
+      return;
+    }
+
+    if (projects.some((project) => String(project._id) === String(filters.projectId))) {
       return;
     }
 
     setFilters((current) => ({
       ...current,
-      projectId: projects[0]._id,
+      projectId: "",
+      teamId: "all",
+      assigneeId: "all",
+      epicId: "all",
     }));
-  }, [filters.projectId, projects]);
+  }, [filters.projectId, isProjectsLoading, projects]);
+
+  useEffect(() => {
+    if (previousProjectIdRef.current === filters.projectId) {
+      return;
+    }
+
+    previousProjectIdRef.current = filters.projectId;
+    setBoardState(createBoardState(null));
+    setSelectedIssueId("");
+  }, [filters.projectId]);
 
   const selectedProject = useMemo(
     () => findProjectById(projects, filters.projectId),
@@ -719,6 +764,35 @@ const BacklogPage = () => {
   const planningUpdatingIssueId = updatePlanningMutation.isPending
     ? updatePlanningMutation.variables?.id || ""
     : "";
+  const startingSprintId = startSprintMutation.isPending
+    ? startSprintMutation.variables || ""
+    : "";
+
+  const handleFilterChange = (field, value) => {
+    if (field === "projectId") {
+      setFilters((current) => {
+        const nextProjectId = String(value || "");
+
+        if (String(current.projectId) === nextProjectId) {
+          return current;
+        }
+
+        return {
+          ...current,
+          projectId: nextProjectId,
+          teamId: "all",
+          assigneeId: "all",
+          epicId: "all",
+        };
+      });
+      return;
+    }
+
+    setFilters((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
 
   const handlePlanningDrop = async ({ destinationSprintId = "", overIssueId = "" }) => {
     if (!draggedIssueId || !permissions.canReorderIssues) {
@@ -843,6 +917,48 @@ const BacklogPage = () => {
     return <BacklogSkeleton />;
   }
 
+  if (!filters.projectId) {
+    return (
+      <div className="space-y-4">
+        <BacklogToolbar
+          filters={filters}
+          projects={projects}
+          teams={availableTeams}
+          members={availableMembers}
+          summary={null}
+          permissions={{}}
+          selectedEpic={null}
+          onChange={handleFilterChange}
+          onResetFilters={handleResetFilters}
+          onCreateSprint={() =>
+            setSprintDialogState({
+              open: true,
+              sprint: null,
+            })
+          }
+          onCreateEpic={() =>
+            setEpicDialogState({
+              open: true,
+              epic: null,
+            })
+          }
+        />
+
+        <Card className="border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
+          <CardContent className="p-8">
+            <EmptyState
+              title="Select a project backlog"
+              description="Choose a project from the filter bar to load backlog planning. The page now keeps your last valid project selection instead of auto-switching to the first project."
+              icon={<FolderKanban className="h-5 w-5" />}
+            />
+          </CardContent>
+        </Card>
+
+        <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <BacklogToolbar
@@ -853,12 +969,7 @@ const BacklogPage = () => {
         summary={backlogData?.summary}
         permissions={permissions}
         selectedEpic={selectedEpic}
-        onChange={(field, value) =>
-          setFilters((current) => ({
-            ...current,
-            [field]: value,
-          }))
-        }
+        onChange={handleFilterChange}
         onResetFilters={handleResetFilters}
         onCreateSprint={() =>
           setSprintDialogState({
@@ -1065,21 +1176,42 @@ const BacklogPage = () => {
                         }
                       }}
                       onStartSprint={async () => {
+                        if (startSprintMutation.isPending) {
+                          return;
+                        }
+
                         try {
-                          await startSprintMutation.mutateAsync(section.sprint._id);
+                          const startedSprint = await startSprintMutation.mutateAsync(
+                            section.sprint._id
+                          );
+                          const startedState = String(
+                            startedSprint?.state || startedSprint?.status || ""
+                          )
+                            .trim()
+                            .toUpperCase();
+
+                          if (startedState !== "ACTIVE") {
+                            throw new Error(
+                              "Sprint start was acknowledged, but the sprint is not active yet."
+                            );
+                          }
+
                           setToast({
                             type: "success",
-                            message: `${section.sprint.name} is now active.`,
+                            title: "Sprint started",
+                            message: `${startedSprint.name || section.sprint.name} is now active.`,
                           });
                         } catch (error) {
                           setToast({
                             type: "error",
+                            title: "Sprint not started",
                             message:
                               error.response?.data?.message ||
                               "Unable to start that sprint right now.",
                           });
                         }
                       }}
+                      isStartPending={startingSprintId === section.sprint._id}
                       onCompleteSprint={() => setCompletionSprint(section.sprint)}
                     />
                   ))

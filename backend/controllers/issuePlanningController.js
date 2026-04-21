@@ -11,6 +11,7 @@ const IssueWorklog = require("../models/IssueWorklog");
 const Sprint = require("../models/Sprint");
 const TeamMember = require("../models/TeamMember");
 const User = require("../models/User");
+const { scheduleIssueStateNotifications } = require("../services/sprintNotificationService");
 const asyncHandler = require("../utils/asyncHandler");
 const {
   canManageProjectPlanning,
@@ -306,6 +307,8 @@ const updateIssuePlanning = asyncHandler(async (req, res) => {
 
   const { issue, project } = accessResult;
   const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const previousSprintId = issue.sprintId ? String(issue.sprintId) : "";
+  const previousAssigneeId = issue.assignee ? String(issue.assignee) : "";
   const nextValues = {};
 
   if (Object.prototype.hasOwnProperty.call(req.body, "epicId")) {
@@ -404,6 +407,26 @@ const updateIssuePlanning = asyncHandler(async (req, res) => {
   await issue.save();
   await Promise.all(historyPromises);
 
+  try {
+    const notificationResult = await scheduleIssueStateNotifications({
+      issueId: issue._id,
+      previousSprintId,
+      previousAssigneeId,
+      actorUserId: getActorId(req.user),
+    });
+
+    console.info("[sprint-notifications] planning update evaluated", {
+      issueId: String(issue._id),
+      queued: Number(notificationResult?.queued || 0),
+      skipped: notificationResult?.skipped || "",
+    });
+  } catch (error) {
+    console.error("[sprint-notifications] planning update notification evaluation failed", {
+      issueId: String(issue._id),
+      message: error.message,
+    });
+  }
+
   res.status(200).json(issue);
 });
 
@@ -453,6 +476,7 @@ const reorderIssuePlanning = asyncHandler(async (req, res) => {
   }
 
   const sourceSprintId = issue.sprintId ? String(issue.sprintId) : "";
+  const previousAssigneeId = issue.assignee ? String(issue.assignee) : "";
   const nextSprintId = sprintResult.sprint ? String(sprintResult.sprint._id) : "";
   const [sourceIssues, destinationIssues] = await Promise.all([
     Issue.find(buildContainerQuery(issue.projectId, sourceSprintId || null)).sort({
@@ -526,6 +550,26 @@ const reorderIssuePlanning = asyncHandler(async (req, res) => {
   });
 
   const updatedIssue = await Issue.findById(issueId);
+
+  try {
+    const notificationResult = await scheduleIssueStateNotifications({
+      issueId,
+      previousSprintId: sourceSprintId,
+      previousAssigneeId,
+      actorUserId: getActorId(req.user),
+    });
+
+    console.info("[sprint-notifications] planning reorder evaluated", {
+      issueId: String(issueId),
+      queued: Number(notificationResult?.queued || 0),
+      skipped: notificationResult?.skipped || "",
+    });
+  } catch (error) {
+    console.error("[sprint-notifications] planning reorder notification evaluation failed", {
+      issueId: String(issueId),
+      message: error.message,
+    });
+  }
 
   res.status(200).json({
     message: "Issue planning updated successfully",

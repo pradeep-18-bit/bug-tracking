@@ -8,6 +8,7 @@ const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const User = require("../models/User");
 const { sendIssueEmail } = require("../services/emailService");
+const { scheduleIssueStateNotifications } = require("../services/sprintNotificationService");
 const asyncHandler = require("../utils/asyncHandler");
 const { recordIssueHistory } = require("../utils/issueHistory");
 const {
@@ -1277,6 +1278,8 @@ const updateIssue = asyncHandler(async (req, res) => {
   }
 
   const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const previousSprintId = issue.sprintId ? String(issue.sprintId) : "";
+  const previousAssigneeId = issue.assignee ? String(issue.assignee) : "";
   const changeEntries = [];
 
   if (req.body.projectId) {
@@ -1484,6 +1487,26 @@ const updateIssue = asyncHandler(async (req, res) => {
         })
       )
   );
+
+  try {
+    const notificationResult = await scheduleIssueStateNotifications({
+      issueId: issue._id,
+      previousSprintId,
+      previousAssigneeId,
+      actorUserId: req.user._id,
+    });
+
+    console.info("[sprint-notifications] issue update evaluated", {
+      issueId: String(issue._id),
+      queued: Number(notificationResult?.queued || 0),
+      skipped: notificationResult?.skipped || "",
+    });
+  } catch (error) {
+    console.error("[sprint-notifications] issue update notification evaluation failed", {
+      issueId: String(issue._id),
+      message: error.message,
+    });
+  }
 
   res.status(200).json(serializeIssue(issue));
 });

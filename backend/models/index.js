@@ -13,6 +13,7 @@ const Sprint = require("./Sprint");
 const IssueAttachment = require("./IssueAttachment");
 const IssueWorklog = require("./IssueWorklog");
 const IssueHistory = require("./IssueHistory");
+const SprintNotification = require("./SprintNotification");
 
 module.exports = {
   User,
@@ -30,4 +31,5 @@ module.exports = {
   IssueAttachment,
   IssueWorklog,
   IssueHistory,
+  SprintNotification,
 };

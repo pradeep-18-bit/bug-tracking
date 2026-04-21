@@ -55,6 +55,32 @@ const projectSchema = new Schema(
       default: false,
       index: true,
     },
+    notificationSettings: {
+      sprintNotificationsEnabled: {
+        type: Boolean,
+        default: undefined,
+      },
+      stakeholderUserIds: [
+        {
+          type: Schema.Types.ObjectId,
+          ref: "User",
+        },
+      ],
+      stakeholderEmails: [
+        {
+          type: String,
+          trim: true,
+          lowercase: true,
+        },
+      ],
+      ccEmails: [
+        {
+          type: String,
+          trim: true,
+          lowercase: true,
+        },
+      ],
+    },
     createdAt: {
       type: Date,
       default: Date.now,

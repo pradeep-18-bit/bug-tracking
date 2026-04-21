@@ -3,6 +3,7 @@ const Issue = require("../models/Issue");
 const ProjectTeam = require("../models/ProjectTeam");
 const Sprint = require("../models/Sprint");
 const Team = require("../models/Team");
+const { handleSprintStarted } = require("../services/sprintNotificationService");
 const asyncHandler = require("../utils/asyncHandler");
 const {
   canManageProjectPlanning,
@@ -101,6 +102,7 @@ const serializeSprint = (sprint, issues = []) => ({
   name: sprint.name,
   goal: sprint.goal || "",
   state: sprint.state,
+  status: sprint.state,
   startDate: sprint.startDate,
   endDate: sprint.endDate,
   startedAt: sprint.startedAt,
@@ -113,6 +115,60 @@ const serializeSprint = (sprint, issues = []) => ({
   issueCount: issues.length,
   completedCount: issues.filter((issue) => issue.status === "DONE").length,
 });
+
+const createHttpError = (status, message, code = "", details = null) => {
+  const error = new Error(message);
+  error.statusCode = status;
+
+  if (code) {
+    error.code = code;
+  }
+
+  if (details) {
+    error.details = details;
+  }
+
+  return error;
+};
+
+const throwHttpError = (res, status, message, code = "", details = null) => {
+  res.status(status);
+  throw createHttpError(status, message, code, details);
+};
+
+const getSprintScopeLabel = (sprint) => {
+  const teamName = sprint?.teamId?.name || sprint?.teamName || "";
+  return teamName ? `team ${teamName}` : "project-wide scope";
+};
+
+const buildSprintConflictDetails = (sprint, conflictingSprint = null) => ({
+  sprintId: String(sprint?._id || ""),
+  sprintName: sprint?.name || "",
+  sprintState: sprint?.state || "",
+  sprintScope: getSprintScopeLabel(sprint),
+  conflictingSprintId: String(conflictingSprint?._id || ""),
+  conflictingSprintName: conflictingSprint?.name || "",
+  conflictingSprintState: conflictingSprint?.state || "",
+  conflictingSprintScope: conflictingSprint ? getSprintScopeLabel(conflictingSprint) : "",
+});
+
+const logSprintStartAttempt = (req, sprint) => {
+  console.info("[sprints] start attempt", {
+    sprintId: String(sprint?._id || req.params?.id || ""),
+    sprintName: sprint?.name || "",
+    sprintState: sprint?.state || "",
+    projectId: String(sprint?.projectId || ""),
+    teamId: String(sprint?.teamId || ""),
+    actorUserId: String(req.user?._id || req.user?.id || ""),
+  });
+};
+
+const logSprintStartConflict = ({ sprint, reason, conflictingSprint = null }) => {
+  console.warn("[sprints] start conflict", {
+    reason,
+    ...buildSprintConflictDetails(sprint, conflictingSprint),
+  });
+};
 
 const ensureSprintManagementAccess = async (user, sprint) => {
   const project = await loadReadableProject(user, sprint.projectId);
@@ -141,43 +197,55 @@ const ensureSprintManagementAccess = async (user, sprint) => {
 };
 
 const validateActiveSprintOverlap = async (sprint) => {
+  const baseQuery = {
+    _id: {
+      $ne: sprint._id,
+    },
+    projectId: sprint.projectId,
+    state: "ACTIVE",
+  };
+
   if (sprint.teamId) {
     const conflictingSprint = await Sprint.findOne({
-      _id: {
-        $ne: sprint._id,
-      },
-      projectId: sprint.projectId,
-      state: "ACTIVE",
+      ...baseQuery,
       $or: [{ teamId: null }, { teamId: sprint.teamId }],
     })
-      .select("_id")
+      .select("_id name state teamId startDate endDate")
+      .populate("teamId", "name")
       .lean();
 
     if (conflictingSprint) {
+      const isProjectWideConflict = !conflictingSprint.teamId;
+      const conflictMessage = isProjectWideConflict
+        ? `Cannot start "${sprint.name}" because "${conflictingSprint.name}" is already active for the project-wide scope.`
+        : `Cannot start "${sprint.name}" because "${conflictingSprint.name}" is already active for ${getSprintScopeLabel(
+            conflictingSprint
+          )}.`;
+
       return {
+        conflictingSprint,
         error: {
           status: 409,
-          message:
-            "This sprint overlaps with an existing active sprint in the same project scope",
+          code: "ACTIVE_SPRINT_SCOPE_CONFLICT",
+          message: conflictMessage,
+          details: buildSprintConflictDetails(sprint, conflictingSprint),
         },
       };
     }
   } else {
-    const conflictingSprint = await Sprint.findOne({
-      _id: {
-        $ne: sprint._id,
-      },
-      projectId: sprint.projectId,
-      state: "ACTIVE",
-    })
-      .select("_id")
+    const conflictingSprint = await Sprint.findOne(baseQuery)
+      .select("_id name state teamId startDate endDate")
+      .populate("teamId", "name")
       .lean();
 
     if (conflictingSprint) {
       return {
+        conflictingSprint,
         error: {
           status: 409,
-          message: "This project already has an active sprint",
+          code: "ACTIVE_SPRINT_EXISTS",
+          message: `Cannot start "${sprint.name}" because "${conflictingSprint.name}" is already active in this project.`,
+          details: buildSprintConflictDetails(sprint, conflictingSprint),
         },
       };
     }
@@ -497,6 +565,8 @@ const startSprint = asyncHandler(async (req, res) => {
     throw new Error("Sprint not found");
   }
 
+  logSprintStartAttempt(req, sprint);
+
   const accessResult = await ensureSprintManagementAccess(req.user, sprint);
 
   if (accessResult.error) {
@@ -504,9 +574,46 @@ const startSprint = asyncHandler(async (req, res) => {
     throw new Error(accessResult.error.message);
   }
 
+  if (sprint.state === "ACTIVE") {
+    logSprintStartConflict({
+      sprint,
+      reason: "already_active",
+    });
+    throwHttpError(
+      res,
+      409,
+      `Sprint "${sprint.name}" is already active.`,
+      "SPRINT_ALREADY_ACTIVE",
+      buildSprintConflictDetails(sprint)
+    );
+  }
+
+  if (sprint.state === "COMPLETED") {
+    logSprintStartConflict({
+      sprint,
+      reason: "already_completed",
+    });
+    throwHttpError(
+      res,
+      409,
+      `Sprint "${sprint.name}" has already been completed and cannot be started again.`,
+      "INVALID_SPRINT_STATE_TRANSITION",
+      buildSprintConflictDetails(sprint)
+    );
+  }
+
   if (sprint.state !== "PLANNED") {
-    res.status(400);
-    throw new Error("Only planned sprints can be started");
+    logSprintStartConflict({
+      sprint,
+      reason: "invalid_state_transition",
+    });
+    throwHttpError(
+      res,
+      409,
+      `Sprint "${sprint.name}" cannot move from ${String(sprint.state || "UNKNOWN").toLowerCase()} to active.`,
+      "INVALID_SPRINT_STATE_TRANSITION",
+      buildSprintConflictDetails(sprint)
+    );
   }
 
   if (!sprint.startDate || !sprint.endDate) {
@@ -517,8 +624,18 @@ const startSprint = asyncHandler(async (req, res) => {
   const overlapResult = await validateActiveSprintOverlap(sprint);
 
   if (overlapResult.error) {
-    res.status(overlapResult.error.status);
-    throw new Error(overlapResult.error.message);
+    logSprintStartConflict({
+      sprint,
+      reason: overlapResult.error.code || "active_sprint_overlap",
+      conflictingSprint: overlapResult.conflictingSprint || null,
+    });
+    throwHttpError(
+      res,
+      overlapResult.error.status,
+      overlapResult.error.message,
+      overlapResult.error.code,
+      overlapResult.error.details
+    );
   }
 
   const issues = await Issue.find({
@@ -542,9 +659,51 @@ const startSprint = asyncHandler(async (req, res) => {
   };
 
   await sprint.save();
-  await sprint.populate("teamId", "name description workspaceId");
+  const startedSprint = await Sprint.findById(sprint._id).populate(
+    "teamId",
+    "name description workspaceId"
+  );
 
-  res.status(200).json(serializeSprint(sprint.toObject()));
+  if (!startedSprint || startedSprint.state !== "ACTIVE") {
+    console.error("[sprints] start verification failed", {
+      sprintId: String(sprint._id),
+      persistedState: startedSprint?.state || null,
+    });
+    throwHttpError(
+      res,
+      500,
+      "Sprint state could not be confirmed after starting it.",
+      "SPRINT_START_VERIFICATION_FAILED",
+      buildSprintConflictDetails(startedSprint || sprint)
+    );
+  }
+
+  console.info("[sprints] sprint became active", {
+    sprintId: String(startedSprint._id),
+    sprintName: startedSprint.name,
+    projectId: String(startedSprint.projectId || ""),
+    teamId: String(startedSprint.teamId?._id || startedSprint.teamId || ""),
+    startedAt: startedSprint.startedAt,
+  });
+
+  try {
+    const notificationResult = await handleSprintStarted(startedSprint._id, {
+      actorUserId: req.user._id,
+    });
+
+    console.info("[sprint-notifications] sprint start notifications queued", {
+      sprintId: String(startedSprint._id),
+      queued: Number(notificationResult?.queued || 0),
+      skipped: notificationResult?.skipped || "",
+    });
+  } catch (error) {
+    console.error("[sprint-notifications] sprint start notification trigger failed", {
+      sprintId: String(startedSprint._id),
+      message: error.message,
+    });
+  }
+
+  res.status(200).json(serializeSprint(startedSprint.toObject()));
 });
 
 const completeSprint = asyncHandler(async (req, res) => {

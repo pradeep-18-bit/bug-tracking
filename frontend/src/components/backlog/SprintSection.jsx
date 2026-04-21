@@ -35,6 +35,7 @@ const SprintSection = ({
   canManagePlanning = false,
   canReorderIssues = false,
   planningUpdatingIssueId = "",
+  isStartPending = false,
   onSelectIssue,
   onDragStartIssue,
   onDragEndIssue,
@@ -117,9 +118,14 @@ const SprintSection = ({
                   <Trash2 className="h-3.5 w-3.5" />
                   Delete
                 </Button>
-                <Button type="button" size="sm" onClick={onStartSprint}>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={onStartSprint}
+                  disabled={isStartPending}
+                >
                   <Play className="h-3.5 w-3.5" />
-                  Start
+                  {isStartPending ? "Starting..." : "Start"}
                 </Button>
               </>
             ) : null}

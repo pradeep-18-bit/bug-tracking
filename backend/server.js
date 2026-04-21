@@ -21,6 +21,7 @@ const teamRoutes = require("./routes/teamRoutes");
 const testRoutes = require("./routes/testRoutes");
 const userRoutes = require("./routes/userRoutes");
 const workspaceRoutes = require("./routes/workspaceRoutes");
+const { startSprintNotificationWorker } = require("./services/sprintNotificationQueue");
 const { ensureDefaultUser } = require("./utils/defaultUser");
 const syncProjectEpics = require("./utils/syncProjectEpics");
 const syncIssueStatuses = require("./utils/syncIssueStatuses");
@@ -64,6 +65,7 @@ const startServer = async () => {
   await syncIssueStatuses();
   await syncWorkspaceScopes();
   await syncProjectEpics();
+  startSprintNotificationWorker();
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

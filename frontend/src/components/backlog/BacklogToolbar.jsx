@@ -135,7 +135,7 @@ const BacklogToolbar = ({
               value={filters.projectId}
               onChange={(event) => onChange("projectId", event.target.value)}
             >
-              <option value="">Select project</option>
+              <option value="">Choose project</option>
               {projects.map((project) => (
                 <option key={project._id} value={project._id}>
                   {project.name}

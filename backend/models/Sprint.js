@@ -114,6 +114,32 @@ const sprintSchema = new Schema(
       ref: "User",
       default: null,
     },
+    notificationSettings: {
+      sprintNotificationsEnabled: {
+        type: Boolean,
+        default: undefined,
+      },
+      stakeholderUserIds: [
+        {
+          type: Schema.Types.ObjectId,
+          ref: "User",
+        },
+      ],
+      stakeholderEmails: [
+        {
+          type: String,
+          trim: true,
+          lowercase: true,
+        },
+      ],
+      ccEmails: [
+        {
+          type: String,
+          trim: true,
+          lowercase: true,
+        },
+      ],
+    },
     snapshot: {
       type: sprintSnapshotSchema,
       default: () => ({

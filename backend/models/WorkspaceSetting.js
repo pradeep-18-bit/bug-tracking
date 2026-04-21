@@ -31,6 +31,48 @@ const workspaceSettingSchema = new Schema(
         default: null,
       },
     },
+    sprintNotifications: {
+      enabled: {
+        type: Boolean,
+        default: true,
+      },
+      notifySprintStartedAssignees: {
+        type: Boolean,
+        default: true,
+      },
+      notifySprintStartedStakeholders: {
+        type: Boolean,
+        default: true,
+      },
+      notifyIssueAddedToActiveSprint: {
+        type: Boolean,
+        default: true,
+      },
+      notifyAssigneeChangedInActiveSprint: {
+        type: Boolean,
+        default: true,
+      },
+      stakeholderUserIds: [
+        {
+          type: Schema.Types.ObjectId,
+          ref: "User",
+        },
+      ],
+      stakeholderEmails: [
+        {
+          type: String,
+          trim: true,
+          lowercase: true,
+        },
+      ],
+      ccEmails: [
+        {
+          type: String,
+          trim: true,
+          lowercase: true,
+        },
+      ],
+    },
     createdAt: {
       type: Date,
       default: Date.now,

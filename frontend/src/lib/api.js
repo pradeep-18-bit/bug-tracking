@@ -413,7 +413,29 @@ export const deleteSprint = async (id) => {
 
 export const startSprint = async (id) => {
   const response = await api.post(`/sprints/${id}/start`);
-  return response.data;
+  const sprint = response.data;
+  const sprintState = String(sprint?.state || sprint?.status || "").trim().toUpperCase();
+
+  if (sprintState !== "ACTIVE") {
+    const error = new Error(
+      sprint?.message || "Sprint did not transition to Active in the backend."
+    );
+
+    error.response = {
+      data: {
+        message: sprint?.message || "Sprint did not transition to Active in the backend.",
+        code: "SPRINT_START_STATE_MISMATCH",
+        details: {
+          sprintId: String(sprint?._id || id || ""),
+          state: sprint?.state || sprint?.status || "",
+        },
+      },
+    };
+
+    throw error;
+  }
+
+  return sprint;
 };
 
 export const completeSprint = async ({ id, payload }) => {

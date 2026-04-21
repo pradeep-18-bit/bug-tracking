@@ -27,6 +27,11 @@ const errorHandler = (err, req, res, next) => {
 
   res.status(statusCode).json({
     message,
+    code:
+      typeof err.code === "string" && err.code !== "MulterError" && err.code !== "ValidationError"
+        ? err.code
+        : undefined,
+    details: err.details || undefined,
     stack: process.env.NODE_ENV === "production" ? undefined : err.stack,
   });
 };
