@@ -135,7 +135,7 @@ const App = () => (
       <Route
         path="/dev/settings"
         element={
-          <ProtectedRoute roles={[ROLE_DEVELOPER]}>
+          <ProtectedRoute roles={[ROLE_DEVELOPER, ROLE_TESTER]}>
             <DeveloperSettingsPage />
           </ProtectedRoute>
         }
@@ -150,7 +150,11 @@ const App = () => (
       />
       <Route
         path="/backlog"
-        element={<BacklogPage />}
+        element={
+          <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
+            <BacklogPage />
+          </ProtectedRoute>
+        }
       />
       <Route
         path="/projects"

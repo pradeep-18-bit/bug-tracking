@@ -22,7 +22,7 @@ const isCsvFile = (file) =>
     .toLowerCase()
     .endsWith(".csv");
 
-const ImportUsers = ({ onImported }) => {
+const ImportUsers = ({ embedded = false, onImported }) => {
   const [file, setFile] = useState(null);
   const [inputKey, setInputKey] = useState(0);
   const [validationError, setValidationError] = useState("");
@@ -111,18 +111,8 @@ const ImportUsers = ({ onImported }) => {
     }
   };
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Import users from CSV</CardTitle>
-        <CardDescription>
-          Upload a CSV with either `Full Name` or `name`, and `Email Address` or
-          `email`. Comma, semicolon, and tab-delimited files are supported.
-          Imported users get the default password `pirnav@2025` and the default
-          role `Developer`.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
+  const content = (
+    <div className="space-y-5">
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline">Full Name / name</Badge>
           <Badge variant="outline">Email Address / email</Badge>
@@ -227,7 +217,25 @@ const ImportUsers = ({ onImported }) => {
             ) : null}
           </div>
         ) : null}
-      </CardContent>
+    </div>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Import users from CSV</CardTitle>
+        <CardDescription>
+          Upload a CSV with either `Full Name` or `name`, and `Email Address` or
+          `email`. Comma, semicolon, and tab-delimited files are supported.
+          Imported users get the default password `pirnav@2025` and the default
+          role `Developer`.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>{content}</CardContent>
     </Card>
   );
 };

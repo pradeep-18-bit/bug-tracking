@@ -40,15 +40,14 @@ export const getRoleNavigation = (role) => {
   if (role === ROLE_TESTER) {
     return [
       { label: "Dashboard", href: dashboardPathByRole[ROLE_TESTER], icon: "dashboard" },
-      { label: "Backlog", href: "/backlog", icon: "backlog" },
       { label: "Tasks", href: "/tasks", icon: "tasks" },
       { label: "Reports", href: "/reports", icon: "reports" },
+      { label: "Settings", href: "/dev/settings", icon: "settings" },
     ];
   }
 
   return [
     { label: "Dashboard", href: dashboardPathByRole[ROLE_DEVELOPER], icon: "dashboard" },
-    { label: "Backlog", href: "/backlog", icon: "backlog" },
     { label: "Tasks", href: "/tasks", icon: "tasks" },
     { label: "Reports", href: "/reports", icon: "reports" },
     { label: "Settings", href: "/dev/settings", icon: "settings" },
@@ -68,7 +67,7 @@ export const getPageMeta = (pathname, role) => {
         "Stay focused on your assigned work items, active priorities, and release-ready delivery.",
     },
     "/dev/settings": {
-      title: "Developer Settings",
+      title: "Account Settings",
       description:
         "Manage your account security and update your password with confidence.",
     },

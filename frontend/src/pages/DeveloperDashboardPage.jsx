@@ -14,24 +14,23 @@ import {
   fetchMyIssues,
   fetchProjects,
   updateIssue,
+  updateTaskStatus,
 } from "@/lib/api";
 import {
   createIssueListFilters,
   filterIssues,
-  getIssuePriorityVariant,
   getIssueStatusLabel,
   getIssueStatusMetrics,
-  getIssueStatusVariant,
   ISSUE_SORT_OPTIONS,
   ISSUE_STATUS_OPTIONS,
   isIssueClosed,
-  normalizeIssueStatus,
   sortIssues,
 } from "@/lib/issues";
-import { cn, formatDateTime } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import IssueCreateDialog from "@/components/issues/IssueCreateDialog";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
+import TaskKanbanBoard from "@/components/tasks/TaskKanbanBoard";
 import EmptyState from "@/components/shared/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,10 +50,6 @@ const defaultFilters = createIssueListFilters({
 });
 
 const getPriorityKey = (priority = "Medium") => String(priority).trim().toLowerCase();
-const formatDueDate = (value) => (value ? formatDateTime(value) : "No due date");
-
-const tableSelectClassName =
-  "field-select h-9 min-w-[144px] rounded-xl border-slate-200 bg-white px-3 py-1 text-xs shadow-none";
 
 const DeveloperDashboardPage = () => {
   const navigate = useNavigate();
@@ -101,6 +96,14 @@ const DeveloperDashboardPage = () => {
 
   const updateIssueMutation = useMutation({
     mutationFn: updateIssue,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+
+  const updateTaskStatusMutation = useMutation({
+    mutationFn: updateTaskStatus,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
@@ -394,129 +397,28 @@ const DeveloperDashboardPage = () => {
 
               {isLoading ? (
                 <div className="space-y-3">
-                  <Skeleton className="h-16 w-full rounded-[16px]" />
-                  <Skeleton className="h-16 w-full rounded-[16px]" />
-                  <Skeleton className="h-16 w-full rounded-[16px]" />
-                  <Skeleton className="h-16 w-full rounded-[16px]" />
+                  <div className="grid gap-4 xl:grid-cols-3">
+                    <Skeleton className="h-[460px] w-full rounded-[16px]" />
+                    <Skeleton className="h-[460px] w-full rounded-[16px]" />
+                    <Skeleton className="h-[460px] w-full rounded-[16px]" />
+                  </div>
                 </div>
               ) : visibleIssues.length ? (
-                <div className="issue-table issue-table-fixed rounded-[18px] border border-slate-200/80 bg-white">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50/95 text-[11px] uppercase tracking-[0.22em] text-slate-500">
-                        <th className="px-4 py-3 font-semibold">Task</th>
-                        <th className="px-4 py-3 font-semibold">Project</th>
-                        <th className="px-4 py-3 font-semibold">Priority</th>
-                        <th className="px-4 py-3 font-semibold">Status</th>
-                        <th className="px-4 py-3 font-semibold">Due</th>
-                        <th className="px-4 py-3 font-semibold">Created</th>
-                        <th className="px-4 py-3 font-semibold">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleIssues.map((issue) => (
-                        <tr
-                          key={issue._id}
-                          className="dashboard-task-row"
-                          onClick={() => setSelectedIssue(issue)}
-                        >
-                          <td className="px-4 py-3 align-top">
-                            <div className="min-w-0">
-                              <button
-                                className="max-w-full text-left"
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setSelectedIssue(issue);
-                                }}
-                              >
-                                <p className="truncate text-sm font-semibold text-slate-900">
-                                  {issue.title}
-                                </p>
-                                <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
-                                  {issue.description || "No description provided."}
-                                </p>
-                              </button>
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-3 align-top">
-                            <div className="space-y-1 text-sm text-slate-700">
-                              <p className="font-medium text-slate-900">
-                                {issue.projectId?.name || "Unknown project"}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                #{issue._id.slice(-6)}
-                              </p>
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-3 align-top">
-                            <Badge
-                              variant={getIssuePriorityVariant(issue.priority)}
-                              className="shadow-sm"
-                            >
-                              {issue.priority}
-                            </Badge>
-                          </td>
-
-                          <td className="px-4 py-3 align-top">
-                            <div className="space-y-2">
-                              <Badge
-                                variant={getIssueStatusVariant(issue.status)}
-                                className="shadow-sm"
-                              >
-                                {getIssueStatusLabel(issue.status)}
-                              </Badge>
-                              <select
-                                className={tableSelectClassName}
-                                value={normalizeIssueStatus(issue.status)}
-                                disabled={updateIssueMutation.isPending}
-                                onChange={(event) =>
-                                  updateIssueMutation.mutateAsync({
-                                    id: issue._id,
-                                    payload: { status: event.target.value },
-                                  })
-                                }
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                {ISSUE_STATUS_OPTIONS.filter(
-                                  (option) => option.value !== "all"
-                                ).map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-3 align-top text-sm text-slate-600">
-                            {formatDueDate(issue.dueAt)}
-                          </td>
-
-                          <td className="px-4 py-3 align-top text-sm text-slate-600">
-                            {formatDateTime(issue.createdAt)}
-                          </td>
-
-                          <td className="px-4 py-3 align-top">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedIssue(issue);
-                              }}
-                            >
-                              Open
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <TaskKanbanBoard
+                  issues={visibleIssues}
+                  updatingId={
+                    updateTaskStatusMutation.isPending
+                      ? updateTaskStatusMutation.variables?.id
+                      : ""
+                  }
+                  onSelectIssue={setSelectedIssue}
+                  onStatusChange={(id, status) =>
+                    updateTaskStatusMutation.mutateAsync({
+                      id,
+                      status,
+                    })
+                  }
+                />
               ) : (
                 <EmptyState
                   title="No tasks match these filters"
@@ -631,7 +533,9 @@ const DeveloperDashboardPage = () => {
         open={Boolean(selectedIssue)}
         projects={projects}
         availableIssues={availableIssues}
-        updatingId={updateIssueMutation.isPending ? updateIssueMutation.variables?.id : ""}
+        updatingId={
+          updateIssueMutation.isPending ? updateIssueMutation.variables?.id : ""
+        }
         canEditPriority={false}
         canEditAssignee={false}
         canDeleteIssue={false}

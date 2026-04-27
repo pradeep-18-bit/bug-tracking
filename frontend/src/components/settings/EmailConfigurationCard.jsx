@@ -149,6 +149,8 @@ const SummaryRow = ({ label, value }) => (
 );
 
 const EmailConfigurationCard = ({
+  defaultExpanded = false,
+  embedded = false,
   currentWorkspaceSender,
   emailConfigQuery,
   saveEmailConfigMutation,
@@ -163,7 +165,7 @@ const EmailConfigurationCard = ({
   const [touched, setTouched] = useState({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   const savedConfig = emailConfigQuery.data?.config || null;
   const smtpConfigured = useMemo(
@@ -182,7 +184,7 @@ const EmailConfigurationCard = ({
       setTouched({});
       setSubmitAttempted(false);
       setIsEditing(false);
-      setIsExpanded(false);
+      setIsExpanded(defaultExpanded);
       return;
     }
 
@@ -191,8 +193,8 @@ const EmailConfigurationCard = ({
     setTouched({});
     setSubmitAttempted(false);
     setIsEditing(false);
-    setIsExpanded(false);
-  }, [selectedSenderId]);
+    setIsExpanded(defaultExpanded);
+  }, [defaultExpanded, selectedSenderId]);
 
   useEffect(() => {
     if (!selectedSenderId || emailConfigQuery.isLoading || isEditing) {
@@ -294,7 +296,7 @@ const EmailConfigurationCard = ({
       setTouched({});
       setSubmitAttempted(false);
       setIsEditing(false);
-      setIsExpanded(false);
+      setIsExpanded(defaultExpanded);
       showToast(
         "success",
         response?.message || "Email configuration saved successfully."
@@ -324,9 +326,8 @@ const EmailConfigurationCard = ({
     },
   ];
 
-  return (
-    <Card className="shadow-[0_24px_64px_-42px_rgba(15,23,42,0.32)]">
-      <CardHeader className="border-b border-slate-100 p-0">
+  const header = (
+    <CardHeader className="border-b border-slate-100 p-0">
         <button
           type="button"
           className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left transition-colors hover:bg-slate-50/60"
@@ -355,10 +356,11 @@ const EmailConfigurationCard = ({
             )}
           </div>
         </button>
-      </CardHeader>
+    </CardHeader>
+  );
 
-      {isExpanded ? (
-        <CardContent className="space-y-5 p-6">
+  const content = isExpanded ? (
+    <div className="space-y-5">
           {!selectedSender ? (
             <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-sm text-slate-600">
               Choose an Admin or Manager in the Active Sender section to view or
@@ -548,8 +550,18 @@ const EmailConfigurationCard = ({
               )}
             </>
           )}
-        </CardContent>
-      ) : null}
+    </div>
+  ) : null;
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <Card className="shadow-[0_24px_64px_-42px_rgba(15,23,42,0.32)]">
+      {header}
+
+      {content ? <CardContent className="p-6">{content}</CardContent> : null}
     </Card>
   );
 };

@@ -27,8 +27,8 @@ const senderSelectStyles = {
   ...memberSelectStyles,
   control: (base, state) => ({
     ...memberSelectStyles.control(base, state),
-    minHeight: 52,
-    borderRadius: 20,
+    minHeight: 44,
+    borderRadius: 14,
   }),
 };
 
@@ -48,11 +48,13 @@ const formatSenderOptionLabel = (option, meta) => {
 };
 
 const SummaryRow = ({ label, value }) => (
-  <div className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
-    <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+  <div className="flex min-w-0 items-center justify-between gap-3 rounded-[12px] border border-slate-100 bg-slate-50 px-3 py-2">
+    <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
       {label}
     </span>
-    <span className="text-right text-sm font-medium text-slate-900">{value}</span>
+    <span className="truncate text-right text-sm font-medium text-slate-900">
+      {value}
+    </span>
   </div>
 );
 
@@ -101,7 +103,7 @@ const getFallbackLabel = ({ source, workspaceDefaultSender }) => {
 };
 
 const WorkspaceMailSenderCard = ({
-  currentUser,
+  embedded = false,
   currentWorkspaceSender,
   eligibleSenders = [],
   errorMessage,
@@ -144,11 +146,8 @@ const WorkspaceMailSenderCard = ({
   const activeSenderStatus = hasActiveSender
     ? getSourceStatusLabel(source)
     : "Using global fallback";
-  const currentUserProfile =
-    eligibleSenders.find((user) => String(user._id) === String(currentUser?._id || "")) ||
-    null;
-  const currentUserNeedsSmtpSetup = Boolean(
-    currentUserProfile && !currentUserProfile.smtpConfigured
+  const activeSenderNeedsSmtpSetup = Boolean(
+    hasActiveSender && activeSenderUser && !activeSenderUser.smtpConfigured
   );
   const activeSenderBadges = [
     {
@@ -168,44 +167,37 @@ const WorkspaceMailSenderCard = ({
     });
   }
 
-  return (
-    <Card className="shadow-[0_24px_64px_-42px_rgba(15,23,42,0.32)]">
-      <CardHeader className="space-y-3 border-b border-slate-100">
-        <div>
-          <CardTitle>Workspace Mail Sender</CardTitle>
-          <CardDescription>
-            Save an active sender for your account. Your manual choice stays in place
-            across logins until you reset it to the workspace default.
-          </CardDescription>
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-6 p-6">
+  const content = (
+    <div className="space-y-4">
         {errorMessage ? (
-          <div className="rounded-[22px] border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700">
+          <div className="rounded-[14px] border border-rose-200 bg-rose-50/90 px-3 py-2 text-sm text-rose-700">
             {errorMessage}
           </div>
         ) : null}
 
         {isLoading ? (
-          <div className="space-y-4">
-            <Skeleton className="h-[192px] w-full rounded-[24px]" />
-            <Skeleton className="h-[158px] w-full rounded-[24px]" />
+          <div className="space-y-3">
+            <Skeleton className="h-[132px] w-full rounded-[16px]" />
+            <Skeleton className="h-[92px] w-full rounded-[16px]" />
           </div>
         ) : (
           <>
-            <div className="space-y-5 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_44px_-34px_rgba(15,23,42,0.28)]">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="space-y-2">
+            <div className="space-y-3 rounded-[16px] border border-slate-200 bg-white p-4 shadow-[0_16px_38px_-34px_rgba(15,23,42,0.26)]">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 space-y-1.5">
                   <div className="flex items-center gap-2 text-slate-500">
                     <MailCheck className="h-4 w-4 text-blue-600" />
-                    <span className="text-xs font-semibold uppercase tracking-[0.22em]">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.18em]">
                       Active sender
                     </span>
                   </div>
                   <div>
-                    <p className="text-xl font-semibold text-slate-950">{activeSenderTitle}</p>
-                    <p className="mt-1 text-sm text-slate-600">{activeSenderEmail}</p>
+                    <p className="truncate text-base font-semibold text-slate-950">
+                      {activeSenderTitle}
+                    </p>
+                    <p className="mt-0.5 truncate text-sm text-slate-600">
+                      {activeSenderEmail}
+                    </p>
                   </div>
                 </div>
 
@@ -218,12 +210,13 @@ const WorkspaceMailSenderCard = ({
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 {!isUsingGlobalFallback ? (
                   <Button
                     type="button"
                     variant="outline"
-                    className="sm:min-w-[170px]"
+                    size="sm"
+                    className="sm:min-w-[150px]"
                     onClick={onSendTestMail}
                     disabled={!canSendTestMail || isTesting}
                   >
@@ -244,7 +237,8 @@ const WorkspaceMailSenderCard = ({
                 <Button
                   type="button"
                   variant={isUsingGlobalFallback ? "default" : "outline"}
-                  className="sm:min-w-[170px]"
+                  size="sm"
+                  className="sm:min-w-[145px]"
                   onClick={() => setShowSenderPicker((current) => !current)}
                   disabled={!eligibleSenders.length}
                 >
@@ -256,7 +250,8 @@ const WorkspaceMailSenderCard = ({
                   <Button
                     type="button"
                     variant="ghost"
-                    className="sm:min-w-[210px]"
+                    size="sm"
+                    className="sm:min-w-[190px]"
                     onClick={onClearSender}
                     disabled={isSaving}
                   >
@@ -266,14 +261,8 @@ const WorkspaceMailSenderCard = ({
               </div>
             </div>
 
-            <div className="space-y-4 border-t border-slate-100 pt-6">
-              <div>
-                <p className="text-sm font-semibold text-slate-950">Sender Details</p>
-                <p className="mt-1 text-sm text-slate-500">
-                  Issue notifications use your saved sender first, then the workspace
-                  default sender, and finally the global fallback sender.
-                </p>
-              </div>
+            <div className="space-y-3 border-t border-slate-100 pt-4">
+              <p className="text-sm font-semibold text-slate-950">Sender Details</p>
 
               <div className="grid gap-3 md:grid-cols-3">
                 <SummaryRow
@@ -288,7 +277,7 @@ const WorkspaceMailSenderCard = ({
               </div>
 
               {workspaceDefaultSender ? (
-                <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700">
+                <div className="rounded-[12px] border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600">
                   Workspace default sender:{" "}
                   <span className="font-medium text-slate-900">
                     {workspaceDefaultSender.name}
@@ -298,35 +287,24 @@ const WorkspaceMailSenderCard = ({
               ) : null}
             </div>
 
-            {workspaceSender?.note ? (
-              <div className="flex items-start gap-3 rounded-[22px] border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-800">
-                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{workspaceSender.note}</span>
-              </div>
-            ) : null}
-
-            {currentUserNeedsSmtpSetup ? (
-              <div className="flex items-start gap-3 rounded-[22px] border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-800">
-                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            {activeSenderNeedsSmtpSetup ? (
+              <div className="flex items-start gap-2 rounded-[12px] border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm text-amber-800">
+                <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>
-                  Save SMTP settings for this account to use it as active sender.
+                  SMTP is not configured for this sender.
                 </span>
               </div>
             ) : null}
 
             {showSenderPicker ? (
               eligibleSenders.length ? (
-                <div className="space-y-4 rounded-[26px] border border-slate-200 bg-slate-50/70 p-4">
+                <div className="space-y-3 rounded-[16px] border border-slate-200 bg-slate-50/70 p-4">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Change sender</p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Pick an Admin or Manager for your account. This selection stays
-                      saved until you reset it to the workspace default.
-                    </p>
                   </div>
 
                   <label className="space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                       Select sender user
                     </span>
                     <Select
@@ -356,19 +334,19 @@ const WorkspaceMailSenderCard = ({
                   ) : null}
 
                   {selectedSender && !selectedSender.smtpConfigured ? (
-                    <div className="flex items-start gap-3 rounded-[22px] border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-800">
-                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div className="flex items-start gap-2 rounded-[12px] border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm text-amber-800">
+                      <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <span>
-                        Save SMTP settings for {selectedSender.label} before assigning
-                        them as your active sender.
+                        SMTP is not configured for {selectedSender.label}.
                       </span>
                     </div>
                   ) : null}
 
-                  <div className="flex flex-col gap-3 sm:flex-row">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <Button
                       type="button"
-                      className="sm:min-w-[190px]"
+                      size="sm"
+                      className="sm:min-w-[170px]"
                       onClick={onActivateSelected}
                       disabled={
                         isSaving ||
@@ -392,7 +370,8 @@ const WorkspaceMailSenderCard = ({
                     <Button
                       type="button"
                       variant="outline"
-                      className="sm:min-w-[150px]"
+                      size="sm"
+                      className="sm:min-w-[100px]"
                       onClick={() => setShowSenderPicker(false)}
                     >
                       Done
@@ -400,7 +379,7 @@ const WorkspaceMailSenderCard = ({
                   </div>
                 </div>
               ) : (
-                <div className="rounded-[24px] border border-amber-200 bg-amber-50/90 px-4 py-4 text-sm text-amber-800">
+                <div className="rounded-[12px] border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm text-amber-800">
                   Promote a workspace user to Admin or Manager to make them eligible as a
                   sender.
                 </div>
@@ -408,7 +387,26 @@ const WorkspaceMailSenderCard = ({
             ) : null}
           </>
         )}
-      </CardContent>
+    </div>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <Card className="shadow-[0_24px_64px_-42px_rgba(15,23,42,0.32)]">
+      <CardHeader className="space-y-3 border-b border-slate-100">
+        <div>
+          <CardTitle>Workspace Mail Sender</CardTitle>
+          <CardDescription>
+            Save an active sender for your account. Your manual choice stays in place
+            across logins until you reset it to the workspace default.
+          </CardDescription>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-6">{content}</CardContent>
     </Card>
   );
 };

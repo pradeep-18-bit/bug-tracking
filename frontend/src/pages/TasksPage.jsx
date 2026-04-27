@@ -1,21 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ClipboardList, Layers3, ListTodo, TimerReset } from "lucide-react";
-import { fetchMyIssues, fetchProjects, updateIssue } from "@/lib/api";
-import { createIssueListFilters, getIssueStatusMetrics } from "@/lib/issues";
+import { fetchMyIssues, fetchProjects, updateIssue, updateTaskStatus } from "@/lib/api";
+import { getIssueStatusMetrics } from "@/lib/issues";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
-import IssueListView from "@/components/issues/IssueListView";
+import TaskKanbanBoard from "@/components/tasks/TaskKanbanBoard";
 import EmptyState from "@/components/shared/EmptyState";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-
-const defaultFilters = createIssueListFilters({
-  assigneeId: "all",
-});
 
 const TasksPage = () => {
   const queryClient = useQueryClient();
-  const [filters, setFilters] = useState(defaultFilters);
   const [selectedIssue, setSelectedIssue] = useState(null);
 
   const {
@@ -56,6 +57,14 @@ const TasksPage = () => {
     },
   });
 
+  const updateTaskStatusMutation = useMutation({
+    mutationFn: updateTaskStatus,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+
   const stats = useMemo(() => getIssueStatusMetrics(issues), [issues]);
 
   const error = projectsError || issuesError;
@@ -67,16 +76,6 @@ const TasksPage = () => {
           {error.response?.data?.message || "Unable to load your tasks right now."}
         </CardContent>
       </Card>
-    );
-  }
-
-  if (!isIssuesLoading && !issues.length) {
-    return (
-      <EmptyState
-        title="No tasks assigned yet"
-        description="Once work is assigned to you, it will appear here in a clean, searchable issue list."
-        icon={<ListTodo className="h-5 w-5" />}
-      />
     );
   }
 
@@ -136,35 +135,47 @@ const TasksPage = () => {
 
       {isProjectsLoading || isIssuesLoading ? (
         <div className="space-y-4">
-          <Skeleton className="h-[220px] w-full rounded-[32px]" />
-          <Skeleton className="h-[720px] w-full rounded-[32px]" />
+          <Skeleton className="h-[92px] w-full rounded-[16px]" />
+          <div className="grid gap-4 xl:grid-cols-3">
+            <Skeleton className="h-[520px] w-full rounded-[16px]" />
+            <Skeleton className="h-[520px] w-full rounded-[16px]" />
+            <Skeleton className="h-[520px] w-full rounded-[16px]" />
+          </div>
         </div>
       ) : (
-        <IssueListView
-          title="Assigned work"
-          description="Search your queue, sort by urgency, and update issue status without leaving the list."
-          issues={issues}
-          filters={filters}
-          projects={projects}
-          onFilterChange={(field, value) =>
-            setFilters((current) => ({
-              ...current,
-              [field]: value,
-            }))
-          }
-          onResetFilters={() => setFilters(defaultFilters)}
-          onSelectIssue={setSelectedIssue}
-          onStatusChange={(id, status) =>
-            updateIssueMutation.mutateAsync({
-              id,
-              payload: { status },
-            })
-          }
-          updatingId={updateIssueMutation.isPending ? updateIssueMutation.variables?.id : ""}
-          showAssigneeFilter={false}
-          emptyStateTitle="No tasks match these filters"
-          emptyStateDescription="Try clearing one or more filters to bring more assigned work back into view."
-        />
+        <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
+          <CardHeader className="border-b border-slate-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(239,246,255,0.92),rgba(238,242,255,0.88))]">
+            <CardTitle>Assigned Tasks</CardTitle>
+            <CardDescription>
+              Your assigned work grouped by status and priority.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 sm:p-5">
+            {issues.length ? (
+              <TaskKanbanBoard
+                issues={issues}
+                updatingId={
+                  updateTaskStatusMutation.isPending
+                    ? updateTaskStatusMutation.variables?.id
+                    : ""
+                }
+                onSelectIssue={setSelectedIssue}
+                onStatusChange={(id, status) =>
+                  updateTaskStatusMutation.mutateAsync({
+                    id,
+                    status,
+                  })
+                }
+              />
+            ) : (
+              <EmptyState
+                title="No tasks assigned yet"
+                description="Once work is assigned to you, it will appear here."
+                icon={<ListTodo className="h-5 w-5" />}
+              />
+            )}
+          </CardContent>
+        </Card>
       )}
 
       <IssueDetailsDialog
