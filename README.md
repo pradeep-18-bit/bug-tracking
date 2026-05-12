@@ -62,6 +62,7 @@ Full-stack Jira-like bug tracking and project management app with:
 
 - [README.md](README.md): setup and deployment
 - [docs/PROJECT_API_AND_FLOW.md](docs/PROJECT_API_AND_FLOW.md): API usage, technologies, and end-to-end application flow
+- [docs/JENKINS_PIPELINE.md](docs/JENKINS_PIPELINE.md): Jenkins, SonarQube, Docker, and deployment pipeline setup
 
 ## Environment Files
 

@@ -3,6 +3,7 @@ frontend/node_modules
 frontend/dist
 .vscode
 .env
+.jenkins.env
 .env.local
 .env.*.local
 *.log
