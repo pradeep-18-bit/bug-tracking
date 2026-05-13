@@ -9,8 +9,67 @@ const {
   ISSUE_TYPE_VALUES,
   getCanonicalIssueType,
 } = require("../utils/issueTypes");
+const { BUG_SEVERITY_VALUES } = require("../utils/bugLifecycle");
 
 const { Schema, model, models } = mongoose;
+
+const bugDetailsSchema = new Schema(
+  {
+    severity: {
+      type: String,
+      enum: {
+        values: BUG_SEVERITY_VALUES,
+        message: `Severity must be ${BUG_SEVERITY_VALUES.join(", ")}`,
+      },
+      default: null,
+    },
+    testerOwner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    developerLead: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    stepsToReproduce: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    expectedResult: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    actualResult: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    reopenReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    rejectionReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    targetRelease: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+  },
+  {
+    _id: false,
+  }
+);
 
 const issueSchema = new Schema(
   {
@@ -107,6 +166,10 @@ const issueSchema = new Schema(
       type: Number,
       default: null,
       min: [0, "Story points cannot be negative"],
+    },
+    bugDetails: {
+      type: bugDetailsSchema,
+      default: () => ({}),
     },
     createdAt: {
       type: Date,

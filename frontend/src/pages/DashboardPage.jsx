@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
+  Bug,
   CheckCircle2,
   ClipboardList,
   Layers3,
@@ -29,6 +30,7 @@ import {
 import { cn, formatDateTime, getInitials } from "@/lib/utils";
 import { getWorkspaceScope } from "@/lib/workspace";
 import DashboardStatCard from "@/components/dashboard/DashboardStatCard";
+import BugReportsDialog from "@/components/dashboard/BugReportsDialog";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import EmptyState from "@/components/shared/EmptyState";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -193,6 +195,7 @@ const QuickActionButton = ({ icon: Icon, title, className, onClick }) => (
 const DashboardPage = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [isBugReportsOpen, setIsBugReportsOpen] = useState(false);
   const [selectedIssue, setSelectedIssue] = useState(null);
   const { user } = useAuth();
   const workspaceScope = getWorkspaceScope(user);
@@ -578,10 +581,16 @@ const DashboardPage = () => {
                 onClick={() => navigate("/projects")}
               />
               <QuickActionButton
+                icon={Bug}
+                title="Bug Reports"
+                className="border-rose-200/70 bg-rose-50/85 text-rose-900 hover:border-rose-300 hover:bg-rose-100/80"
+                onClick={() => setIsBugReportsOpen(true)}
+              />
+              <QuickActionButton
                 icon={Users2}
-                title="Create Team"
+                title="Projects & Teams"
                 className="border-violet-200/70 bg-violet-50/80 text-violet-900 hover:border-violet-300 hover:bg-violet-100/80"
-                onClick={() => navigate("/teams/create")}
+                onClick={() => navigate("/projects")}
               />
               <QuickActionButton
                 icon={Zap}
@@ -641,7 +650,7 @@ const DashboardPage = () => {
               trendLabel={card.trend.label}
               compact
               onClick={() =>
-                navigate(card.key === "teams" ? "/teams" : getIssuesRouteFromCardKey(card.key))
+                navigate(card.key === "teams" ? "/projects" : getIssuesRouteFromCardKey(card.key))
               }
             />
           ))
@@ -895,6 +904,15 @@ const DashboardPage = () => {
         projects={projects}
         updatingId={updateIssueMutation.isPending ? updateIssueMutation.variables?.id : ""}
         canEditCoreDetails
+      />
+
+      <BugReportsDialog
+        issues={issues}
+        open={isBugReportsOpen}
+        onOpenChange={setIsBugReportsOpen}
+        projects={projects}
+        teams={teams}
+        workspaceScope={workspaceScope}
       />
     </div>
   );

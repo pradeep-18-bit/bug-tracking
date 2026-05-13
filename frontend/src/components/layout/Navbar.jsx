@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   BarChart3,
+  Bug,
   FolderKanban,
   KanbanSquare,
   LayoutDashboard,
@@ -26,6 +27,7 @@ const iconMap = {
   teams: Users2,
   backlog: Layers3,
   issues: KanbanSquare,
+  bugs: Bug,
   tasks: ListTodo,
   reports: BarChart3,
   settings: Settings2,

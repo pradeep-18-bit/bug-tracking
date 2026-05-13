@@ -7,12 +7,12 @@ import {
   fetchIssues,
   fetchProjects,
   updateIssue,
+  uploadIssueAttachment,
 } from "@/lib/api";
 import {
-  ISSUE_STATUS,
   ISSUE_TYPE_OPTIONS,
   filterIssues,
-  normalizeIssueStatus,
+  isIssueClosed,
   sortIssues,
 } from "@/lib/issues";
 import {
@@ -327,15 +327,11 @@ const IssuesPage = () => {
     }
 
     if (activeStatusFilter === OPEN_ISSUES_QUERY_VALUE) {
-      return issues.filter(
-        (issue) => normalizeIssueStatus(issue.status, "") !== ISSUE_STATUS.DONE
-      );
+      return issues.filter((issue) => !isIssueClosed(issue));
     }
 
     if (activeStatusFilter === CLOSED_ISSUES_QUERY_VALUE) {
-      return issues.filter(
-        (issue) => normalizeIssueStatus(issue.status, "") === ISSUE_STATUS.DONE
-      );
+      return issues.filter((issue) => isIssueClosed(issue));
     }
 
     return issues;
@@ -627,10 +623,12 @@ const IssuesPage = () => {
         lockType={lockComposeType}
         isPending={createIssueMutation.isPending}
         onSubmit={async (payload) => {
-          await createIssueMutation.mutateAsync(payload);
+          const createdIssue = await createIssueMutation.mutateAsync(payload);
           setIsCreateDialogOpen(false);
           sanitizeComposeParams(searchParams, setSearchParams);
+          return createdIssue;
         }}
+        onUploadAttachment={uploadIssueAttachment}
       />
 
       <IssueDetailsDialog

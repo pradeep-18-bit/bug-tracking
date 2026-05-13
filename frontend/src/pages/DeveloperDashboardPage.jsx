@@ -15,6 +15,7 @@ import {
   fetchProjects,
   updateIssue,
   updateTaskStatus,
+  uploadIssueAttachment,
 } from "@/lib/api";
 import {
   createIssueListFilters,
@@ -511,11 +512,12 @@ const DeveloperDashboardPage = () => {
         defaultType="Task"
         isPending={createIssueMutation.isPending}
         onSubmit={async (payload) => {
-          await createIssueMutation.mutateAsync({
+          return createIssueMutation.mutateAsync({
             ...payload,
             assigneeId: payload.assigneeId || user?._id || null,
           });
         }}
+        onUploadAttachment={uploadIssueAttachment}
       />
 
       <IssueDetailsDialog

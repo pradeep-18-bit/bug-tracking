@@ -135,7 +135,7 @@ const ProjectTeamsPreview = ({ teams = [] }) => {
   const overflowTeams = Math.max(teams.length - visibleTeams.length, 0);
 
   return (
-    <div className="flex min-h-[88px] w-full max-w-full flex-col justify-between gap-2 rounded-[24px] border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-lg xl:w-auto xl:items-end">
+    <div className="flex min-h-[88px] w-full max-w-full flex-col justify-between gap-2 rounded-[24px] border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-lg 2xl:w-auto 2xl:items-end">
       <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-white/70">
         <span>Attached Teams</span>
         <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-white/25 bg-white/14 px-2 text-[10px] font-semibold text-white">
@@ -143,7 +143,7 @@ const ProjectTeamsPreview = ({ teams = [] }) => {
         </span>
       </div>
 
-      <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
+      <div className="flex max-w-full flex-wrap items-center justify-start gap-1.5 2xl:justify-end">
         {visibleTeams.length ? (
           visibleTeams.map((team) => (
             <span
@@ -345,7 +345,7 @@ const ProjectCard = ({
   };
 
   const actionButtonClass =
-    "interactive-button h-10 rounded-2xl border border-slate-200 bg-white/88 px-4 text-sm font-semibold text-slate-900 shadow-sm hover:border-slate-300 hover:bg-white";
+    "interactive-button h-10 w-full rounded-2xl border border-slate-200 bg-white/88 px-4 text-sm font-semibold text-slate-900 shadow-sm hover:border-slate-300 hover:bg-white sm:w-auto";
   const isDeleteConfirmationValid =
     deleteConfirmationValue.trim() === String(project.name || "").trim();
 
@@ -356,7 +356,7 @@ const ProjectCard = ({
         style={{ animationDelay: `${index * 45}ms` }}
       >
         <div
-          className="relative min-h-[290px] overflow-hidden px-5 py-5 text-white backdrop-blur-xl sm:px-6 lg:min-h-[304px] xl:min-h-[248px]"
+          className="relative min-h-[290px] overflow-hidden px-5 py-5 text-white backdrop-blur-xl sm:px-6 lg:min-h-[304px] 2xl:min-h-[270px]"
           style={{ backgroundImage: palette.headerGradient }}
         >
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.18),transparent_34%),radial-gradient(circle_at_bottom_left,_rgba(255,255,255,0.16),transparent_38%)]" />
@@ -365,7 +365,7 @@ const ProjectCard = ({
             style={{ backgroundColor: palette.glowColor }}
           />
 
-          <div className="relative flex h-full flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="relative flex h-full flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/70">
                 <span>Project</span>
@@ -375,7 +375,7 @@ const ProjectCard = ({
                 Created {projectCreatedAt}
               </p>
               <h3
-                className="mt-3 truncate whitespace-nowrap text-2xl font-semibold leading-tight text-white"
+                className="mt-3 line-clamp-2 text-2xl font-semibold leading-tight text-white"
                 title={projectTitle}
               >
                 {projectTitle}
@@ -386,9 +386,9 @@ const ProjectCard = ({
               />
             </div>
 
-            <div className="flex min-w-0 w-full flex-col gap-3 xl:w-[240px] xl:items-end">
+            <div className="flex min-w-0 w-full flex-col gap-3 2xl:w-[260px] 2xl:items-end">
               {canManageProject ? (
-                <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                <div className="flex flex-wrap items-center gap-2 2xl:justify-end">
                   <Button
                     className="interactive-button h-10 rounded-2xl border border-white/25 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur hover:bg-white/18"
                     disabled={isUpdatingStatus}
@@ -422,9 +422,9 @@ const ProjectCard = ({
                 </div>
               ) : null}
 
-              <div className="flex w-full min-w-0 flex-col items-start gap-2 xl:items-end">
+              <div className="flex w-full min-w-0 flex-col items-start gap-2 2xl:items-end">
                 <ProjectTeamsPreview teams={attachedTeams} />
-                <div className="flex w-full justify-start xl:justify-end">
+                <div className="flex w-full justify-start 2xl:justify-end">
                   <StatusBadge isCompleted={Boolean(project.isCompleted)} />
                 </div>
               </div>
@@ -447,7 +447,7 @@ const ProjectCard = ({
             </div>
           ) : null}
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {[
               { label: "Issues", value: project.issueCount || 0 },
               { label: "Members", value: project.memberCount || 0 },

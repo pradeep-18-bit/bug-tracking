@@ -10,6 +10,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  BUG_PRIORITY_OPTIONS,
+  BUG_SEVERITY_OPTIONS,
+  BUG_STATUS_OPTIONS,
   ISSUE_STATUS,
   ISSUE_TYPE_OPTIONS,
   getIssueDisplayKey,
@@ -71,6 +74,7 @@ const buildInitialState = ({
 }) => {
   const projectId = resolveProjectSelection(defaultProjectId, projects);
   const project = findProjectById(projects, projectId);
+  const isBug = defaultType === "Bug";
 
   return {
     title: "",
@@ -78,10 +82,19 @@ const buildInitialState = ({
     projectId,
     teamId: resolveTeamSelection(project, defaultTeamId),
     assigneeId: "",
-    priority: "Medium",
+    priority: isBug ? "High" : "Medium",
     type: defaultType,
+    status: isBug ? ISSUE_STATUS.NEW : ISSUE_STATUS.TODO,
     dueAt: "",
     dependsOnIssueId: "",
+    bugDetails: {
+      severity: "",
+      testerOwnerId: "",
+      developerLeadId: "",
+      stepsToReproduce: "",
+      expectedResult: "",
+      actualResult: "",
+    },
   };
 };
 
@@ -284,6 +297,7 @@ const IssueCreateDialog = ({
   lockType = false,
   isPending = false,
   onSubmit,
+  onUploadAttachment,
 }) => {
   const resolvedDefaultType = ISSUE_TYPES.includes(defaultType)
     ? defaultType
@@ -299,6 +313,7 @@ const IssueCreateDialog = ({
   const [assignEntireTeam, setAssignEntireTeam] = useState(false);
   const [isSequenceSubmitting, setIsSequenceSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [attachmentFiles, setAttachmentFiles] = useState([]);
 
   const menuPortalTarget =
     typeof document !== "undefined" ? document.body : undefined;
@@ -367,6 +382,21 @@ const IssueCreateDialog = ({
       ) || null,
     [dependencyOptions, formData.dependsOnIssueId]
   );
+  const isBugType = formData.type === "Bug";
+  const qaOwnerOptions = useMemo(
+    () =>
+      assigneeOptions.filter((option) => option.role === "Tester").length
+        ? assigneeOptions.filter((option) => option.role === "Tester")
+        : assigneeOptions,
+    [assigneeOptions]
+  );
+  const developerLeadOptions = useMemo(
+    () =>
+      assigneeOptions.filter((option) => option.role === "Developer").length
+        ? assigneeOptions.filter((option) => option.role === "Developer")
+        : assigneeOptions,
+    [assigneeOptions]
+  );
 
   useEffect(() => {
     if (!open) {
@@ -384,6 +414,7 @@ const IssueCreateDialog = ({
     setAssignEntireTeam(false);
     setIsSequenceSubmitting(false);
     setError("");
+    setAttachmentFiles([]);
   }, [defaultProjectId, defaultTeamId, open, projects, resolvedDefaultType]);
 
   useEffect(() => {
@@ -401,6 +432,11 @@ const IssueCreateDialog = ({
       ...current,
       teamId: nextTeamId,
       assigneeId: "",
+      bugDetails: {
+        ...current.bugDetails,
+        testerOwnerId: "",
+        developerLeadId: "",
+      },
     }));
   }, [availableTeams, defaultTeamId, formData.teamId, selectedProject]);
 
@@ -418,6 +454,33 @@ const IssueCreateDialog = ({
       assigneeId: "",
     }));
   }, [availableAssignees, formData.assigneeId]);
+
+  useEffect(() => {
+    const assigneeIds = new Set(assigneeOptions.map((assignee) => assignee.value));
+    const testerOwnerValid =
+      !formData.bugDetails.testerOwnerId ||
+      assigneeIds.has(String(formData.bugDetails.testerOwnerId));
+    const developerLeadValid =
+      !formData.bugDetails.developerLeadId ||
+      assigneeIds.has(String(formData.bugDetails.developerLeadId));
+
+    if (testerOwnerValid && developerLeadValid) {
+      return;
+    }
+
+    setFormData((current) => ({
+      ...current,
+      bugDetails: {
+        ...current.bugDetails,
+        testerOwnerId: testerOwnerValid ? current.bugDetails.testerOwnerId : "",
+        developerLeadId: developerLeadValid ? current.bugDetails.developerLeadId : "",
+      },
+    }));
+  }, [
+    assigneeOptions,
+    formData.bugDetails.developerLeadId,
+    formData.bugDetails.testerOwnerId,
+  ]);
 
   useEffect(() => {
     if (
@@ -471,6 +534,11 @@ const IssueCreateDialog = ({
       teamId: "",
       assigneeId: "",
       dependsOnIssueId: "",
+      bugDetails: {
+        ...current.bugDetails,
+        testerOwnerId: "",
+        developerLeadId: "",
+      },
     }));
   };
 
@@ -513,6 +581,24 @@ const IssueCreateDialog = ({
       return;
     }
 
+    if (isBugType) {
+      if (!formData.bugDetails.severity || !formData.priority) {
+        setError("Severity and priority are required for bugs.");
+        return;
+      }
+
+      if (
+        !formData.bugDetails.stepsToReproduce.trim() ||
+        !formData.bugDetails.expectedResult.trim() ||
+        !formData.bugDetails.actualResult.trim()
+      ) {
+        setError(
+          "Steps to Reproduce, Expected Result, and Actual Result are required for bugs."
+        );
+        return;
+      }
+    }
+
     const basePayload = {
       title: formData.title.trim(),
       description: formData.description.trim(),
@@ -522,7 +608,19 @@ const IssueCreateDialog = ({
       type: formData.type,
       dueAt: formData.dueAt || null,
       dependsOnIssueId: formData.dependsOnIssueId || null,
-      status: ISSUE_STATUS.TODO,
+      status: isBugType ? ISSUE_STATUS.NEW : ISSUE_STATUS.TODO,
+      ...(isBugType
+        ? {
+            bugDetails: {
+              severity: formData.bugDetails.severity,
+              testerOwnerId: formData.bugDetails.testerOwnerId || null,
+              developerLeadId: formData.bugDetails.developerLeadId || null,
+              stepsToReproduce: formData.bugDetails.stepsToReproduce.trim(),
+              expectedResult: formData.bugDetails.expectedResult.trim(),
+              actualResult: formData.bugDetails.actualResult.trim(),
+            },
+          }
+        : {}),
     };
 
     const payloads = assignEntireTeam
@@ -544,7 +642,22 @@ const IssueCreateDialog = ({
       setIsSequenceSubmitting(payloads.length > 1);
 
       for (const payload of payloads) {
-        await onSubmit(payload);
+        const createdIssue = await onSubmit(payload);
+
+        if (
+          isBugType &&
+          attachmentFiles.length &&
+          createdIssue?._id &&
+          typeof onUploadAttachment === "function"
+        ) {
+          for (const file of attachmentFiles) {
+            await onUploadAttachment({
+              issueId: createdIssue._id,
+              file,
+            });
+          }
+        }
+
         createdCount += 1;
       }
 
@@ -635,6 +748,11 @@ const IssueCreateDialog = ({
                           ...current,
                           teamId: option?.value || "",
                           assigneeId: "",
+                          bugDetails: {
+                            ...current.bugDetails,
+                            testerOwnerId: "",
+                            developerLeadId: "",
+                          },
                         }))
                       }
                       styles={issueSelectStyles}
@@ -736,30 +854,252 @@ const IssueCreateDialog = ({
               />
             </div>
 
+            {isBugType ? (
+              <div className="rounded-[24px] border border-rose-100 bg-rose-50/50 p-3.5">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Severity
+                    </span>
+                    <select
+                      className="field-select rounded-2xl"
+                      value={formData.bugDetails.severity}
+                      onChange={(event) =>
+                        setFormData((current) => ({
+                          ...current,
+                          bugDetails: {
+                            ...current.bugDetails,
+                            severity: event.target.value,
+                          },
+                        }))
+                      }
+                      disabled={isSubmitPending}
+                    >
+                      <option value="">Select severity</option>
+                      {BUG_SEVERITY_OPTIONS.map((severity) => (
+                        <option key={severity} value={severity}>
+                          {severity}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Priority
+                    </span>
+                    <select
+                      className="field-select rounded-2xl"
+                      value={formData.priority}
+                      onChange={(event) =>
+                        setFormData((current) => ({
+                          ...current,
+                          priority: event.target.value,
+                        }))
+                      }
+                      disabled={isSubmitPending}
+                    >
+                      {BUG_PRIORITY_OPTIONS.map((priorityOption) => (
+                        <option key={priorityOption} value={priorityOption}>
+                          {priorityOption}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Status
+                    </span>
+                    <select
+                      className="field-select rounded-2xl"
+                      value={formData.status}
+                      onChange={(event) =>
+                        setFormData((current) => ({
+                          ...current,
+                          status: event.target.value,
+                        }))
+                      }
+                      disabled
+                    >
+                      {BUG_STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Tester / QA Owner
+                    </span>
+                    <select
+                      className="field-select rounded-2xl"
+                      value={formData.bugDetails.testerOwnerId}
+                      onChange={(event) =>
+                        setFormData((current) => ({
+                          ...current,
+                          bugDetails: {
+                            ...current.bugDetails,
+                            testerOwnerId: event.target.value,
+                          },
+                        }))
+                      }
+                      disabled={!formData.teamId || isSubmitPending}
+                    >
+                      <option value="">Unassigned</option>
+                      {qaOwnerOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Developer / Dev Lead
+                    </span>
+                    <select
+                      className="field-select rounded-2xl"
+                      value={formData.bugDetails.developerLeadId}
+                      onChange={(event) =>
+                        setFormData((current) => ({
+                          ...current,
+                          bugDetails: {
+                            ...current.bugDetails,
+                            developerLeadId: event.target.value,
+                          },
+                        }))
+                      }
+                      disabled={!formData.teamId || isSubmitPending}
+                    >
+                      <option value="">Unassigned</option>
+                      {developerLeadOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="mt-3 grid gap-3">
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Steps to Reproduce
+                    </span>
+                    <Textarea
+                      className="min-h-[96px] rounded-[22px] border-slate-200 bg-white shadow-none focus-visible:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-500/10"
+                      value={formData.bugDetails.stepsToReproduce}
+                      onChange={(event) =>
+                        setFormData((current) => ({
+                          ...current,
+                          bugDetails: {
+                            ...current.bugDetails,
+                            stepsToReproduce: event.target.value,
+                          },
+                        }))
+                      }
+                      disabled={isSubmitPending}
+                    />
+                  </label>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1.5">
+                      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                        Expected Result
+                      </span>
+                      <Textarea
+                        className="min-h-[88px] rounded-[22px] border-slate-200 bg-white shadow-none focus-visible:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-500/10"
+                        value={formData.bugDetails.expectedResult}
+                        onChange={(event) =>
+                          setFormData((current) => ({
+                            ...current,
+                            bugDetails: {
+                              ...current.bugDetails,
+                              expectedResult: event.target.value,
+                            },
+                          }))
+                        }
+                        disabled={isSubmitPending}
+                      />
+                    </label>
+
+                    <label className="space-y-1.5">
+                      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                        Actual Result
+                      </span>
+                      <Textarea
+                        className="min-h-[88px] rounded-[22px] border-slate-200 bg-white shadow-none focus-visible:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-500/10"
+                        value={formData.bugDetails.actualResult}
+                        onChange={(event) =>
+                          setFormData((current) => ({
+                            ...current,
+                            bugDetails: {
+                              ...current.bugDetails,
+                              actualResult: event.target.value,
+                            },
+                          }))
+                        }
+                        disabled={isSubmitPending}
+                      />
+                    </label>
+                  </div>
+
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Attachments
+                    </span>
+                    <Input
+                      type="file"
+                      multiple
+                      className="h-12 rounded-2xl border-slate-200 bg-white shadow-none file:mr-3 file:rounded-xl file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700"
+                      onChange={(event) =>
+                        setAttachmentFiles(Array.from(event.target.files || []))
+                      }
+                      disabled={isSubmitPending}
+                    />
+                    {attachmentFiles.length ? (
+                      <p className="text-xs text-slate-500">
+                        {attachmentFiles.length} file
+                        {attachmentFiles.length === 1 ? "" : "s"} selected
+                      </p>
+                    ) : null}
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
             <div className="border-t border-slate-200/80 pt-3">
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Priority
-                  </span>
-                  <select
-                    className="field-select rounded-2xl"
-                    value={formData.priority}
-                    onChange={(event) =>
-                      setFormData((current) => ({
-                        ...current,
-                        priority: event.target.value,
-                      }))
-                    }
-                    disabled={isSubmitPending}
-                  >
-                    {ISSUE_PRIORITIES.map((priority) => (
-                      <option key={priority} value={priority}>
-                        {priority}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              <div className={`grid gap-3 ${isBugType ? "md:grid-cols-1" : "md:grid-cols-2"}`}>
+                {!isBugType ? (
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Priority
+                    </span>
+                    <select
+                      className="field-select rounded-2xl"
+                      value={formData.priority}
+                      onChange={(event) =>
+                        setFormData((current) => ({
+                          ...current,
+                          priority: event.target.value,
+                        }))
+                      }
+                      disabled={isSubmitPending}
+                    >
+                      {ISSUE_PRIORITIES.map((priority) => (
+                        <option key={priority} value={priority}>
+                          {priority}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
 
                 <label className="space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
@@ -772,6 +1112,14 @@ const IssueCreateDialog = ({
                       setFormData((current) => ({
                         ...current,
                         type: event.target.value,
+                        status:
+                          event.target.value === "Bug"
+                            ? ISSUE_STATUS.NEW
+                            : ISSUE_STATUS.TODO,
+                        priority:
+                          event.target.value === "Bug" && current.priority === "Low"
+                            ? "High"
+                            : current.priority,
                       }))
                     }
                     disabled={lockType || isSubmitPending}

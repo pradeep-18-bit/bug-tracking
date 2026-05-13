@@ -5,6 +5,14 @@ export const ISSUE_STATUS = Object.freeze({
   REVIEW: "REVIEW",
   QA: "QA",
   DONE: "DONE",
+  NEW: "NEW",
+  OPEN: "OPEN",
+  ASSIGNED: "ASSIGNED",
+  FIXED: "FIXED",
+  CLOSED: "CLOSED",
+  REOPEN: "REOPEN",
+  REJECTED: "REJECTED",
+  DEFERRED: "DEFERRED",
 });
 
 export const ISSUE_ACTIVE_STATUS_VALUES = Object.freeze([
@@ -12,7 +20,44 @@ export const ISSUE_ACTIVE_STATUS_VALUES = Object.freeze([
   ISSUE_STATUS.BLOCKED,
   ISSUE_STATUS.REVIEW,
   ISSUE_STATUS.QA,
+  ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.ASSIGNED,
+  ISSUE_STATUS.FIXED,
+  ISSUE_STATUS.REOPEN,
 ]);
+
+export const BUG_SEVERITY_OPTIONS = ["Blocker", "Critical", "Major", "Minor"];
+export const BUG_PRIORITY_OPTIONS = ["High", "Medium", "Low"];
+export const BUG_STATUS_OPTIONS = [
+  { value: ISSUE_STATUS.NEW, label: "New" },
+  { value: ISSUE_STATUS.OPEN, label: "Open" },
+  { value: ISSUE_STATUS.ASSIGNED, label: "Assigned" },
+  { value: ISSUE_STATUS.FIXED, label: "Fixed" },
+  { value: ISSUE_STATUS.CLOSED, label: "Closed" },
+  { value: ISSUE_STATUS.REOPEN, label: "Reopen" },
+  { value: ISSUE_STATUS.REJECTED, label: "Rejected" },
+  { value: ISSUE_STATUS.DEFERRED, label: "Deferred" },
+];
+export const BUG_STATUS_FLOW = [
+  ISSUE_STATUS.NEW,
+  ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.ASSIGNED,
+  ISSUE_STATUS.FIXED,
+  ISSUE_STATUS.CLOSED,
+];
+export const BUG_ALTERNATE_TRANSITIONS = [
+  [ISSUE_STATUS.FIXED, ISSUE_STATUS.REOPEN, ISSUE_STATUS.ASSIGNED],
+  [ISSUE_STATUS.OPEN, ISSUE_STATUS.REJECTED],
+  [ISSUE_STATUS.ASSIGNED, ISSUE_STATUS.REJECTED],
+  [ISSUE_STATUS.OPEN, ISSUE_STATUS.DEFERRED],
+  [ISSUE_STATUS.ASSIGNED, ISSUE_STATUS.DEFERRED],
+];
+export const BUG_TERMINAL_STATUSES = [
+  ISSUE_STATUS.CLOSED,
+  ISSUE_STATUS.REJECTED,
+  ISSUE_STATUS.DEFERRED,
+];
+export const BUG_LIFECYCLE_STATUSES = BUG_STATUS_OPTIONS.map((option) => option.value);
 
 export const ISSUE_STATUS_OPTIONS = [
   { value: "all", label: "All" },
@@ -22,11 +67,20 @@ export const ISSUE_STATUS_OPTIONS = [
   { value: ISSUE_STATUS.REVIEW, label: "Review" },
   { value: ISSUE_STATUS.QA, label: "QA" },
   { value: ISSUE_STATUS.DONE, label: "Done" },
+  ...BUG_STATUS_OPTIONS,
 ];
 
 export const ISSUE_WORKFLOW_STATUS_OPTIONS = ISSUE_STATUS_OPTIONS.filter(
   (option) => option.value !== "all"
 );
+export const GENERIC_ISSUE_WORKFLOW_STATUS_OPTIONS = [
+  { value: ISSUE_STATUS.TODO, label: "To Do" },
+  { value: ISSUE_STATUS.IN_PROGRESS, label: "In Progress" },
+  { value: ISSUE_STATUS.BLOCKED, label: "Blocked" },
+  { value: ISSUE_STATUS.REVIEW, label: "Review" },
+  { value: ISSUE_STATUS.QA, label: "QA" },
+  { value: ISSUE_STATUS.DONE, label: "Done" },
+];
 
 export const ISSUE_TYPES = Object.freeze({
   TASK: "Task",
@@ -64,6 +118,14 @@ const workflowRank = {
   [ISSUE_STATUS.QA]: 3,
   [ISSUE_STATUS.TODO]: 4,
   [ISSUE_STATUS.DONE]: 5,
+  [ISSUE_STATUS.NEW]: 0,
+  [ISSUE_STATUS.OPEN]: 1,
+  [ISSUE_STATUS.ASSIGNED]: 2,
+  [ISSUE_STATUS.FIXED]: 3,
+  [ISSUE_STATUS.REOPEN]: 4,
+  [ISSUE_STATUS.REJECTED]: 5,
+  [ISSUE_STATUS.DEFERRED]: 6,
+  [ISSUE_STATUS.CLOSED]: 7,
 };
 
 const projectKeyWord = (value = "") =>
@@ -105,6 +167,10 @@ export const normalizeIssueStatus = (value, fallback = ISSUE_STATUS.TODO) => {
     return ISSUE_STATUS.QA;
   }
 
+  if (normalizedValue === "RE_OPEN" || normalizedValue === "REOPENED") {
+    return ISSUE_STATUS.REOPEN;
+  }
+
   return Object.values(ISSUE_STATUS).includes(normalizedValue)
     ? normalizedValue
     : fallback;
@@ -139,11 +205,14 @@ export const normalizeIssueType = (value, fallback = ISSUE_TYPES.TASK) => {
 export const getIssueWorkflowLane = (status) => {
   const normalizedStatus = normalizeIssueStatus(status);
 
-  if (normalizedStatus === ISSUE_STATUS.DONE) {
+  if (
+    normalizedStatus === ISSUE_STATUS.DONE ||
+    BUG_TERMINAL_STATUSES.includes(normalizedStatus)
+  ) {
     return ISSUE_STATUS.DONE;
   }
 
-  if (normalizedStatus === ISSUE_STATUS.TODO) {
+  if (normalizedStatus === ISSUE_STATUS.TODO || normalizedStatus === ISSUE_STATUS.NEW) {
     return ISSUE_STATUS.TODO;
   }
 
@@ -151,9 +220,14 @@ export const getIssueWorkflowLane = (status) => {
 };
 
 export const isIssueClosed = (issueOrStatus) =>
-  normalizeIssueStatus(
-    typeof issueOrStatus === "object" ? issueOrStatus?.status : issueOrStatus
-  ) === ISSUE_STATUS.DONE;
+  [
+    ISSUE_STATUS.DONE,
+    ...BUG_TERMINAL_STATUSES,
+  ].includes(
+    normalizeIssueStatus(
+      typeof issueOrStatus === "object" ? issueOrStatus?.status : issueOrStatus
+    )
+  );
 
 export const isIssueOpen = (issueOrStatus) => !isIssueClosed(issueOrStatus);
 
@@ -163,6 +237,41 @@ export const isIssueInProgress = (issueOrStatus) =>
       typeof issueOrStatus === "object" ? issueOrStatus?.status : issueOrStatus
     )
   );
+
+export const isBugIssue = (issueOrType) =>
+  normalizeIssueType(
+    typeof issueOrType === "object" ? issueOrType?.type : issueOrType,
+    ""
+  ) === ISSUE_TYPES.BUG;
+
+export const getWorkflowStatusOptionsForIssue = (issueOrType) =>
+  isBugIssue(issueOrType)
+    ? BUG_STATUS_OPTIONS
+    : GENERIC_ISSUE_WORKFLOW_STATUS_OPTIONS;
+
+export const normalizeBugStatusForIssue = (issue) => {
+  const status = normalizeIssueStatus(issue?.status, "");
+
+  if (BUG_LIFECYCLE_STATUSES.includes(status)) {
+    return status;
+  }
+
+  if (status === ISSUE_STATUS.IN_PROGRESS || status === ISSUE_STATUS.BLOCKED) {
+    return ISSUE_STATUS.ASSIGNED;
+  }
+
+  if (status === ISSUE_STATUS.REVIEW || status === ISSUE_STATUS.QA) {
+    return ISSUE_STATUS.FIXED;
+  }
+
+  if (status === ISSUE_STATUS.DONE) {
+    return ISSUE_STATUS.CLOSED;
+  }
+
+  return ISSUE_STATUS.NEW;
+};
+
+export const resolveBugDetails = (issue) => issue?.bugDetails || {};
 
 export const getIssueStatusMetrics = (issues = []) => ({
   total: issues.length,
@@ -195,19 +304,41 @@ export const getIssueStatusVariant = (status) => {
     return "success";
   }
 
+  if (normalizedStatus === ISSUE_STATUS.CLOSED) {
+    return "success";
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.REJECTED) {
+    return "danger";
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.DEFERRED) {
+    return "secondary";
+  }
+
   if (normalizedStatus === ISSUE_STATUS.BLOCKED) {
     return "danger";
   }
 
-  if (normalizedStatus === ISSUE_STATUS.REVIEW) {
+  if (
+    normalizedStatus === ISSUE_STATUS.REVIEW ||
+    normalizedStatus === ISSUE_STATUS.FIXED
+  ) {
     return "default";
   }
 
-  if (normalizedStatus === ISSUE_STATUS.QA) {
+  if (
+    normalizedStatus === ISSUE_STATUS.QA ||
+    normalizedStatus === ISSUE_STATUS.ASSIGNED ||
+    normalizedStatus === ISSUE_STATUS.REOPEN
+  ) {
     return "warning";
   }
 
-  if (normalizedStatus === ISSUE_STATUS.IN_PROGRESS) {
+  if (
+    normalizedStatus === ISSUE_STATUS.IN_PROGRESS ||
+    normalizedStatus === ISSUE_STATUS.OPEN
+  ) {
     return "warning";
   }
 
@@ -394,24 +525,18 @@ export const sortIssues = (issues, sortBy = "newest") => {
   });
 };
 
-export const countIssuesByStatus = (issues) => ({
-  all: issues.length,
-  [ISSUE_STATUS.TODO]: issues.filter(
-    (issue) => normalizeIssueStatus(issue.status) === ISSUE_STATUS.TODO
-  ).length,
-  [ISSUE_STATUS.IN_PROGRESS]: issues.filter(
-    (issue) => normalizeIssueStatus(issue.status) === ISSUE_STATUS.IN_PROGRESS
-  ).length,
-  [ISSUE_STATUS.BLOCKED]: issues.filter(
-    (issue) => normalizeIssueStatus(issue.status) === ISSUE_STATUS.BLOCKED
-  ).length,
-  [ISSUE_STATUS.REVIEW]: issues.filter(
-    (issue) => normalizeIssueStatus(issue.status) === ISSUE_STATUS.REVIEW
-  ).length,
-  [ISSUE_STATUS.QA]: issues.filter(
-    (issue) => normalizeIssueStatus(issue.status) === ISSUE_STATUS.QA
-  ).length,
-  [ISSUE_STATUS.DONE]: issues.filter(
-    (issue) => normalizeIssueStatus(issue.status) === ISSUE_STATUS.DONE
-  ).length,
-});
+export const countIssuesByStatus = (issues) =>
+  ISSUE_STATUS_OPTIONS.reduce(
+    (counts, option) => {
+      if (option.value === "all") {
+        counts.all = issues.length;
+        return counts;
+      }
+
+      counts[option.value] = issues.filter(
+        (issue) => normalizeIssueStatus(issue.status) === option.value
+      ).length;
+      return counts;
+    },
+    { all: issues.length }
+  );

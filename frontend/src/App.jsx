@@ -15,14 +15,13 @@ const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const DeveloperDashboardPage = lazy(() => import("@/pages/DeveloperDashboardPage"));
 const DeveloperSettingsPage = lazy(() => import("@/pages/DeveloperSettingsPage"));
 const TesterDashboardPage = lazy(() => import("@/pages/TesterDashboardPage"));
+const TesterBugsPage = lazy(() => import("@/pages/TesterBugsPage"));
 const ProjectsPage = lazy(() => import("@/pages/ProjectsPage"));
 const BacklogPage = lazy(() => import("@/pages/BacklogPage"));
 const IssuesPage = lazy(() => import("@/pages/IssuesPage"));
 const TasksPage = lazy(() => import("@/pages/TasksPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 const UserSettingsPage = lazy(() => import("@/pages/UserSettingsPage"));
-const TeamsPage = lazy(() => import("@/pages/TeamsPage"));
-const TeamCreatePage = lazy(() => import("@/pages/TeamCreatePage"));
 const TeamDetailsPage = lazy(() => import("@/pages/TeamDetailsPage"));
 
 const PublicRouteFallback = () => (
@@ -149,6 +148,14 @@ const App = () => (
         }
       />
       <Route
+        path="/bugs"
+        element={
+          <ProtectedRoute roles={[ROLE_TESTER]}>
+            <TesterBugsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/backlog"
         element={
           <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
@@ -168,7 +175,7 @@ const App = () => (
         path="/teams"
         element={
           <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
-            <TeamsPage />
+            <Navigate to="/projects" replace />
           </ProtectedRoute>
         }
       />
@@ -176,7 +183,7 @@ const App = () => (
         path="/teams/create"
         element={
           <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
-            <TeamCreatePage />
+            <Navigate to="/projects" replace />
           </ProtectedRoute>
         }
       />

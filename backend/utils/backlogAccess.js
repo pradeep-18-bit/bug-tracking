@@ -33,7 +33,12 @@ const getReadableProjectIds = async (user) => {
   const [projectIds, directlyAssignedProjectIds] = await Promise.all([
     Project.find(accessQuery).distinct("_id"),
     Issue.find({
-      assignee: user._id,
+      $or: [
+        { assignee: user._id },
+        { reporter: user._id },
+        { "bugDetails.testerOwner": user._id },
+        { "bugDetails.developerLead": user._id },
+      ],
     }).distinct("projectId"),
   ]);
 
@@ -69,7 +74,12 @@ const loadReadableProject = async (user, projectId) => {
 
   const hasAssignedIssue = await Issue.exists({
     projectId,
-    assignee: user._id,
+    $or: [
+      { assignee: user._id },
+      { reporter: user._id },
+      { "bugDetails.testerOwner": user._id },
+      { "bugDetails.developerLead": user._id },
+    ],
   });
 
   if (!hasAssignedIssue) {

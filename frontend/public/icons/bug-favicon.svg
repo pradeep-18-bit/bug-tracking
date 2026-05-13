@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Bug Tracker favicon</title>
+  <defs>
+    <linearGradient id="tile" x1="10" y1="8" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563eb" />
+      <stop offset="0.58" stop-color="#6366f1" />
+      <stop offset="1" stop-color="#8b5cf6" />
+    </linearGradient>
+    <linearGradient id="bug" x1="21" y1="15" x2="43" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" />
+      <stop offset="1" stop-color="#dbeafe" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="url(#tile)" />
+  <path
+    d="M22 17 27 22M42 17 37 22M18 31H11M46 31H53M18.5 40.5 12.5 44.5M45.5 40.5 51.5 44.5"
+    fill="none"
+    stroke="#dbeafe"
+    stroke-width="4"
+    stroke-linecap="round"
+  />
+  <circle cx="32" cy="21.5" r="6.5" fill="url(#bug)" />
+  <path
+    d="M20 36C20 27.7 25.2 23 32 23s12 4.7 12 13c0 9.2-5.2 15-12 15S20 45.2 20 36Z"
+    fill="url(#bug)"
+  />
+  <path d="M32 25.5V49" fill="none" stroke="#4f46e5" stroke-width="3" stroke-linecap="round" opacity="0.8" />
+  <path
+    d="M24 35H40M24.8 42H39.2"
+    fill="none"
+    stroke="#60a5fa"
+    stroke-width="2.8"
+    stroke-linecap="round"
+    opacity="0.82"
+  />
+</svg>

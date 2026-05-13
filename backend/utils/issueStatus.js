@@ -1,3 +1,10 @@
+const {
+  BUG_STATUS,
+  BUG_STATUS_VALUES,
+  BUG_TERMINAL_STATUS_VALUES,
+  normalizeBugStatus,
+} = require("./bugLifecycle");
+
 const ISSUE_STATUS = Object.freeze({
   TODO: "TODO",
   IN_PROGRESS: "IN_PROGRESS",
@@ -5,14 +12,27 @@ const ISSUE_STATUS = Object.freeze({
   REVIEW: "REVIEW",
   QA: "QA",
   DONE: "DONE",
+  ...BUG_STATUS,
 });
 
 const ISSUE_STATUS_VALUES = Object.freeze(Object.values(ISSUE_STATUS));
+const GENERIC_ISSUE_STATUS_VALUES = Object.freeze([
+  ISSUE_STATUS.TODO,
+  ISSUE_STATUS.IN_PROGRESS,
+  ISSUE_STATUS.BLOCKED,
+  ISSUE_STATUS.REVIEW,
+  ISSUE_STATUS.QA,
+  ISSUE_STATUS.DONE,
+]);
 const ACTIVE_ISSUE_STATUS_VALUES = Object.freeze([
   ISSUE_STATUS.IN_PROGRESS,
   ISSUE_STATUS.BLOCKED,
   ISSUE_STATUS.REVIEW,
   ISSUE_STATUS.QA,
+  ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.ASSIGNED,
+  ISSUE_STATUS.FIXED,
+  ISSUE_STATUS.REOPEN,
 ]);
 
 const normalizeIssueStatus = (value, fallback = "") => {
@@ -45,6 +65,12 @@ const normalizeIssueStatus = (value, fallback = "") => {
     return ISSUE_STATUS.QA;
   }
 
+  const normalizedBugStatus = normalizeBugStatus(normalizedValue, "");
+
+  if (BUG_STATUS_VALUES.includes(normalizedBugStatus)) {
+    return normalizedBugStatus;
+  }
+
   return normalizedValue;
 };
 
@@ -62,7 +88,9 @@ const getCanonicalIssueStatus = (value, fallback = ISSUE_STATUS.TODO) => {
 };
 
 const isClosedIssueStatus = (value) =>
-  getCanonicalIssueStatus(value, ISSUE_STATUS.TODO) === ISSUE_STATUS.DONE;
+  [ISSUE_STATUS.DONE, ...BUG_TERMINAL_STATUS_VALUES].includes(
+    getCanonicalIssueStatus(value, ISSUE_STATUS.TODO)
+  );
 
 const isInProgressIssueStatus = (value) =>
   ACTIVE_ISSUE_STATUS_VALUES.includes(
@@ -72,6 +100,7 @@ const isInProgressIssueStatus = (value) =>
 module.exports = {
   ISSUE_STATUS,
   ISSUE_STATUS_VALUES,
+  GENERIC_ISSUE_STATUS_VALUES,
   ACTIVE_ISSUE_STATUS_VALUES,
   normalizeIssueStatus,
   isValidIssueStatus,

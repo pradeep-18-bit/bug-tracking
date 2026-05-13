@@ -5,6 +5,8 @@ const {
 
 const issuePopulation = [
   { path: "assignee", select: "name email role" },
+  { path: "bugDetails.testerOwner", select: "name email role" },
+  { path: "bugDetails.developerLead", select: "name email role" },
   { path: "dependsOnIssueId", select: "title status dueAt" },
   { path: "reporter", select: "name email role" },
   { path: "projectId", select: "name description createdBy isCompleted manager teamLead" },

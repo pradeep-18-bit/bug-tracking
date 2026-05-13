@@ -107,9 +107,9 @@ const TeamDetailsPage = () => {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button asChild variant="outline">
-          <Link to="/teams">
+          <Link to="/projects">
             <ArrowLeft className="h-4 w-4" />
-            Back to Teams
+            Back to Projects & Teams
           </Link>
         </Button>
 

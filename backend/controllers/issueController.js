@@ -20,7 +20,9 @@ const {
 const {
   ISSUE_STATUS,
   ISSUE_STATUS_VALUES,
+  GENERIC_ISSUE_STATUS_VALUES,
   getCanonicalIssueStatus,
+  isClosedIssueStatus,
   isInProgressIssueStatus,
   normalizeIssueStatus,
 } = require("../utils/issueStatus");
@@ -33,15 +35,71 @@ const {
 const { getNextPlanningOrder } = require("../utils/planningOrder");
 const { canManageProjectPlanning } = require("../utils/backlogAccess");
 const { buildProjectAccessQuery } = require("../utils/projectRelations");
-const { hasAdminAccess } = require("../utils/roles");
+const {
+  ROLE_ADMIN,
+  ROLE_MANAGER,
+  ROLE_DEVELOPER,
+  ROLE_TESTER,
+  hasAdminAccess,
+} = require("../utils/roles");
 const { normalizeWorkspaceId } = require("../utils/workspace");
+const {
+  BUG_ALLOWED_TRANSITIONS,
+  BUG_PRIORITY_VALUES,
+  BUG_SEVERITY_VALUES,
+  BUG_STATUS,
+  BUG_STATUS_VALUES,
+  BUG_TERMINAL_STATUS_VALUES,
+  normalizeBugPriority,
+  normalizeBugSeverity,
+} = require("../utils/bugLifecycle");
 
 const isAdmin = (user) => hasAdminAccess(user?.role);
+const isBugType = (type) => getCanonicalIssueType(type, "") === ISSUE_TYPES.BUG;
+const isGenericIssueStatus = (status) =>
+  GENERIC_ISSUE_STATUS_VALUES.includes(normalizeIssueStatus(status));
+const isBugLifecycleStatus = (status) =>
+  BUG_STATUS_VALUES.includes(normalizeIssueStatus(status));
+const isQaRole = (role) => role === ROLE_TESTER;
+const isDevRole = (role) => role === ROLE_DEVELOPER;
+const isLeadRole = (role) => [ROLE_ADMIN, ROLE_MANAGER].includes(role);
 const escapeRegExp = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const isAssignedToUser = (issue, userId) =>
   Boolean(issue?.assignee) && String(issue.assignee) === String(userId);
+
+const hasBugQaOwnership = (issue, userId) => {
+  if (!issue || !userId || !isBugType(issue.type)) {
+    return false;
+  }
+
+  return [issue.reporter, issue.bugDetails?.testerOwner].some(
+    (value) => value && String(value) === String(userId)
+  );
+};
+
+const getPersonalIssueAccessConditions = (user) => [
+  { assignee: user._id },
+  { reporter: user._id },
+  { "bugDetails.testerOwner": user._id },
+  { "bugDetails.developerLead": user._id },
+];
+
+const addPersonalIssueAccessQuery = (query, user) => {
+  const personalAccessQuery = {
+    $or: getPersonalIssueAccessConditions(user),
+  };
+
+  if (query.$or) {
+    query.$and = [...(query.$and || []), { $or: query.$or }, personalAccessQuery];
+    delete query.$or;
+    return query;
+  }
+
+  query.$or = personalAccessQuery.$or;
+  return query;
+};
 
 const getAccessibleProjectIds = async (user) => {
   const workspaceId = normalizeWorkspaceId(user.workspaceId);
@@ -51,7 +109,14 @@ const getAccessibleProjectIds = async (user) => {
     Project.find(projectAccessQuery).distinct("_id"),
     isAdmin(user)
       ? Promise.resolve([])
-      : Issue.find({ assignee: user._id }).distinct("projectId"),
+      : Issue.find({
+          $or: [
+            { assignee: user._id },
+            { reporter: user._id },
+            { "bugDetails.testerOwner": user._id },
+            { "bugDetails.developerLead": user._id },
+          ],
+        }).distinct("projectId"),
   ]);
 
   const assignedProjectIds = directlyAssignedProjectIds.length
@@ -206,6 +271,268 @@ const parseIssueStatusInput = (value, fallback = ISSUE_STATUS.TODO) => {
   };
 };
 
+const toTrimmedString = (value) =>
+  typeof value === "string" ? value.trim() : value ? String(value).trim() : "";
+
+const isPlainObject = (value) =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+const hasNestedBugField = (payload = {}, field) =>
+  isPlainObject(payload.bugDetails) && hasOwnField(payload.bugDetails, field);
+
+const hasBugPayloadField = (payload = {}, field, aliases = []) =>
+  hasOwnField(payload, field) ||
+  hasNestedBugField(payload, field) ||
+  aliases.some((alias) => hasOwnField(payload, alias) || hasNestedBugField(payload, alias));
+
+const getBugPayloadValue = (payload = {}, field, aliases = []) => {
+  if (hasOwnField(payload, field)) {
+    return payload[field];
+  }
+
+  if (hasNestedBugField(payload, field)) {
+    return payload.bugDetails[field];
+  }
+
+  for (const alias of aliases) {
+    if (hasOwnField(payload, alias)) {
+      return payload[alias];
+    }
+
+    if (hasNestedBugField(payload, alias)) {
+      return payload.bugDetails[alias];
+    }
+  }
+
+  return undefined;
+};
+
+const resolveObjectIdValue = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "object" && value._id) {
+    return value._id;
+  }
+
+  return value;
+};
+
+const serializeBugDetails = (details = {}) => ({
+  severity: details?.severity || null,
+  testerOwner: resolveObjectIdValue(details?.testerOwner),
+  developerLead: resolveObjectIdValue(details?.developerLead),
+  stepsToReproduce: details?.stepsToReproduce || "",
+  expectedResult: details?.expectedResult || "",
+  actualResult: details?.actualResult || "",
+  reopenReason: details?.reopenReason || "",
+  rejectionReason: details?.rejectionReason || "",
+  targetRelease: details?.targetRelease || "",
+});
+
+const buildBugDetailsDraft = (payload = {}, existingDetails = {}, defaults = {}) => {
+  const nextDetails = {
+    ...serializeBugDetails(existingDetails),
+    ...defaults,
+  };
+
+  const severityInput = getBugPayloadValue(payload, "severity");
+
+  if (typeof severityInput !== "undefined") {
+    nextDetails.severity = normalizeBugSeverity(severityInput, severityInput);
+  }
+
+  [
+    "stepsToReproduce",
+    "expectedResult",
+    "actualResult",
+    "reopenReason",
+    "rejectionReason",
+  ].forEach((field) => {
+    const value = getBugPayloadValue(payload, field);
+
+    if (typeof value !== "undefined") {
+      nextDetails[field] = toTrimmedString(value);
+    }
+  });
+
+  const targetReleaseInput = getBugPayloadValue(payload, "targetRelease", [
+    "futureRelease",
+  ]);
+
+  if (typeof targetReleaseInput !== "undefined") {
+    nextDetails.targetRelease = toTrimmedString(targetReleaseInput);
+  }
+
+  const testerOwnerInput = getBugPayloadValue(payload, "testerOwnerId", [
+    "testerOwner",
+    "qaOwnerId",
+    "qaOwner",
+  ]);
+
+  if (typeof testerOwnerInput !== "undefined") {
+    nextDetails.testerOwner = testerOwnerInput || null;
+  }
+
+  const developerLeadInput = getBugPayloadValue(payload, "developerLeadId", [
+    "developerLead",
+    "devLeadId",
+    "devLead",
+  ]);
+
+  if (typeof developerLeadInput !== "undefined") {
+    nextDetails.developerLead = developerLeadInput || null;
+  }
+
+  return nextDetails;
+};
+
+const getBugStatusForIssueStatus = (status) => {
+  const normalizedStatus = normalizeIssueStatus(status, "");
+
+  if (BUG_STATUS_VALUES.includes(normalizedStatus)) {
+    return normalizedStatus;
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.IN_PROGRESS || normalizedStatus === ISSUE_STATUS.BLOCKED) {
+    return BUG_STATUS.ASSIGNED;
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.REVIEW || normalizedStatus === ISSUE_STATUS.QA) {
+    return BUG_STATUS.FIXED;
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.DONE) {
+    return BUG_STATUS.CLOSED;
+  }
+
+  return BUG_STATUS.NEW;
+};
+
+const getRequestedBugStatus = ({ payload = {}, currentStatus = BUG_STATUS.NEW }) => {
+  if (!hasOwnField(payload, "status")) {
+    return getBugStatusForIssueStatus(currentStatus);
+  }
+
+  const normalizedStatus = normalizeIssueStatus(payload.status, "");
+
+  if (BUG_STATUS_VALUES.includes(normalizedStatus)) {
+    return normalizedStatus;
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.TODO) {
+    return BUG_STATUS.NEW;
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.IN_PROGRESS) {
+    const currentBugStatus = getBugStatusForIssueStatus(currentStatus);
+
+    return currentBugStatus === BUG_STATUS.NEW ? BUG_STATUS.OPEN : BUG_STATUS.ASSIGNED;
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.DONE) {
+    return BUG_STATUS.CLOSED;
+  }
+
+  return normalizedStatus;
+};
+
+const validateBugDetails = ({ bugDetails, priority }) => {
+  if (!BUG_SEVERITY_VALUES.includes(bugDetails?.severity)) {
+    return "Severity is required for Bug type";
+  }
+
+  if (!BUG_PRIORITY_VALUES.includes(normalizeBugPriority(priority, ""))) {
+    return "Priority is required for Bug type";
+  }
+
+  if (!toTrimmedString(bugDetails?.stepsToReproduce)) {
+    return "Steps to Reproduce are required for Bug type";
+  }
+
+  if (!toTrimmedString(bugDetails?.expectedResult)) {
+    return "Expected Result is required for Bug type";
+  }
+
+  if (!toTrimmedString(bugDetails?.actualResult)) {
+    return "Actual Result is required for Bug type";
+  }
+
+  return "";
+};
+
+const getBugTransitionReason = (payload = {}, status) => {
+  if (status === BUG_STATUS.REOPEN) {
+    return toTrimmedString(
+      getBugPayloadValue(payload, "reopenReason", ["statusChangeComment", "comment"])
+    );
+  }
+
+  if (status === BUG_STATUS.REJECTED) {
+    return toTrimmedString(
+      getBugPayloadValue(payload, "rejectionReason", ["statusChangeComment", "comment"])
+    );
+  }
+
+  return toTrimmedString(getBugPayloadValue(payload, "statusChangeComment", ["comment"]));
+};
+
+const validateBugTransition = ({ user, fromStatus, toStatus, payload }) => {
+  if (fromStatus === toStatus) {
+    return "";
+  }
+
+  const allowedTargets = BUG_ALLOWED_TRANSITIONS[fromStatus] || [];
+
+  if (!allowedTargets.includes(toStatus)) {
+    return `Bug status cannot move from ${fromStatus} to ${toStatus}`;
+  }
+
+  if (toStatus === BUG_STATUS.CLOSED && fromStatus !== BUG_STATUS.FIXED) {
+    return "Bug cannot be Closed unless it was previously Fixed";
+  }
+
+  if (toStatus === BUG_STATUS.REOPEN && !getBugTransitionReason(payload, toStatus)) {
+    return "Reopen requires a reason or comment";
+  }
+
+  if (toStatus === BUG_STATUS.REJECTED && !getBugTransitionReason(payload, toStatus)) {
+    return "Rejected requires a rejection reason";
+  }
+
+  if (
+    toStatus === BUG_STATUS.DEFERRED &&
+    !toTrimmedString(getBugPayloadValue(payload, "targetRelease", ["futureRelease"]))
+  ) {
+    return "Deferred requires a target future release";
+  }
+
+  if (isLeadRole(user?.role)) {
+    return "";
+  }
+
+  if (isQaRole(user?.role)) {
+    return [BUG_STATUS.CLOSED, BUG_STATUS.REOPEN].includes(toStatus)
+      ? ""
+      : "QA users can only Close or Reopen Fixed bugs";
+  }
+
+  if (isDevRole(user?.role)) {
+    return [
+      BUG_STATUS.OPEN,
+      BUG_STATUS.ASSIGNED,
+      BUG_STATUS.FIXED,
+      BUG_STATUS.REJECTED,
+      BUG_STATUS.DEFERRED,
+    ].includes(toStatus)
+      ? ""
+      : "Developer users can only move bugs to Open, Assigned, Fixed, Rejected, or Deferred";
+  }
+
+  return "Your role cannot change this bug status";
+};
+
 const ensureIssueTeamForProject = async ({
   projectId,
   teamId,
@@ -335,6 +662,38 @@ const ensureAssigneeBelongsToTeam = async ({
 
   return {
     assignee,
+  };
+};
+
+const ensureBugOwnerBelongsToTeam = async ({
+  userId,
+  teamId,
+  workspaceId,
+  label,
+}) => {
+  if (!userId) {
+    return {
+      user: null,
+    };
+  }
+
+  const result = await ensureAssigneeBelongsToTeam({
+    assigneeId: userId,
+    teamId,
+    workspaceId,
+  });
+
+  if (result.error) {
+    return {
+      error: {
+        status: result.error.status,
+        message: result.error.message.replace("assignee", label),
+      },
+    };
+  }
+
+  return {
+    user: result.assignee,
   };
 };
 
@@ -468,13 +827,19 @@ const buildIssueQueryFromRequest = async (
 
   if (req.query.status && req.query.status !== "all") {
     const normalizedStatusFilter = normalizeIssueStatus(req.query.status);
+    const normalizedTypeFilter = getCanonicalIssueType(req.query.type, "");
+    const isExplicitBugLifecycleFilter =
+      normalizedTypeFilter === ISSUE_TYPES.BUG &&
+      BUG_STATUS_VALUES.includes(normalizedStatusFilter);
 
-    if (normalizedStatusFilter === "OPEN") {
+    if (normalizedStatusFilter === "OPEN" && !isExplicitBugLifecycleFilter) {
       query.status = {
-        $ne: ISSUE_STATUS.DONE,
+        $nin: [ISSUE_STATUS.DONE, ...BUG_TERMINAL_STATUS_VALUES],
       };
-    } else if (normalizedStatusFilter === "CLOSED") {
-      query.status = ISSUE_STATUS.DONE;
+    } else if (normalizedStatusFilter === "CLOSED" && !isExplicitBugLifecycleFilter) {
+      query.status = {
+        $in: [ISSUE_STATUS.DONE, ...BUG_TERMINAL_STATUS_VALUES],
+      };
     } else {
       const statusFilterResult = parseIssueStatusInput(req.query.status, "");
 
@@ -609,7 +974,7 @@ const buildIssueQueryFromRequest = async (
   }
 
   if (forceOwnAssignee) {
-    query.assignee = req.user.id;
+    addPersonalIssueAccessQuery(query, req.user);
     return query;
   }
 
@@ -638,7 +1003,7 @@ const buildIssueQueryFromRequest = async (
 
     query.assignee = assigneeFilter;
   } else if (!isAdmin(req.user)) {
-    query.assignee = req.user.id;
+    addPersonalIssueAccessQuery(query, req.user);
   }
 
   return query;
@@ -678,6 +1043,14 @@ const statusLabelMap = {
   [ISSUE_STATUS.REVIEW]: "Review",
   [ISSUE_STATUS.QA]: "QA",
   [ISSUE_STATUS.DONE]: "Done",
+  [ISSUE_STATUS.NEW]: "New",
+  [ISSUE_STATUS.OPEN]: "Open",
+  [ISSUE_STATUS.ASSIGNED]: "Assigned",
+  [ISSUE_STATUS.FIXED]: "Fixed",
+  [ISSUE_STATUS.CLOSED]: "Closed",
+  [ISSUE_STATUS.REOPEN]: "Reopen",
+  [ISSUE_STATUS.REJECTED]: "Rejected",
+  [ISSUE_STATUS.DEFERRED]: "Deferred",
 };
 
 const priorityOrder = ["High", "Medium", "Low"];
@@ -688,6 +1061,14 @@ const statusOrder = [
   ISSUE_STATUS.REVIEW,
   ISSUE_STATUS.QA,
   ISSUE_STATUS.DONE,
+  ISSUE_STATUS.NEW,
+  ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.ASSIGNED,
+  ISSUE_STATUS.FIXED,
+  ISSUE_STATUS.CLOSED,
+  ISSUE_STATUS.REOPEN,
+  ISSUE_STATUS.REJECTED,
+  ISSUE_STATUS.DEFERRED,
 ];
 
 const uniqueObjectIds = (values = []) => {
@@ -730,7 +1111,7 @@ const buildSummaryMetrics = (issues = []) =>
 
       summary.totalIssues += 1;
 
-      if (status === ISSUE_STATUS.DONE) {
+      if (isClosedIssueStatus(status)) {
         summary.closedIssues += 1;
       } else {
         summary.openIssues += 1;
@@ -764,7 +1145,7 @@ const incrementEntityBucket = (bucket, issue) => {
 
   bucket.total += 1;
 
-  if (status === ISSUE_STATUS.DONE) {
+  if (isClosedIssueStatus(status)) {
     bucket.closed += 1;
   } else {
     bucket.open += 1;
@@ -1042,7 +1423,17 @@ const createIssue = asyncHandler(async (req, res) => {
   } = req.body;
   const assigneeId = resolveAssigneeInput(req.body);
   const normalizedType = getCanonicalIssueType(type, ISSUE_TYPES.TASK);
-  const statusResult = parseIssueStatusInput(status, ISSUE_STATUS.TODO);
+  const isBug = normalizedType === ISSUE_TYPES.BUG;
+  const requestedStatus = isBug
+    ? getRequestedBugStatus({
+        payload: req.body,
+        currentStatus: BUG_STATUS.NEW,
+      })
+    : status;
+  const statusResult = parseIssueStatusInput(
+    requestedStatus,
+    isBug ? BUG_STATUS.NEW : ISSUE_STATUS.TODO
+  );
 
   if (!title || !projectId || !teamId) {
     res.status(400);
@@ -1052,6 +1443,16 @@ const createIssue = asyncHandler(async (req, res) => {
   if (statusResult.error) {
     res.status(statusResult.error.status);
     throw new Error(statusResult.error.message);
+  }
+
+  if (isBug && !isBugLifecycleStatus(statusResult.value)) {
+    res.status(400);
+    throw new Error(`Bug status must be ${BUG_STATUS_VALUES.join(", ")}`);
+  }
+
+  if (!isBug && !isGenericIssueStatus(statusResult.value)) {
+    res.status(400);
+    throw new Error(`Status must be ${GENERIC_ISSUE_STATUS_VALUES.join(", ")}`);
   }
 
   if (!mongoose.isValidObjectId(projectId)) {
@@ -1072,6 +1473,11 @@ const createIssue = asyncHandler(async (req, res) => {
   if (req.user.role === "Tester" && normalizedType !== ISSUE_TYPES.BUG) {
     res.status(403);
     throw new Error("Testers can only report bug issues");
+  }
+
+  if (isBug && statusResult.value !== BUG_STATUS.NEW) {
+    res.status(400);
+    throw new Error("Newly created bugs must start in the New state");
   }
 
   const project = await loadAccessibleProject(req.user, projectId);
@@ -1129,6 +1535,53 @@ const createIssue = asyncHandler(async (req, res) => {
     throw new Error(dependencyResult.error.message);
   }
 
+  const normalizedPriority = isBug
+    ? normalizeBugPriority(priority, "")
+    : priority;
+  const bugDetails = isBug
+    ? buildBugDetailsDraft(req.body, {}, {
+        testerOwner: req.user.role === ROLE_TESTER ? req.user._id : null,
+        developerLead: assigneeId || null,
+      })
+    : {};
+
+  if (isBug) {
+    const bugDetailsError = validateBugDetails({
+      bugDetails,
+      priority: normalizedPriority,
+    });
+
+    if (bugDetailsError) {
+      res.status(400);
+      throw new Error(bugDetailsError);
+    }
+
+    const [testerOwnerResult, developerLeadResult] = await Promise.all([
+      ensureBugOwnerBelongsToTeam({
+        userId: bugDetails.testerOwner,
+        teamId,
+        workspaceId,
+        label: "QA owner",
+      }),
+      ensureBugOwnerBelongsToTeam({
+        userId: bugDetails.developerLead,
+        teamId,
+        workspaceId,
+        label: "developer lead",
+      }),
+    ]);
+
+    if (testerOwnerResult.error) {
+      res.status(testerOwnerResult.error.status);
+      throw new Error(testerOwnerResult.error.message);
+    }
+
+    if (developerLeadResult.error) {
+      res.status(developerLeadResult.error.status);
+      throw new Error(developerLeadResult.error.message);
+    }
+  }
+
   const planningOrder = await getNextPlanningOrder(Issue, {
     projectId,
     sprintId: null,
@@ -1139,13 +1592,14 @@ const createIssue = asyncHandler(async (req, res) => {
     description,
     type: normalizedType,
     status: statusResult.value,
-    priority,
+    priority: normalizedPriority || priority,
     assignee: assigneeId || null,
     reporter: req.user._id,
     projectId,
     teamId,
     dueAt: dueAtResult.value,
     dependsOnIssueId: dependsOnIssueId || null,
+    bugDetails,
     planningOrder,
     startedAt: isInProgressIssueStatus(statusResult.value) ? new Date() : null,
   });
@@ -1229,10 +1683,20 @@ const updateIssue = asyncHandler(async (req, res) => {
   }
 
   let targetProject = await loadAccessibleProject(req.user, issue.projectId);
-  const hasDirectAssignmentAccess =
-    !isAdmin(req.user) && isAssignedToUser(issue, req.user._id);
+  const hasBugOwnerAccess =
+    !isAdmin(req.user) && hasBugQaOwnership(issue, req.user._id);
+  const hasBugDeveloperLeadAccess =
+    !isAdmin(req.user) &&
+    isBugType(issue.type) &&
+    Boolean(issue.bugDetails?.developerLead) &&
+    String(issue.bugDetails.developerLead) === String(req.user._id);
+  const hasDirectIssueAccess =
+    !isAdmin(req.user) &&
+    (isAssignedToUser(issue, req.user._id) ||
+      hasBugOwnerAccess ||
+      hasBugDeveloperLeadAccess);
 
-  if (!targetProject && hasDirectAssignmentAccess) {
+  if (!targetProject && hasDirectIssueAccess) {
     targetProject = await Project.findOne({
       _id: issue.projectId,
       workspaceId: normalizeWorkspaceId(req.user.workspaceId),
@@ -1249,7 +1713,7 @@ const updateIssue = asyncHandler(async (req, res) => {
   if (!isAdmin(req.user)) {
     if (
       !hasProjectLeadershipAccess &&
-      (!issue.assignee || String(issue.assignee) !== String(req.user._id))
+      !hasDirectIssueAccess
     ) {
       res.status(403);
       throw new Error("You can only update issues assigned to you");
@@ -1267,8 +1731,35 @@ const updateIssue = asyncHandler(async (req, res) => {
           "assignee",
           "dueAt",
           "dependsOnIssueId",
+          "bugDetails",
+          "severity",
+          "testerOwnerId",
+          "testerOwner",
+          "qaOwnerId",
+          "qaOwner",
+          "developerLeadId",
+          "developerLead",
+          "devLeadId",
+          "devLead",
+          "stepsToReproduce",
+          "expectedResult",
+          "actualResult",
+          "reopenReason",
+          "rejectionReason",
+          "targetRelease",
+          "futureRelease",
+          "statusChangeComment",
+          "comment",
         ]
-      : ["status"];
+      : [
+          "status",
+          "reopenReason",
+          "rejectionReason",
+          "targetRelease",
+          "futureRelease",
+          "statusChangeComment",
+          "comment",
+        ];
     const requestedFields = Object.keys(req.body);
 
     if (!requestedFields.every((field) => allowedFields.includes(field))) {
@@ -1309,11 +1800,26 @@ const updateIssue = asyncHandler(async (req, res) => {
     });
   }
 
-  const updatableFields = ["title", "description", "priority"];
-  const nextStatusResult = parseIssueStatusInput(req.body.status, issue.status);
+  const previousType = issue.type;
   const nextType = hasOwnField(req.body, "type")
     ? getCanonicalIssueType(req.body.type, "")
     : issue.type;
+  const nextIsBug = nextType === ISSUE_TYPES.BUG;
+  const requestedUpdateStatus = nextIsBug
+    ? getRequestedBugStatus({
+        payload: req.body,
+        currentStatus: issue.status,
+      })
+    : req.body.status;
+  const nextStatusResult = parseIssueStatusInput(
+    requestedUpdateStatus,
+    nextIsBug ? getBugStatusForIssueStatus(issue.status) : issue.status
+  );
+  const nextPriority = hasOwnField(req.body, "priority")
+    ? nextIsBug
+      ? normalizeBugPriority(req.body.priority, req.body.priority)
+      : req.body.priority
+    : issue.priority;
 
   if (nextStatusResult.error) {
     res.status(nextStatusResult.error.status);
@@ -1326,8 +1832,38 @@ const updateIssue = asyncHandler(async (req, res) => {
   }
 
   const nextStatus = nextStatusResult.value;
+  const currentBugStatus = getBugStatusForIssueStatus(issue.status);
 
-  updatableFields.forEach((field) => {
+  if (nextIsBug && !isBugLifecycleStatus(nextStatus)) {
+    res.status(400);
+    throw new Error(`Bug status must be ${BUG_STATUS_VALUES.join(", ")}`);
+  }
+
+  if (!nextIsBug && !isGenericIssueStatus(nextStatus)) {
+    res.status(400);
+    throw new Error(`Status must be ${GENERIC_ISSUE_STATUS_VALUES.join(", ")}`);
+  }
+
+  if (nextIsBug && !isBugType(issue.type) && nextStatus !== BUG_STATUS.NEW) {
+    res.status(400);
+    throw new Error("Work items converted to Bug must start in the New state");
+  }
+
+  if (nextIsBug && isBugType(issue.type) && currentBugStatus !== nextStatus) {
+    const transitionError = validateBugTransition({
+      user: req.user,
+      fromStatus: currentBugStatus,
+      toStatus: nextStatus,
+      payload: req.body,
+    });
+
+    if (transitionError) {
+      res.status(400);
+      throw new Error(transitionError);
+    }
+  }
+
+  ["title", "description"].forEach((field) => {
     if (typeof req.body[field] !== "undefined") {
       changeEntries.push({
         field,
@@ -1338,6 +1874,15 @@ const updateIssue = asyncHandler(async (req, res) => {
     }
   });
 
+  if (typeof req.body.priority !== "undefined") {
+    changeEntries.push({
+      field: "priority",
+      fromValue: issue.priority,
+      toValue: nextPriority,
+    });
+    issue.priority = nextPriority;
+  }
+
   if (typeof req.body.type !== "undefined") {
     changeEntries.push({
       field: "type",
@@ -1347,7 +1892,7 @@ const updateIssue = asyncHandler(async (req, res) => {
     issue.type = nextType;
   }
 
-  if (typeof req.body.status !== "undefined") {
+  if (typeof req.body.status !== "undefined" || String(issue.status) !== String(nextStatus)) {
     changeEntries.push({
       field: "status",
       fromValue: issue.status,
@@ -1371,6 +1916,55 @@ const updateIssue = asyncHandler(async (req, res) => {
   const nextDependsOnIssueId = hasDependencyChange
     ? req.body.dependsOnIssueId || null
     : issue.dependsOnIssueId || null;
+  let nextBugDetails = null;
+
+  if (nextIsBug) {
+    nextBugDetails = buildBugDetailsDraft(req.body, issue.bugDetails || {}, {});
+
+    if (
+      !nextBugDetails.testerOwner &&
+      !hasBugPayloadField(req.body, "testerOwnerId", [
+        "testerOwner",
+        "qaOwnerId",
+        "qaOwner",
+      ]) &&
+      req.user.role === ROLE_TESTER
+    ) {
+      nextBugDetails.testerOwner = req.user._id;
+    }
+
+    if (
+      !nextBugDetails.developerLead &&
+      !hasBugPayloadField(req.body, "developerLeadId", [
+        "developerLead",
+        "devLeadId",
+        "devLead",
+      ]) &&
+      nextAssigneeId
+    ) {
+      nextBugDetails.developerLead = nextAssigneeId;
+    }
+
+    const transitionReason = getBugTransitionReason(req.body, nextStatus);
+
+    if (currentBugStatus !== nextStatus && nextStatus === BUG_STATUS.REOPEN) {
+      nextBugDetails.reopenReason = transitionReason;
+    }
+
+    if (currentBugStatus !== nextStatus && nextStatus === BUG_STATUS.REJECTED) {
+      nextBugDetails.rejectionReason = transitionReason;
+    }
+
+    const bugDetailsError = validateBugDetails({
+      bugDetails: nextBugDetails,
+      priority: nextPriority,
+    });
+
+    if (bugDetailsError) {
+      res.status(400);
+      throw new Error(bugDetailsError);
+    }
+  }
 
   if (hasTeamChange || req.body.projectId) {
     const teamResult = await ensureIssueTeamForProject({
@@ -1396,6 +1990,33 @@ const updateIssue = asyncHandler(async (req, res) => {
     if (assigneeResult.error) {
       res.status(assigneeResult.error.status);
       throw new Error(assigneeResult.error.message);
+    }
+  }
+
+  if (nextIsBug && nextBugDetails) {
+    const [testerOwnerResult, developerLeadResult] = await Promise.all([
+      ensureBugOwnerBelongsToTeam({
+        userId: nextBugDetails.testerOwner,
+        teamId: nextTeamId,
+        workspaceId,
+        label: "QA owner",
+      }),
+      ensureBugOwnerBelongsToTeam({
+        userId: nextBugDetails.developerLead,
+        teamId: nextTeamId,
+        workspaceId,
+        label: "developer lead",
+      }),
+    ]);
+
+    if (testerOwnerResult.error) {
+      res.status(testerOwnerResult.error.status);
+      throw new Error(testerOwnerResult.error.message);
+    }
+
+    if (developerLeadResult.error) {
+      res.status(developerLeadResult.error.status);
+      throw new Error(developerLeadResult.error.message);
     }
   }
 
@@ -1467,8 +2088,51 @@ const updateIssue = asyncHandler(async (req, res) => {
     issue.dependsOnIssueId = nextDependsOnIssueId;
   }
 
+  if (nextIsBug && nextBugDetails) {
+    const previousBugDetails = serializeBugDetails(issue.bugDetails || {});
+
+    Object.entries(nextBugDetails).forEach(([field, value]) => {
+      if (String(previousBugDetails[field] || "") === String(value || "")) {
+        return;
+      }
+
+      changeEntries.push({
+        field: `bugDetails.${field}`,
+        fromValue: previousBugDetails[field] || null,
+        toValue: value || null,
+      });
+    });
+
+    issue.bugDetails = nextBugDetails;
+  } else if (isBugType(previousType) && !nextIsBug) {
+    changeEntries.push({
+      field: "bugDetails",
+      fromValue: serializeBugDetails(issue.bugDetails || {}),
+      toValue: null,
+    });
+    issue.bugDetails = {};
+  }
+
   await issue.save();
   await populateIssueDocument(issue);
+  const statusChangeEntry = changeEntries.find(
+    (entry) =>
+      entry.field === "status" &&
+      String(entry.fromValue || "") !== String(entry.toValue || "")
+  );
+  const statusChangeReason =
+    statusChangeEntry && isBugType(issue.type)
+      ? getBugTransitionReason(req.body, statusChangeEntry.toValue)
+      : "";
+
+  if (statusChangeReason) {
+    await Comment.create({
+      issueId: issue._id,
+      userId: req.user._id,
+      comment: statusChangeReason,
+    });
+  }
+
   await Promise.all(
     changeEntries
       .filter((entry) => String(entry.fromValue || "") !== String(entry.toValue || ""))
@@ -1477,12 +2141,21 @@ const updateIssue = asyncHandler(async (req, res) => {
           issueId: issue._id,
           projectId: issue.projectId,
           actorId: req.user._id,
-          eventType: "ISSUE_UPDATED",
+          eventType:
+            isBugType(issue.type) && entry.field === "status"
+              ? "BUG_STATUS_CHANGED"
+              : "ISSUE_UPDATED",
           field: entry.field,
           fromValue: entry.fromValue,
           toValue: entry.toValue,
           meta: {
             title: issue.title,
+            ...(entry.field === "status" && statusChangeReason
+              ? { reason: statusChangeReason }
+              : {}),
+            ...(entry.field === "status" && issue.bugDetails?.targetRelease
+              ? { targetRelease: issue.bugDetails.targetRelease }
+              : {}),
           },
         })
       )

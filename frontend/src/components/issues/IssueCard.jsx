@@ -8,8 +8,8 @@ import {
 import {
   getIssuePriorityVariant,
   getIssueDisplayKey,
+  getWorkflowStatusOptionsForIssue,
   getIssueStatusLabel,
-  ISSUE_WORKFLOW_STATUS_OPTIONS,
   getIssueStatusVariant,
   getIssueTypeVariant,
   normalizeIssueStatus,
@@ -34,6 +34,7 @@ const IssueCard = ({
 }) => {
   const assignee = resolveIssueAssignee(issue);
   const issueKey = getIssueDisplayKey(issue);
+  const statusOptions = getWorkflowStatusOptionsForIssue(issue);
 
   return (
     <article
@@ -84,7 +85,7 @@ const IssueCard = ({
                 }}
                 onClick={(event) => event.stopPropagation()}
               >
-                {ISSUE_WORKFLOW_STATUS_OPTIONS.map((option) => (
+                {statusOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>

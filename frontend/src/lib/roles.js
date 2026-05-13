@@ -29,7 +29,6 @@ export const getRoleNavigation = (role) => {
     return [
       { label: "Dashboard", href: dashboardPathByRole[ROLE_ADMIN], icon: "dashboard" },
       { label: "Projects", href: "/projects", icon: "projects" },
-      { label: "Teams", href: "/teams", icon: "teams" },
       { label: "Backlog", href: "/backlog", icon: "backlog" },
       { label: "Issues", href: "/issues", icon: "issues" },
       { label: "Reports", href: "/reports", icon: "reports" },
@@ -40,6 +39,7 @@ export const getRoleNavigation = (role) => {
   if (role === ROLE_TESTER) {
     return [
       { label: "Dashboard", href: dashboardPathByRole[ROLE_TESTER], icon: "dashboard" },
+      { label: "Bugs", href: "/bugs", icon: "bugs" },
       { label: "Tasks", href: "/tasks", icon: "tasks" },
       { label: "Reports", href: "/reports", icon: "reports" },
       { label: "Settings", href: "/dev/settings", icon: "settings" },
@@ -72,19 +72,24 @@ export const getPageMeta = (pathname, role) => {
         "Manage your account security and update your password with confidence.",
     },
     [dashboardPathByRole[ROLE_TESTER]]: {
-      title: "Tester Dashboard",
+      title: "Assigned Projects",
       description:
-        "Track validation work, move bugs through triage, and keep QA signals visible across delivery.",
+        "Review assigned projects and track project-wise testing performance.",
+    },
+    "/bugs": {
+      title: "Bugs",
+      description:
+        "Report assigned project bugs and track status, comments, attachments, and developer progress.",
     },
     "/projects": {
-      title: "Project Space",
+      title: "Projects & Teams",
       description:
-        "Create projects, attach teams, and keep delivery scopes well defined.",
+        "Create projects, attach teams, and keep delivery ownership in one workspace view.",
     },
     "/teams": {
-      title: "Workspace Teams",
+      title: "Projects & Teams",
       description:
-        "Organize workspace members into delivery groups and keep team membership clean.",
+        "Team management now lives inside the combined Projects page.",
     },
     "/backlog": {
       title: "Backlog Planning",
@@ -92,9 +97,9 @@ export const getPageMeta = (pathname, role) => {
         "Plan sprint work, organize epics, and keep backlog priorities aligned before execution starts.",
     },
     "/teams/create": {
-      title: "Create Team",
+      title: "Projects & Teams",
       description:
-        "Build a workspace-scoped team and add members from the current workspace only.",
+        "Create teams from the combined Projects page sidebar.",
     },
     "/tasks": {
       title: "Tasks",
@@ -124,9 +129,9 @@ export const getPageMeta = (pathname, role) => {
 
     if (role === ROLE_TESTER) {
       return {
-        title: "Testing Queue",
+        title: "Assigned Project Bugs",
         description:
-          "Work through validation tasks, update bug status, and keep QA feedback visible in a structured queue.",
+          "Review assigned project bugs, update status, and keep QA feedback visible by project.",
       };
     }
 

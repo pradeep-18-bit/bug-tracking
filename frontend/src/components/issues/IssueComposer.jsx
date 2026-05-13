@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { ClipboardList, Flag, Sparkle, UserCircle2, Users2 } from "lucide-react";
+import {
+  ClipboardList,
+  FileText,
+  Flag,
+  Sparkle,
+  UserCircle2,
+  Users2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -10,7 +17,14 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ISSUE_STATUS, ISSUE_TYPE_OPTIONS, ISSUE_WORKFLOW_STATUS_OPTIONS } from "@/lib/issues";
+import {
+  BUG_PRIORITY_OPTIONS,
+  BUG_SEVERITY_OPTIONS,
+  BUG_STATUS_OPTIONS,
+  ISSUE_STATUS,
+  ISSUE_TYPE_OPTIONS,
+  ISSUE_WORKFLOW_STATUS_OPTIONS,
+} from "@/lib/issues";
 import {
   findProjectById,
   getProjectTeamMembers,
@@ -21,6 +35,8 @@ import {
 } from "@/lib/project-teams";
 
 const defaultTypeOptions = ISSUE_TYPE_OPTIONS;
+const DEFAULT_ATTACHMENT_ACCEPT =
+  "image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.log,.csv,.json,.xml,.zip";
 
 const resolveProjectSelection = (defaultProjectId, projects = []) => {
   if (
@@ -62,16 +78,25 @@ const buildInitialState = ({
   )
     ? defaultAssigneeKey
     : "";
+  const isBug = defaultType === "Bug";
 
   return {
     title: "",
     description: "",
     type: defaultType,
-    status: defaultStatus,
-    priority: "Medium",
+    status: isBug ? ISSUE_STATUS.NEW : defaultStatus,
+    priority: isBug ? "High" : "Medium",
     projectId,
     teamId,
     assigneeId,
+    bugDetails: {
+      severity: "",
+      testerOwnerId: defaultAssigneeKey,
+      developerLeadId: "",
+      stepsToReproduce: "",
+      expectedResult: "",
+      actualResult: "",
+    },
   };
 };
 
@@ -90,6 +115,16 @@ const IssueComposer = ({
   showStatusField = true,
   submitLabel = "Create Work Item",
   variant = "card",
+  headerLabel = "Create Work Item",
+  cardTitle = "Add work to the planning workspace",
+  cardDescription = "Create project-scoped work with team ownership and assignees limited to the selected delivery team.",
+  projectLabel = "Project",
+  titleLabel = "Title",
+  titlePlaceholder = "Payments retry job fails on expired tokens",
+  descriptionPlaceholder = "Add the current behavior, expected result, and any reproduction notes.",
+  includeAttachments = false,
+  attachmentAccept = DEFAULT_ATTACHMENT_ACCEPT,
+  onUploadAttachment,
 }) => {
   const resolvedDefaultType = allowedTypes.includes(defaultType)
     ? defaultType
@@ -105,6 +140,8 @@ const IssueComposer = ({
     })
   );
   const [error, setError] = useState("");
+  const [attachmentFiles, setAttachmentFiles] = useState([]);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
 
   const selectedProject = useMemo(
     () => findProjectById(projects, formData.projectId),
@@ -117,6 +154,21 @@ const IssueComposer = ({
   const availableAssignees = useMemo(
     () => getProjectTeamMembers(selectedProject, formData.teamId),
     [formData.teamId, selectedProject]
+  );
+  const isBugType = formData.type === "Bug";
+  const testerOptions = useMemo(
+    () =>
+      availableAssignees.filter((assignee) => assignee.role === "Tester").length
+        ? availableAssignees.filter((assignee) => assignee.role === "Tester")
+        : availableAssignees,
+    [availableAssignees]
+  );
+  const developerOptions = useMemo(
+    () =>
+      availableAssignees.filter((assignee) => assignee.role === "Developer").length
+        ? availableAssignees.filter((assignee) => assignee.role === "Developer")
+        : availableAssignees,
+    [availableAssignees]
   );
   const defaultAssigneeKey = String(defaultAssigneeId || "");
   const defaultAssigneeInTeam = useMemo(
@@ -186,6 +238,46 @@ const IssueComposer = ({
     showAssigneeField,
   ]);
 
+  useEffect(() => {
+    const availableAssigneeIds = new Set(
+      availableAssignees.map((assignee) => resolveUserId(assignee))
+    );
+    const testerOwnerId =
+      formData.bugDetails.testerOwnerId &&
+      availableAssigneeIds.has(String(formData.bugDetails.testerOwnerId))
+        ? formData.bugDetails.testerOwnerId
+        : defaultAssigneeInTeam
+          ? defaultAssigneeKey
+          : "";
+    const developerLeadId =
+      formData.bugDetails.developerLeadId &&
+      availableAssigneeIds.has(String(formData.bugDetails.developerLeadId))
+        ? formData.bugDetails.developerLeadId
+        : "";
+
+    if (
+      testerOwnerId === formData.bugDetails.testerOwnerId &&
+      developerLeadId === formData.bugDetails.developerLeadId
+    ) {
+      return;
+    }
+
+    setFormData((current) => ({
+      ...current,
+      bugDetails: {
+        ...current.bugDetails,
+        testerOwnerId,
+        developerLeadId,
+      },
+    }));
+  }, [
+    availableAssignees,
+    defaultAssigneeInTeam,
+    defaultAssigneeKey,
+    formData.bugDetails.developerLeadId,
+    formData.bugDetails.testerOwnerId,
+  ]);
+
   const handleChange = (event) => {
     const { name, value } = event.target;
 
@@ -198,6 +290,11 @@ const IssueComposer = ({
           projectId: value,
           teamId: resolveTeamSelection("", nextProject),
           assigneeId: "",
+          bugDetails: {
+            ...current.bugDetails,
+            testerOwnerId: defaultAssigneeKey,
+            developerLeadId: "",
+          },
         };
       }
 
@@ -206,6 +303,20 @@ const IssueComposer = ({
           ...current,
           teamId: value,
           assigneeId: "",
+          bugDetails: {
+            ...current.bugDetails,
+            testerOwnerId: defaultAssigneeKey,
+            developerLeadId: "",
+          },
+        };
+      }
+
+      if (name === "type") {
+        return {
+          ...current,
+          type: value,
+          status: value === "Bug" ? ISSUE_STATUS.NEW : defaultStatus,
+          priority: value === "Bug" && current.priority === "Low" ? "High" : current.priority,
         };
       }
 
@@ -242,6 +353,7 @@ const IssueComposer = ({
     selectedProject,
     showAssigneeField,
   ]);
+  const isSubmitPending = isPending || isUploadingAttachments;
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -256,14 +368,32 @@ const IssueComposer = ({
       return;
     }
 
+    if (isBugType) {
+      if (!formData.bugDetails.severity || !formData.priority) {
+        setError("Severity and priority are required for bugs.");
+        return;
+      }
+
+      if (
+        !formData.bugDetails.stepsToReproduce.trim() ||
+        !formData.bugDetails.expectedResult.trim() ||
+        !formData.bugDetails.actualResult.trim()
+      ) {
+        setError(
+          "Steps to Reproduce, Expected Result, and Actual Result are required for bugs."
+        );
+        return;
+      }
+    }
+
     try {
       setError("");
 
-      await onSubmit({
+      const createdIssue = await onSubmit({
         title: formData.title.trim(),
         description: formData.description.trim(),
         type: formData.type,
-        status: formData.status,
+        status: isBugType ? ISSUE_STATUS.NEW : formData.status,
         priority: formData.priority,
         projectId: formData.projectId,
         teamId: formData.teamId,
@@ -272,7 +402,35 @@ const IssueComposer = ({
           : defaultAssigneeInTeam
             ? defaultAssigneeKey || null
             : null,
+        ...(isBugType
+          ? {
+              bugDetails: {
+                severity: formData.bugDetails.severity,
+                testerOwnerId: formData.bugDetails.testerOwnerId || null,
+                developerLeadId: formData.bugDetails.developerLeadId || null,
+                stepsToReproduce: formData.bugDetails.stepsToReproduce.trim(),
+                expectedResult: formData.bugDetails.expectedResult.trim(),
+                actualResult: formData.bugDetails.actualResult.trim(),
+              },
+            }
+          : {}),
       });
+
+      if (
+        includeAttachments &&
+        attachmentFiles.length &&
+        createdIssue?._id &&
+        typeof onUploadAttachment === "function"
+      ) {
+        setIsUploadingAttachments(true);
+
+        for (const file of attachmentFiles) {
+          await onUploadAttachment({
+            issueId: createdIssue._id,
+            file,
+          });
+        }
+      }
 
       setFormData(
         buildInitialState({
@@ -284,10 +442,13 @@ const IssueComposer = ({
           defaultAssigneeId,
         })
       );
+      setAttachmentFiles([]);
     } catch (submitError) {
       setError(
         submitError.response?.data?.message || "Unable to create the work item."
       );
+    } finally {
+      setIsUploadingAttachments(false);
     }
   };
 
@@ -301,12 +462,12 @@ const IssueComposer = ({
 
       <div className="space-y-2">
         <label className="text-sm font-medium text-gray-700" htmlFor="title">
-          Title
+          {titleLabel}
         </label>
         <Input
           id="title"
           name="title"
-          placeholder="Payments retry job fails on expired tokens"
+          placeholder={titlePlaceholder}
           value={formData.title}
           onChange={handleChange}
         />
@@ -319,17 +480,214 @@ const IssueComposer = ({
         <Textarea
           id="description"
           name="description"
-          placeholder="Add the current behavior, expected result, and any reproduction notes."
+          placeholder={descriptionPlaceholder}
           value={formData.description}
           onChange={handleChange}
         />
       </div>
 
+      {isBugType ? (
+        <div className="rounded-[24px] border border-rose-100 bg-rose-50/60 p-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">Severity</span>
+              <select
+                className="field-select"
+                value={formData.bugDetails.severity}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    bugDetails: {
+                      ...current.bugDetails,
+                      severity: event.target.value,
+                    },
+                  }))
+                }
+              >
+                <option value="">Select severity</option>
+                {BUG_SEVERITY_OPTIONS.map((severity) => (
+                  <option key={severity} value={severity}>
+                    {severity}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">Priority</span>
+              <select
+                className="field-select"
+                value={formData.priority}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    priority: event.target.value,
+                  }))
+                }
+              >
+                {BUG_PRIORITY_OPTIONS.map((priorityOption) => (
+                  <option key={priorityOption} value={priorityOption}>
+                    {priorityOption}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">Status</span>
+              <select className="field-select" value={ISSUE_STATUS.NEW} disabled>
+                {BUG_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">
+                Tester / QA Owner
+              </span>
+              <select
+                className="field-select"
+                value={formData.bugDetails.testerOwnerId}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    bugDetails: {
+                      ...current.bugDetails,
+                      testerOwnerId: event.target.value,
+                    },
+                  }))
+                }
+              >
+                <option value="">Unassigned</option>
+                {testerOptions.map((assignee) => (
+                  <option key={assignee._id} value={assignee._id}>
+                    {assignee.name} ({assignee.role})
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">
+                Developer / Dev Lead
+              </span>
+              <select
+                className="field-select"
+                value={formData.bugDetails.developerLeadId}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    bugDetails: {
+                      ...current.bugDetails,
+                      developerLeadId: event.target.value,
+                    },
+                  }))
+                }
+              >
+                <option value="">Unassigned</option>
+                {developerOptions.map((assignee) => (
+                  <option key={assignee._id} value={assignee._id}>
+                    {assignee.name} ({assignee.role})
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-4 space-y-4">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">
+                Steps to Reproduce
+              </span>
+              <Textarea
+                value={formData.bugDetails.stepsToReproduce}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    bugDetails: {
+                      ...current.bugDetails,
+                      stepsToReproduce: event.target.value,
+                    },
+                  }))
+                }
+              />
+            </label>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-gray-700">
+                  Expected Result
+                </span>
+                <Textarea
+                  value={formData.bugDetails.expectedResult}
+                  onChange={(event) =>
+                    setFormData((current) => ({
+                      ...current,
+                      bugDetails: {
+                        ...current.bugDetails,
+                        expectedResult: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-gray-700">
+                  Actual Result
+                </span>
+                <Textarea
+                  value={formData.bugDetails.actualResult}
+                  onChange={(event) =>
+                    setFormData((current) => ({
+                      ...current,
+                      bugDetails: {
+                        ...current.bugDetails,
+                        actualResult: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+            </div>
+
+            {includeAttachments ? (
+              <label className="space-y-2">
+                <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <FileText className="h-4 w-4 text-blue-600" />
+                  Attachments
+                </span>
+                <Input
+                  type="file"
+                  multiple
+                  accept={attachmentAccept}
+                  className="h-12 rounded-2xl border-slate-200 bg-white shadow-none file:mr-3 file:rounded-xl file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700"
+                  onChange={(event) =>
+                    setAttachmentFiles(Array.from(event.target.files || []))
+                  }
+                  disabled={isSubmitPending}
+                />
+                {attachmentFiles.length ? (
+                  <div className="rounded-2xl border border-slate-200 bg-white/80 px-3 py-2 text-xs leading-5 text-slate-600">
+                    {attachmentFiles.map((file) => file.name).join(", ")}
+                  </div>
+                ) : null}
+              </label>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <label className="space-y-2">
           <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <ClipboardList className="h-4 w-4 text-blue-600" />
-            Project
+            {projectLabel}
           </span>
           <select
             className="field-select"
@@ -428,24 +786,26 @@ const IssueComposer = ({
           </select>
         </label>
 
-        <label className="space-y-2">
-          <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
-            <Flag className="h-4 w-4 text-blue-600" />
-            Priority
-          </span>
-          <select
-            className="field-select"
-            name="priority"
-            value={formData.priority}
-            onChange={handleChange}
-          >
-            <option value="Low">Low</option>
-            <option value="Medium">Medium</option>
-            <option value="High">High</option>
-          </select>
-        </label>
+        {!isBugType ? (
+          <label className="space-y-2">
+            <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <Flag className="h-4 w-4 text-blue-600" />
+              Priority
+            </span>
+            <select
+              className="field-select"
+              name="priority"
+              value={formData.priority}
+              onChange={handleChange}
+            >
+              <option value="Low">Low</option>
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
+            </select>
+          </label>
+        ) : null}
 
-        {showStatusField ? (
+        {showStatusField && !isBugType ? (
           <label className="space-y-2">
             <span className="text-sm font-medium text-gray-700">Status</span>
             <select
@@ -472,10 +832,10 @@ const IssueComposer = ({
 
       <Button
         className="w-full"
-        disabled={isPending || Boolean(submitBlockedMessage)}
+        disabled={isSubmitPending || Boolean(submitBlockedMessage)}
         type="submit"
       >
-        {isPending ? "Saving..." : submitLabel}
+        {isSubmitPending ? "Saving..." : submitLabel}
       </Button>
     </form>
   );
@@ -486,14 +846,13 @@ const IssueComposer = ({
         <div className="space-y-1">
           <div className="inline-flex w-fit items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-blue-600">
             <Sparkle className="h-3.5 w-3.5" />
-            Create Work Item
+            {headerLabel}
           </div>
           <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-            Add work to the selected project
+            {cardTitle}
           </h2>
           <p className="text-sm leading-6 text-slate-600">
-            Teams come from the selected project, and assignees are limited to the
-            members of the chosen team.
+            {cardDescription}
           </p>
         </div>
         {formContent}
@@ -506,13 +865,10 @@ const IssueComposer = ({
       <CardHeader>
         <div className="inline-flex w-fit items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-blue-600">
           <Sparkle className="h-3.5 w-3.5" />
-          New Work Item
+          {headerLabel}
         </div>
-        <CardTitle>Add work to the planning workspace</CardTitle>
-        <CardDescription>
-          Create project-scoped work with team ownership and assignees limited to
-          the selected delivery team.
-        </CardDescription>
+        <CardTitle>{cardTitle}</CardTitle>
+        <CardDescription>{cardDescription}</CardDescription>
       </CardHeader>
 
       <CardContent>{formContent}</CardContent>

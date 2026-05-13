@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
+  FileText,
   LoaderCircle,
   MessageSquareText,
   PencilLine,
@@ -9,14 +10,28 @@ import {
   UserCircle2,
   Users2,
 } from "lucide-react";
-import { createComment, fetchComments } from "@/lib/api";
 import {
+  createComment,
+  fetchComments,
+  fetchIssueAttachments,
+  fetchIssueHistory,
+  resolveApiAssetUrl,
+  uploadIssueAttachment,
+} from "@/lib/api";
+import {
+  BUG_ALTERNATE_TRANSITIONS,
+  BUG_SEVERITY_OPTIONS,
+  BUG_STATUS_FLOW,
+  BUG_STATUS_OPTIONS,
   getIssueDisplayKey,
   getIssuePriorityVariant,
+  getWorkflowStatusOptionsForIssue,
   ISSUE_STATUS,
   ISSUE_TYPE_OPTIONS,
-  ISSUE_WORKFLOW_STATUS_OPTIONS,
+  isBugIssue,
+  normalizeBugStatusForIssue,
   normalizeIssueStatus,
+  resolveBugDetails,
   resolveIssueAssignee,
   resolveIssueAssigneeId,
   resolveIssueDependency,
@@ -32,6 +47,7 @@ import {
   resolveUserId,
 } from "@/lib/project-teams";
 import { formatDate, formatDateTime, formatTime, getInitials } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,9 +80,30 @@ const toDateTimeLocalValue = (value) => {
 };
 
 const formatDueAt = (value) => (value ? formatDateTime(value) : "No due date");
+const ATTACHMENT_ACCEPT =
+  "image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.log,.csv,.json,.xml,.zip";
 
 const formatDependencyLabel = (issue) =>
   issue ? `${getIssueDisplayKey(issue)} ${issue.title}` : "No dependency";
+
+const resolveNestedUserId = (value) => String(value?._id || value || "");
+
+const getBugDetailsDraft = (issue) => {
+  const bugDetails = resolveBugDetails(issue);
+
+  return {
+    severity: bugDetails.severity || "",
+    testerOwnerId: resolveNestedUserId(bugDetails.testerOwner),
+    developerLeadId: resolveNestedUserId(bugDetails.developerLead),
+    stepsToReproduce: bugDetails.stepsToReproduce || "",
+    expectedResult: bugDetails.expectedResult || "",
+    actualResult: bugDetails.actualResult || "",
+    reopenReason: "",
+    rejectionReason: "",
+    targetRelease: bugDetails.targetRelease || "",
+    statusChangeComment: "",
+  };
+};
 
 const buildDetailDraft = (issue) => ({
   title: issue?.title || "",
@@ -76,9 +113,10 @@ const buildDetailDraft = (issue) => ({
   teamId: issue?.teamId?._id || issue?.teamId || "",
   assigneeId: resolveIssueAssigneeId(issue),
   priority: issue?.priority || "Medium",
-  status: normalizeIssueStatus(issue?.status),
+  status: isBugIssue(issue) ? normalizeBugStatusForIssue(issue) : normalizeIssueStatus(issue?.status),
   dueAt: toDateTimeLocalValue(issue?.dueAt),
   dependsOnIssueId: resolveIssueDependencyId(issue),
+  bugDetails: getBugDetailsDraft(issue),
 });
 
 const IssueDetailsDialog = ({
@@ -98,7 +136,9 @@ const IssueDetailsDialog = ({
   canDeleteIssue = true,
 }) => {
   const queryClient = useQueryClient();
+  const { role } = useAuth();
   const [commentText, setCommentText] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
   const [detailDraft, setDetailDraft] = useState(buildDetailDraft(issue));
   const [detailsError, setDetailsError] = useState("");
 
@@ -137,6 +177,7 @@ const IssueDetailsDialog = ({
 
     setDetailDraft(buildDetailDraft(issue));
     setDetailsError("");
+    setSelectedFile(null);
   }, [issue]);
 
   useEffect(() => {
@@ -182,6 +223,35 @@ const IssueDetailsDialog = ({
   }, [availableAssignees, detailDraft.assigneeId]);
 
   useEffect(() => {
+    const assigneeIds = new Set(
+      availableAssignees.map((assignee) => resolveUserId(assignee))
+    );
+    const testerOwnerValid =
+      !detailDraft.bugDetails.testerOwnerId ||
+      assigneeIds.has(String(detailDraft.bugDetails.testerOwnerId));
+    const developerLeadValid =
+      !detailDraft.bugDetails.developerLeadId ||
+      assigneeIds.has(String(detailDraft.bugDetails.developerLeadId));
+
+    if (testerOwnerValid && developerLeadValid) {
+      return;
+    }
+
+    setDetailDraft((current) => ({
+      ...current,
+      bugDetails: {
+        ...current.bugDetails,
+        testerOwnerId: testerOwnerValid ? current.bugDetails.testerOwnerId : "",
+        developerLeadId: developerLeadValid ? current.bugDetails.developerLeadId : "",
+      },
+    }));
+  }, [
+    availableAssignees,
+    detailDraft.bugDetails.developerLeadId,
+    detailDraft.bugDetails.testerOwnerId,
+  ]);
+
+  useEffect(() => {
     if (
       !detailDraft.dependsOnIssueId ||
       dependencyOptions.some(
@@ -203,6 +273,16 @@ const IssueDetailsDialog = ({
     queryFn: () => fetchComments(issue._id),
     enabled: open && Boolean(issue?._id),
   });
+  const { data: attachments = [], isLoading: isAttachmentsLoading } = useQuery({
+    queryKey: ["issue", issue?._id, "attachments"],
+    queryFn: () => fetchIssueAttachments(issue._id),
+    enabled: open && Boolean(issue?._id),
+  });
+  const { data: history = [], isLoading: isHistoryLoading } = useQuery({
+    queryKey: ["issue", issue?._id, "history"],
+    queryFn: () => fetchIssueHistory(issue._id),
+    enabled: open && Boolean(issue?._id),
+  });
 
   const createCommentMutation = useMutation({
     mutationFn: createComment,
@@ -210,6 +290,18 @@ const IssueDetailsDialog = ({
       setCommentText("");
       queryClient.invalidateQueries({
         queryKey: ["comments", issue?._id],
+      });
+    },
+  });
+  const uploadAttachmentMutation = useMutation({
+    mutationFn: uploadIssueAttachment,
+    onSuccess: () => {
+      setSelectedFile(null);
+      queryClient.invalidateQueries({
+        queryKey: ["issue", issue?._id, "attachments"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["issue", issue?._id, "history"],
       });
     },
   });
@@ -238,6 +330,13 @@ const IssueDetailsDialog = ({
   const issueDependencyId = resolveIssueDependencyId(issue);
   const issueTeamName = issue.teamId?.name || "No team assigned";
   const issueKey = getIssueDisplayKey(issue);
+  const isBug = isBugIssue(issue);
+  const currentBugStatus = normalizeBugStatusForIssue(issue);
+  const statusOptions = getWorkflowStatusOptionsForIssue({ type: detailDraft.type });
+  const bugDetails = resolveBugDetails(issue);
+  const testerOwner = bugDetails.testerOwner;
+  const developerLead = bugDetails.developerLead;
+  const canChangeStatusForRole = Boolean(role) && canEditStatus;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -279,10 +378,56 @@ const IssueDetailsDialog = ({
                     return;
                   }
 
+                  const draftIsBug = detailDraft.type === "Bug";
+
+                  if (draftIsBug) {
+                    if (!detailDraft.bugDetails.severity || !detailDraft.priority) {
+                      setDetailsError("Severity and priority are required for bugs.");
+                      return;
+                    }
+
+                    if (
+                      !detailDraft.bugDetails.stepsToReproduce.trim() ||
+                      !detailDraft.bugDetails.expectedResult.trim() ||
+                      !detailDraft.bugDetails.actualResult.trim()
+                    ) {
+                      setDetailsError(
+                        "Steps to Reproduce, Expected Result, and Actual Result are required for bugs."
+                      );
+                      return;
+                    }
+
+                    if (
+                      detailDraft.status === ISSUE_STATUS.REOPEN &&
+                      !detailDraft.bugDetails.statusChangeComment.trim() &&
+                      !detailDraft.bugDetails.reopenReason.trim()
+                    ) {
+                      setDetailsError("Reopen requires a reason or comment.");
+                      return;
+                    }
+
+                    if (
+                      detailDraft.status === ISSUE_STATUS.REJECTED &&
+                      !detailDraft.bugDetails.statusChangeComment.trim() &&
+                      !detailDraft.bugDetails.rejectionReason.trim()
+                    ) {
+                      setDetailsError("Rejected requires a rejection reason.");
+                      return;
+                    }
+
+                    if (
+                      detailDraft.status === ISSUE_STATUS.DEFERRED &&
+                      !detailDraft.bugDetails.targetRelease.trim()
+                    ) {
+                      setDetailsError("Deferred requires a target future release.");
+                      return;
+                    }
+                  }
+
                   setDetailsError("");
 
                   try {
-                    await onUpdateIssue(issue._id, {
+                    const updatePayload = {
                       title: detailDraft.title.trim(),
                       description: detailDraft.description.trim(),
                       type: detailDraft.type,
@@ -293,7 +438,26 @@ const IssueDetailsDialog = ({
                       status: detailDraft.status,
                       dueAt: detailDraft.dueAt || null,
                       dependsOnIssueId: detailDraft.dependsOnIssueId || null,
-                    });
+                    };
+
+                    if (draftIsBug) {
+                      updatePayload.bugDetails = {
+                        severity: detailDraft.bugDetails.severity,
+                        testerOwnerId: detailDraft.bugDetails.testerOwnerId || null,
+                        developerLeadId: detailDraft.bugDetails.developerLeadId || null,
+                        stepsToReproduce:
+                          detailDraft.bugDetails.stepsToReproduce.trim(),
+                        expectedResult: detailDraft.bugDetails.expectedResult.trim(),
+                        actualResult: detailDraft.bugDetails.actualResult.trim(),
+                        reopenReason: detailDraft.bugDetails.reopenReason.trim(),
+                        rejectionReason: detailDraft.bugDetails.rejectionReason.trim(),
+                        targetRelease: detailDraft.bugDetails.targetRelease.trim(),
+                      };
+                      updatePayload.statusChangeComment =
+                        detailDraft.bugDetails.statusChangeComment.trim();
+                    }
+
+                    await onUpdateIssue(issue._id, updatePayload);
                   } catch (error) {
                     setDetailsError(
                       error.response?.data?.message || "Unable to save work item details."
@@ -344,6 +508,148 @@ const IssueDetailsDialog = ({
                   />
                 </div>
 
+                {detailDraft.type === "Bug" ? (
+                  <div className="rounded-[24px] border border-rose-100 bg-white p-4">
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      <label className="space-y-2">
+                        <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                          Severity
+                        </span>
+                        <select
+                          className="field-select"
+                          value={detailDraft.bugDetails.severity}
+                          onChange={(event) =>
+                            setDetailDraft((current) => ({
+                              ...current,
+                              bugDetails: {
+                                ...current.bugDetails,
+                                severity: event.target.value,
+                              },
+                            }))
+                          }
+                        >
+                          <option value="">Select severity</option>
+                          {BUG_SEVERITY_OPTIONS.map((severity) => (
+                            <option key={severity} value={severity}>
+                              {severity}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="space-y-2">
+                        <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                          Tester / QA Owner
+                        </span>
+                        <select
+                          className="field-select"
+                          value={detailDraft.bugDetails.testerOwnerId}
+                          onChange={(event) =>
+                            setDetailDraft((current) => ({
+                              ...current,
+                              bugDetails: {
+                                ...current.bugDetails,
+                                testerOwnerId: event.target.value,
+                              },
+                            }))
+                          }
+                        >
+                          <option value="">Unassigned</option>
+                          {availableAssignees.map((assignee) => (
+                            <option key={assignee._id} value={assignee._id}>
+                              {assignee.name} ({assignee.role})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="space-y-2">
+                        <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                          Developer / Dev Lead
+                        </span>
+                        <select
+                          className="field-select"
+                          value={detailDraft.bugDetails.developerLeadId}
+                          onChange={(event) =>
+                            setDetailDraft((current) => ({
+                              ...current,
+                              bugDetails: {
+                                ...current.bugDetails,
+                                developerLeadId: event.target.value,
+                              },
+                            }))
+                          }
+                        >
+                          <option value="">Unassigned</option>
+                          {availableAssignees.map((assignee) => (
+                            <option key={assignee._id} value={assignee._id}>
+                              {assignee.name} ({assignee.role})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="mt-4 space-y-4">
+                      <label className="space-y-2">
+                        <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                          Steps to Reproduce
+                        </span>
+                        <Textarea
+                          value={detailDraft.bugDetails.stepsToReproduce}
+                          onChange={(event) =>
+                            setDetailDraft((current) => ({
+                              ...current,
+                              bugDetails: {
+                                ...current.bugDetails,
+                                stepsToReproduce: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="space-y-2">
+                          <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                            Expected Result
+                          </span>
+                          <Textarea
+                            value={detailDraft.bugDetails.expectedResult}
+                            onChange={(event) =>
+                              setDetailDraft((current) => ({
+                                ...current,
+                                bugDetails: {
+                                  ...current.bugDetails,
+                                  expectedResult: event.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </label>
+
+                        <label className="space-y-2">
+                          <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                            Actual Result
+                          </span>
+                          <Textarea
+                            value={detailDraft.bugDetails.actualResult}
+                            onChange={(event) =>
+                              setDetailDraft((current) => ({
+                                ...current,
+                                bugDetails: {
+                                  ...current.bugDetails,
+                                  actualResult: event.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   <label className="space-y-2">
                     <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
@@ -358,6 +664,11 @@ const IssueDetailsDialog = ({
                           projectId: event.target.value,
                           teamId: "",
                           assigneeId: "",
+                          bugDetails: {
+                            ...current.bugDetails,
+                            testerOwnerId: "",
+                            developerLeadId: "",
+                          },
                         }))
                       }
                     >
@@ -381,6 +692,11 @@ const IssueDetailsDialog = ({
                           ...current,
                           teamId: event.target.value,
                           assigneeId: "",
+                          bugDetails: {
+                            ...current.bugDetails,
+                            testerOwnerId: "",
+                            developerLeadId: "",
+                          },
                         }))
                       }
                       disabled={!availableTeams.length}
@@ -434,6 +750,14 @@ const IssueDetailsDialog = ({
                         setDetailDraft((current) => ({
                           ...current,
                           type: event.target.value,
+                          status:
+                            event.target.value === "Bug"
+                              ? ISSUE_STATUS.NEW
+                              : ISSUE_STATUS.TODO,
+                          priority:
+                            event.target.value === "Bug" && current.priority === "Low"
+                              ? "High"
+                              : current.priority,
                         }))
                       }
                     >
@@ -479,7 +803,7 @@ const IssueDetailsDialog = ({
                         }))
                       }
                     >
-                      {ISSUE_WORKFLOW_STATUS_OPTIONS.map((option) => (
+                      {statusOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
@@ -487,6 +811,51 @@ const IssueDetailsDialog = ({
                     </select>
                   </label>
                 </div>
+
+                {detailDraft.type === "Bug" &&
+                [ISSUE_STATUS.REOPEN, ISSUE_STATUS.REJECTED, ISSUE_STATUS.DEFERRED].includes(
+                  detailDraft.status
+                ) ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {detailDraft.status === ISSUE_STATUS.DEFERRED ? (
+                      <label className="space-y-2">
+                        <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                          Target Future Release
+                        </span>
+                        <Input
+                          value={detailDraft.bugDetails.targetRelease}
+                          onChange={(event) =>
+                            setDetailDraft((current) => ({
+                              ...current,
+                              bugDetails: {
+                                ...current.bugDetails,
+                                targetRelease: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                    ) : null}
+
+                    <label className="space-y-2 sm:col-span-2">
+                      <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                        Status Reason / Comment
+                      </span>
+                      <Textarea
+                        value={detailDraft.bugDetails.statusChangeComment}
+                        onChange={(event) =>
+                          setDetailDraft((current) => ({
+                            ...current,
+                            bugDetails: {
+                              ...current.bugDetails,
+                              statusChangeComment: event.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                ) : null}
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="space-y-2">
@@ -618,27 +987,225 @@ const IssueDetailsDialog = ({
               </div>
             </div>
 
+            {isBug ? (
+              <div className="space-y-4 rounded-[28px] border border-slate-200 bg-white p-5">
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">
+                    Defect Life Cycle
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {BUG_STATUS_FLOW.map((status, index) => {
+                    const isActive = currentBugStatus === status;
+
+                    return (
+                      <div key={status} className="flex items-center gap-2">
+                        <span
+                          className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                            isActive
+                              ? "border-blue-200 bg-blue-50 text-blue-700"
+                              : "border-slate-200 bg-slate-50 text-slate-600"
+                          }`}
+                        >
+                          {getIssueStatusLabel(status)}
+                        </span>
+                        {index < BUG_STATUS_FLOW.length - 1 ? (
+                          <span className="text-slate-300">-&gt;</span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {BUG_ALTERNATE_TRANSITIONS.map((transition) => (
+                    <div
+                      key={transition.join("-")}
+                      className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600"
+                    >
+                      {transition.map(getIssueStatusLabel).join(" -> ")}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {isBug ? (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="rounded-[24px] border border-rose-100 bg-rose-50 p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-rose-500">
+                    Severity
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-gray-900">
+                    {bugDetails.severity || "Not set"}
+                  </p>
+                </div>
+                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                    Tester / QA Owner
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-gray-900">
+                    {testerOwner?.name || "Unassigned"}
+                  </p>
+                </div>
+                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                    Developer / Dev Lead
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-gray-900">
+                    {developerLead?.name || "Unassigned"}
+                  </p>
+                </div>
+                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4 sm:col-span-2 xl:col-span-3">
+                  <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                    Steps to Reproduce
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-700">
+                    {bugDetails.stepsToReproduce || "Not provided"}
+                  </p>
+                </div>
+                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                    Expected Result
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-700">
+                    {bugDetails.expectedResult || "Not provided"}
+                  </p>
+                </div>
+                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                    Actual Result
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-700">
+                    {bugDetails.actualResult || "Not provided"}
+                  </p>
+                </div>
+                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
+                    Target Release
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-gray-900">
+                    {bugDetails.targetRelease || "Not set"}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
             {!canEditCoreDetails ? (
               <div className="grid gap-4 sm:grid-cols-3">
-                <label className="space-y-2">
+                <form
+                  className="space-y-2 sm:col-span-1"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+
+                    try {
+                      setDetailsError("");
+                      const payload = {
+                        status: detailDraft.status,
+                      };
+
+                      if (isBug) {
+                        if (
+                          detailDraft.status === ISSUE_STATUS.REOPEN &&
+                          !detailDraft.bugDetails.statusChangeComment.trim()
+                        ) {
+                          setDetailsError("Reopen requires a reason or comment.");
+                          return;
+                        }
+
+                        if (
+                          detailDraft.status === ISSUE_STATUS.REJECTED &&
+                          !detailDraft.bugDetails.statusChangeComment.trim()
+                        ) {
+                          setDetailsError("Rejected requires a rejection reason.");
+                          return;
+                        }
+
+                        if (
+                          detailDraft.status === ISSUE_STATUS.DEFERRED &&
+                          !detailDraft.bugDetails.targetRelease.trim()
+                        ) {
+                          setDetailsError("Deferred requires a target future release.");
+                          return;
+                        }
+
+                        payload.statusChangeComment =
+                          detailDraft.bugDetails.statusChangeComment.trim();
+                        payload.targetRelease =
+                          detailDraft.bugDetails.targetRelease.trim();
+                      }
+
+                      await onUpdateIssue(issue._id, payload);
+                    } catch (error) {
+                      setDetailsError(
+                        error.response?.data?.message || "Unable to update status."
+                      );
+                    }
+                  }}
+                >
                   <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
                     Status
                   </span>
                   <select
                     className="field-select"
-                    value={normalizeIssueStatus(issue.status)}
+                    value={detailDraft.status}
                     onChange={(event) =>
-                      onUpdateIssue(issue._id, { status: event.target.value })
+                      setDetailDraft((current) => ({
+                        ...current,
+                        status: event.target.value,
+                      }))
                     }
-                    disabled={!canEditStatus || isUpdatingCurrentIssue}
+                    disabled={!canChangeStatusForRole || isUpdatingCurrentIssue}
                   >
-                    {ISSUE_WORKFLOW_STATUS_OPTIONS.map((option) => (
+                    {statusOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
                     ))}
                   </select>
-                </label>
+                  {isBug &&
+                  [ISSUE_STATUS.REOPEN, ISSUE_STATUS.REJECTED, ISSUE_STATUS.DEFERRED].includes(
+                    detailDraft.status
+                  ) ? (
+                    <div className="space-y-2">
+                      {detailDraft.status === ISSUE_STATUS.DEFERRED ? (
+                        <Input
+                          placeholder="Target future release"
+                          value={detailDraft.bugDetails.targetRelease}
+                          onChange={(event) =>
+                            setDetailDraft((current) => ({
+                              ...current,
+                              bugDetails: {
+                                ...current.bugDetails,
+                                targetRelease: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      ) : null}
+                      <Textarea
+                        placeholder="Status reason or comment"
+                        value={detailDraft.bugDetails.statusChangeComment}
+                        onChange={(event) =>
+                          setDetailDraft((current) => ({
+                            ...current,
+                            bugDetails: {
+                              ...current.bugDetails,
+                              statusChangeComment: event.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  ) : null}
+                  <Button
+                    className="w-full"
+                    size="sm"
+                    disabled={!canChangeStatusForRole || isUpdatingCurrentIssue}
+                    type="submit"
+                  >
+                    Update Status
+                  </Button>
+                </form>
 
                 <label className="space-y-2">
                   <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
@@ -680,6 +1247,12 @@ const IssueDetailsDialog = ({
                     ))}
                   </select>
                 </label>
+              </div>
+            ) : null}
+
+            {!canEditCoreDetails && detailsError ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {detailsError}
               </div>
             ) : null}
 
@@ -812,6 +1385,129 @@ const IssueDetailsDialog = ({
                   No comments yet. Add the first delivery note for this issue.
                 </div>
               )}
+            </div>
+
+            <Separator className="my-5" />
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-blue-600" />
+                <p className="font-semibold text-gray-900">Attachments</p>
+              </div>
+
+              <div className="space-y-3">
+                <Input
+                  type="file"
+                  accept={ATTACHMENT_ACCEPT}
+                  onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+                />
+                <Button
+                  className="w-full"
+                  disabled={!selectedFile || uploadAttachmentMutation.isPending}
+                  type="button"
+                  onClick={async () => {
+                    if (!selectedFile) {
+                      return;
+                    }
+
+                    try {
+                      setDetailsError("");
+                      await uploadAttachmentMutation.mutateAsync({
+                        issueId: issue._id,
+                        file: selectedFile,
+                      });
+                    } catch (error) {
+                      setDetailsError(
+                        error.response?.data?.message || "Unable to upload attachment."
+                      );
+                    }
+                  }}
+                >
+                  {uploadAttachmentMutation.isPending ? "Uploading..." : "Upload Attachment"}
+                </Button>
+              </div>
+
+              <div className="space-y-3">
+                {isAttachmentsLoading ? (
+                  <Skeleton className="h-16 w-full" />
+                ) : attachments.length ? (
+                  attachments.map((attachment) => (
+                    <a
+                      key={attachment._id}
+                      className="block rounded-[20px] border border-gray-200 bg-white p-3 text-sm transition hover:border-blue-200"
+                      href={resolveApiAssetUrl(
+                        attachment.downloadUrl || attachment.storagePath
+                      )}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <span className="font-semibold text-gray-900">
+                        {attachment.fileName}
+                      </span>
+                      <span className="mt-1 block text-xs text-gray-500">
+                        {attachment.uploadedBy?.name || "Unknown user"} at{" "}
+                        {formatDateTime(attachment.createdAt)}
+                      </span>
+                    </a>
+                  ))
+                ) : (
+                  <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">
+                    No attachments uploaded yet.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <Separator className="my-5" />
+
+            <div className="space-y-4">
+              <p className="font-semibold text-gray-900">History</p>
+              <div className="space-y-3">
+                {isHistoryLoading ? (
+                  <>
+                    <Skeleton className="h-16 w-full" />
+                    <Skeleton className="h-16 w-full" />
+                  </>
+                ) : history.length ? (
+                  history.map((entry) => (
+                    <div
+                      key={entry._id}
+                      className="rounded-[20px] border border-gray-200 bg-white p-3"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-900">
+                          {entry.actorId?.name || "Unknown user"}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                          {String(entry.eventType || "Updated").replace(/_/g, " ")}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-gray-600">
+                        {entry.field === "status"
+                          ? `${getIssueStatusLabel(entry.fromValue)} -> ${getIssueStatusLabel(entry.toValue)}`
+                          : `${entry.field || "item"}: ${
+                              entry.toValue !== null &&
+                              typeof entry.toValue !== "undefined"
+                                ? String(entry.toValue)
+                                : "Updated"
+                            }`}
+                      </p>
+                      {entry.meta?.reason ? (
+                        <p className="mt-1 text-sm leading-6 text-gray-500">
+                          {entry.meta.reason}
+                        </p>
+                      ) : null}
+                      <p className="mt-2 text-xs text-gray-500">
+                        {formatDateTime(entry.createdAt)}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">
+                    No history entries yet.
+                  </div>
+                )}
+              </div>
             </div>
           </section>
         </div>

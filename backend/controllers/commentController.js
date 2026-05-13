@@ -10,6 +10,11 @@ const { normalizeWorkspaceId } = require("../utils/workspace");
 const isAssignedToUser = (issue, userId) =>
   Boolean(issue?.assignee) && String(issue.assignee) === String(userId);
 
+const hasDirectBugAccess = (issue, userId) =>
+  [issue?.reporter, issue?.bugDetails?.testerOwner, issue?.bugDetails?.developerLead].some(
+    (value) => value && String(value) === String(userId)
+  );
+
 const getAccessibleIssue = async (user, issueId) => {
   const issue = await Issue.findById(issueId);
 
@@ -26,7 +31,10 @@ const getAccessibleIssue = async (user, issueId) => {
     return null;
   }
 
-  if (!hasAdminAccess(user.role) && isAssignedToUser(issue, user._id)) {
+  if (
+    !hasAdminAccess(user.role) &&
+    (isAssignedToUser(issue, user._id) || hasDirectBugAccess(issue, user._id))
+  ) {
     return issue;
   }
 

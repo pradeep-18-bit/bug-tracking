@@ -50,6 +50,17 @@ const ACTIVE_WORKFLOW_STATUSES = new Set([
   ISSUE_STATUS.BLOCKED,
   ISSUE_STATUS.REVIEW,
   ISSUE_STATUS.QA,
+  ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.ASSIGNED,
+  ISSUE_STATUS.FIXED,
+  ISSUE_STATUS.REOPEN,
+]);
+
+const CLOSED_WORKFLOW_STATUSES = new Set([
+  ISSUE_STATUS.DONE,
+  ISSUE_STATUS.CLOSED,
+  ISSUE_STATUS.REJECTED,
+  ISSUE_STATUS.DEFERRED,
 ]);
 
 export const getTaskBoardStatus = (issueOrStatus) => {
@@ -57,7 +68,7 @@ export const getTaskBoardStatus = (issueOrStatus) => {
     typeof issueOrStatus === "object" ? issueOrStatus?.status : issueOrStatus
   );
 
-  if (status === ISSUE_STATUS.DONE) {
+  if (CLOSED_WORKFLOW_STATUSES.has(status)) {
     return TASK_BOARD_STATUS.DONE;
   }
 
