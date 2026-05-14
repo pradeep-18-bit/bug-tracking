@@ -317,30 +317,6 @@ const TableBadge = ({ children, variant }) => (
   </Badge>
 );
 
-const renderPieLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
-  if (!percent || percent < 0.08) {
-    return null;
-  }
-
-  const radius = innerRadius + (outerRadius - innerRadius) * 0.55;
-  const x = cx + radius * Math.cos((-midAngle * Math.PI) / 180);
-  const y = cy + radius * Math.sin((-midAngle * Math.PI) / 180);
-
-  return (
-    <text
-      dominantBaseline="central"
-      fill="#ffffff"
-      fontSize="11"
-      fontWeight="700"
-      textAnchor="middle"
-      x={x}
-      y={y}
-    >
-      {`${Math.round(percent * 100)}%`}
-    </text>
-  );
-};
-
 const TesterDashboardPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -422,8 +398,15 @@ const TesterDashboardPage = () => {
       STATUS_CHART_META.map((item) => ({
         ...item,
         value: dashboardMetrics[item.key],
-      })).filter((item) => item.value > 0),
+        percentage: dashboardMetrics.total
+          ? Math.round((dashboardMetrics[item.key] / dashboardMetrics.total) * 100)
+          : 0,
+      })),
     [dashboardMetrics]
+  );
+  const visibleStatusChartData = useMemo(
+    () => statusChartData.filter((item) => item.value > 0),
+    [statusChartData]
   );
 
   const timeSeries = useMemo(() => buildTimeSeries(visibleIssues), [visibleIssues]);
@@ -566,26 +549,23 @@ const TesterDashboardPage = () => {
       <section className="grid gap-5 xl:grid-cols-[0.86fr_1.14fr]">
         <ChartCard title="Bug Status">
           {dashboardMetrics.total ? (
-            <div className="grid gap-4 lg:grid-cols-[240px_1fr] lg:items-center">
-              <div className="relative h-[240px]">
+            <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)] lg:items-center">
+              <div className="relative mx-auto h-[260px] w-full max-w-[280px]">
                 <ResponsiveContainer height="100%" width="100%">
-                  <PieChart>
+                  <PieChart aria-label="Bug status donut chart">
                     <Pie
                       cx="50%"
                       cy="50%"
-                      data={statusChartData.filter((entry) => entry.value > 0)}
+                      data={visibleStatusChartData}
                       dataKey="value"
-                      innerRadius={68}
-                      outerRadius={96}
+                      innerRadius={74}
+                      outerRadius={104}
                       paddingAngle={3}
-                      label={renderPieLabel}
                       labelLine={false}
                       stroke="rgba(255,255,255,0.96)"
                       strokeWidth={4}
                     >
-                      {statusChartData
-                        .filter((entry) => entry.value > 0)
-                        .map((entry) => (
+                      {visibleStatusChartData.map((entry) => (
                         <Cell fill={entry.color} key={entry.key} />
                       ))}
                     </Pie>
@@ -598,40 +578,36 @@ const TesterDashboardPage = () => {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
                     Bugs
                   </span>
-                  <span className="mt-1 text-3xl font-semibold text-slate-950">
+                  <span className="mt-1 text-3xl font-semibold leading-none text-slate-950">
                     {dashboardMetrics.total}
                   </span>
                 </div>
               </div>
 
-              <div className="grid gap-3">
-                {STATUS_CHART_META.map((item) => (
+              <div className="grid gap-2.5">
+                {statusChartData.map((item) => (
                   <div
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-2.5"
+                    className="flex items-center justify-between gap-3 rounded-[18px] border border-slate-200/80 bg-slate-50/80 px-3.5 py-3 shadow-sm"
                     key={item.key}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2.5">
                       <span
-                        className="h-3 w-3 rounded-full"
+                        className="h-3 w-3 shrink-0 rounded-full"
                         style={{ backgroundColor: item.color }}
                       />
-                      <span className="text-sm font-semibold text-slate-700">
+                      <span className="truncate text-sm font-semibold text-slate-700">
                         {item.label}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {dashboardMetrics.total
-                          ? `${Math.round(
-                              (dashboardMetrics[item.key] / dashboardMetrics.total) * 100
-                            )}%`
-                          : "0%"}
+                    <div className="flex shrink-0 items-baseline gap-2">
+                      <span className="text-sm font-semibold text-slate-950">
+                        {item.value}
                       </span>
-                      <span className="min-w-[2rem] text-right text-sm font-semibold text-slate-950">
-                        {dashboardMetrics[item.key]}
+                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        {item.percentage}%
                       </span>
                     </div>
                   </div>

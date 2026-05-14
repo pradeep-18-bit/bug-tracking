@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   BarChart3,
+  Bug,
   CalendarRange,
   CheckCircle2,
   Filter,
@@ -16,6 +17,19 @@ import {
   X,
 } from "lucide-react";
 import {
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  fetchIssues,
   fetchProjectReports,
   fetchProjects,
   fetchReports,
@@ -25,8 +39,15 @@ import {
   fetchUsers,
 } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
-import { ISSUE_STATUS, getIssueStatusLabel } from "@/lib/issues";
-import { hasAdminPanelAccess } from "@/lib/roles";
+import {
+  BUG_SEVERITY_OPTIONS,
+  ISSUE_STATUS,
+  ISSUE_TYPES,
+  getIssueStatusLabel,
+  normalizeBugStatusForIssue,
+  resolveIssueProjectId,
+} from "@/lib/issues";
+import { ROLE_TESTER, hasAdminPanelAccess } from "@/lib/roles";
 import { cn, formatDate, getInitials } from "@/lib/utils";
 import { getWorkspaceScope } from "@/lib/workspace";
 import {
@@ -62,6 +83,74 @@ const STATUS_ROW_META = {
   [ISSUE_STATUS.DONE]: {
     tone: "green",
     helper: "",
+  },
+};
+const TESTER_STATUS_META = [
+  {
+    key: "open",
+    label: "Open",
+    color: "#f59e0b",
+    statuses: [ISSUE_STATUS.NEW, ISSUE_STATUS.OPEN, ISSUE_STATUS.TODO],
+  },
+  {
+    key: "inProgress",
+    label: "In Progress",
+    color: "#6366f1",
+    statuses: [ISSUE_STATUS.ASSIGNED, ISSUE_STATUS.IN_PROGRESS, ISSUE_STATUS.BLOCKED],
+  },
+  {
+    key: "resolved",
+    label: "Fixed / Ready for Retest",
+    shortLabel: "Fixed",
+    color: "#10b981",
+    statuses: [ISSUE_STATUS.FIXED, ISSUE_STATUS.QA, ISSUE_STATUS.REVIEW],
+  },
+  {
+    key: "reopened",
+    label: "Reopened",
+    color: "#ec4899",
+    statuses: [ISSUE_STATUS.REOPEN],
+  },
+  {
+    key: "closed",
+    label: "Closed",
+    color: "#64748b",
+    statuses: [ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE],
+  },
+  {
+    key: "deferred",
+    label: "Deferred",
+    color: "#14b8a6",
+    statuses: [ISSUE_STATUS.DEFERRED, ISSUE_STATUS.REJECTED],
+  },
+];
+const TESTER_STATUS_LABELS = TESTER_STATUS_META.reduce(
+  (labels, item) => ({
+    ...labels,
+    [item.key]: item.label,
+  }),
+  { all: "All Bugs" }
+);
+const TESTER_SEVERITY_META = {
+  Blocker: {
+    color: "bg-[linear-gradient(90deg,#dc2626,#ef4444)]",
+    text: "text-red-700",
+  },
+  Critical: {
+    color: "bg-[linear-gradient(90deg,#e11d48,#fb7185)]",
+    text: "text-rose-700",
+  },
+  Major: {
+    color: "bg-[linear-gradient(90deg,#f59e0b,#fbbf24)]",
+    text: "text-amber-700",
+  },
+  Minor: {
+    color: "bg-[linear-gradient(90deg,#2563eb,#38bdf8)]",
+    text: "text-blue-700",
+  },
+  Unspecified: {
+    color: "bg-[linear-gradient(90deg,#94a3b8,#cbd5e1)]",
+    text: "text-slate-700",
   },
 };
 const PRIORITY_ROW_META = {
@@ -202,6 +291,54 @@ const getPercentage = (count, total) =>
 const getCountLabel = (count, singular, plural = `${singular}s`) =>
   `${count} ${count === 1 ? singular : plural}`;
 
+const resolveUserId = (value) =>
+  String(value?._id || value?.id || value || "");
+
+const getTesterBugStatusKey = (issue) => {
+  const status = normalizeBugStatusForIssue(issue);
+  const bucket = TESTER_STATUS_META.find((item) =>
+    item.statuses.includes(status)
+  );
+
+  return bucket?.key || "open";
+};
+
+const getDateKey = (value) => {
+  const date = value ? new Date(value) : new Date();
+
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+};
+
+const getShortDateLabel = (value) =>
+  new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(value ? new Date(value) : new Date());
+
+const filterTesterBugsByStatus = (bugs = [], statusFilter = "all") =>
+  statusFilter === "all"
+    ? bugs
+    : bugs.filter((issue) => getTesterBugStatusKey(issue) === statusFilter);
+
+const buildTesterTrendRows = (bugs = []) => {
+  const today = new Date();
+
+  return Array.from({ length: 14 }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (13 - index));
+    const key = getDateKey(date);
+
+    return {
+      date: getShortDateLabel(date),
+      reported: bugs.filter((issue) => getDateKey(issue.createdAt) === key).length,
+    };
+  });
+};
+
 const AnalyticsFilterChip = ({
   active = false,
   label,
@@ -323,6 +460,379 @@ const StatusDonutChart = ({
   );
 };
 
+const TesterBugStatusDonut = ({ activeKey, onSelect, rows, total }) => {
+  const chartRows = rows.filter((row) => row.count > 0);
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[240px_minmax(0,1fr)] lg:items-center">
+      <div className="relative mx-auto h-[240px] w-full max-w-[260px]">
+        {chartRows.length ? (
+          <ResponsiveContainer height="100%" width="100%">
+            <PieChart>
+              <Pie
+                cx="50%"
+                cy="50%"
+                data={chartRows}
+                dataKey="count"
+                innerRadius={70}
+                outerRadius={98}
+                paddingAngle={3}
+                stroke="rgba(255,255,255,0.96)"
+                strokeWidth={4}
+              >
+                {chartRows.map((entry) => (
+                  <Cell fill={entry.color} key={entry.key} />
+                ))}
+              </Pie>
+              <Tooltip
+                formatter={(value, _name, item) => [
+                  `${value} bug${Number(value) === 1 ? "" : "s"}`,
+                  item?.payload?.label || "",
+                ]}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="h-full rounded-full border border-dashed border-slate-200 bg-slate-50/70" />
+        )}
+
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+            Bugs
+          </span>
+          <span className="mt-1 text-3xl font-semibold leading-none text-slate-950">
+            {total}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-2.5">
+        {rows.map((row) => {
+          const isActive = activeKey === row.key;
+
+          return (
+            <button
+              aria-pressed={isActive}
+              className={cn(
+                "flex w-full items-center justify-between gap-3 rounded-[16px] border px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/72 hover:shadow-[0_16px_30px_-26px_rgba(15,23,42,0.24)]",
+                isActive
+                  ? "border-blue-200 bg-blue-50/80"
+                  : "border-white/60 bg-white/50"
+              )}
+              key={row.key}
+              onClick={() => onSelect(row.key)}
+              type="button"
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span
+                  className="h-3 w-3 shrink-0 rounded-full"
+                  style={{ backgroundColor: row.color }}
+                />
+                <span className="truncate text-sm font-semibold text-slate-700">
+                  {row.label}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-baseline gap-2">
+                <span className="text-sm font-semibold text-slate-950">
+                  {row.count}
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  {row.percentage}%
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const TesterDistributionRows = ({ rows }) => (
+  <div className="space-y-2.5">
+    {rows.map((row) => (
+      <div
+        className="rounded-[16px] border border-white/60 bg-white/58 px-3.5 py-3 shadow-[0_14px_30px_-28px_rgba(15,23,42,0.28)]"
+        key={row.key}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-950">
+              {row.label}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">{row.helper}</p>
+          </div>
+          <div className="text-right">
+            <p className={cn("text-base font-semibold", row.textClassName)}>
+              {row.count}
+            </p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+              {row.percentage}%
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100/90">
+          <div
+            className={cn("h-full rounded-full transition-all duration-500", row.fillClassName)}
+            style={{ width: `${row.width}%` }}
+          />
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+const TesterBugReportsContent = ({
+  activeStatusFilter,
+  filters,
+  isLoading,
+  onPriorityFilter,
+  onProjectSelect,
+  onStatusFilter,
+  priorityRows,
+  projectReports,
+  severityRows,
+  statusRows,
+  summary,
+  trendRows,
+}) => (
+  <>
+    <section className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+      <Card className={REPORT_PANEL_CLASS}>
+        <CardHeader className="border-b border-white/45 p-4">
+          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <CardTitle>Bug Status</CardTitle>
+              <CardDescription>
+                Status mix for bugs in the current tester scope.
+              </CardDescription>
+            </div>
+            <AnalyticsFilterChip
+              active={activeStatusFilter === "all"}
+              label="All Bugs"
+              onClick={() => onStatusFilter("all")}
+              tone="blue"
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="p-4">
+          {isLoading ? (
+            <Skeleton className="h-[280px] w-full rounded-[16px]" />
+          ) : (
+            <TesterBugStatusDonut
+              activeKey={activeStatusFilter === "all" ? "" : activeStatusFilter}
+              onSelect={onStatusFilter}
+              rows={statusRows}
+              total={summary.totalBugs}
+            />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className={REPORT_PANEL_CLASS}>
+        <CardHeader className="border-b border-white/45 p-4">
+          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <CardTitle>Bugs by Priority</CardTitle>
+              <CardDescription>
+                Priority distribution for filtered tester bugs.
+              </CardDescription>
+            </div>
+            <AnalyticsFilterChip
+              active={filters.priority === "all"}
+              label="All priorities"
+              onClick={() => onPriorityFilter("all")}
+              tone="orange"
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="p-4">
+          {isLoading ? (
+            <Skeleton className="h-[280px] w-full rounded-[16px]" />
+          ) : (
+            <TesterDistributionRows rows={priorityRows} />
+          )}
+        </CardContent>
+      </Card>
+    </section>
+
+    <section className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
+      <Card className={REPORT_PANEL_CLASS}>
+        <CardHeader className="border-b border-white/45 p-4">
+          <CardTitle>Bugs by Severity</CardTitle>
+          <CardDescription>
+            Severity spread for bugs visible to the tester.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-4">
+          {isLoading ? (
+            <Skeleton className="h-[260px] w-full rounded-[16px]" />
+          ) : (
+            <TesterDistributionRows rows={severityRows} />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className={REPORT_PANEL_CLASS}>
+        <CardHeader className="border-b border-white/45 p-4">
+          <CardTitle>Bug Trend Over Time</CardTitle>
+          <CardDescription>
+            Bugs reported over the last 14 days in the current scope.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-4">
+          {isLoading ? (
+            <Skeleton className="h-[260px] w-full rounded-[16px]" />
+          ) : (
+            <div className="h-[260px]">
+              <ResponsiveContainer height="100%" width="100%">
+                <LineChart
+                  data={trendRows}
+                  margin={{ bottom: 8, left: -18, right: 18, top: 10 }}
+                >
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 6" vertical={false} />
+                  <XAxis
+                    axisLine={false}
+                    dataKey="date"
+                    tick={{ fill: "#64748b", fontSize: 12 }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    axisLine={false}
+                    tick={{ fill: "#64748b", fontSize: 12 }}
+                    tickLine={false}
+                  />
+                  <Tooltip />
+                  <Line
+                    activeDot={{ r: 5, stroke: "#ffffff", strokeWidth: 3 }}
+                    dataKey="reported"
+                    dot={{ r: 3, stroke: "#ffffff", strokeWidth: 2 }}
+                    name="Reported bugs"
+                    stroke="#2563eb"
+                    strokeLinecap="round"
+                    strokeWidth={3}
+                    type="monotone"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </section>
+
+    <Card className={REPORT_PANEL_CLASS}>
+      <CardHeader className="border-b border-white/45 p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <CardTitle>Bugs by Project</CardTitle>
+            <CardDescription>
+              Reported, pending, fixed, reopened, and closed bugs grouped by project.
+            </CardDescription>
+          </div>
+          <span className="rounded-full border border-white/55 bg-white/68 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur-xl">
+            {projectReports.length} projects
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent className="p-5">
+        {isLoading ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <Skeleton className="h-[212px] w-full rounded-[16px]" />
+            <Skeleton className="h-[212px] w-full rounded-[16px]" />
+            <Skeleton className="h-[212px] w-full rounded-[16px]" />
+          </div>
+        ) : projectReports.length ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {projectReports.map((project) => {
+              const isActive =
+                String(filters.projectId) === String(project.projectId);
+
+              return (
+                <button
+                  className={cn(
+                    REPORT_SUBPANEL_CLASS,
+                    "group flex flex-col gap-4 p-5 text-left",
+                    isActive
+                      ? "border-blue-200/90 bg-[linear-gradient(180deg,rgba(239,246,255,0.94),rgba(224,231,255,0.7))]"
+                      : "bg-[linear-gradient(180deg,rgba(255,255,255,0.74),rgba(248,250,252,0.54))]"
+                  )}
+                  key={project.projectId}
+                  onClick={() => onProjectSelect(isActive ? "all" : project.projectId)}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-base font-semibold text-slate-950">
+                        {project.name}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {getCountLabel(project.reportedByTester, "bug")} reported by you
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-blue-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-700">
+                      {isActive ? "Selected" : "Filter"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div className="rounded-[14px] bg-slate-950/[0.03] px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                        Total
+                      </p>
+                      <p className="mt-1 text-lg font-semibold text-slate-950">
+                        {project.total}
+                      </p>
+                    </div>
+                    <div className="rounded-[14px] bg-amber-50/80 px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-amber-700">
+                        Pending
+                      </p>
+                      <p className="mt-1 text-lg font-semibold text-amber-900">
+                        {project.pending}
+                      </p>
+                    </div>
+                    <div className="rounded-[14px] bg-emerald-50/85 px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-700">
+                        Closed
+                      </p>
+                      <p className="mt-1 text-lg font-semibold text-emerald-900">
+                        {project.closed}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                    <span className="rounded-full bg-white/70 px-3 py-1.5">
+                      Fixed {project.fixed}
+                    </span>
+                    <span className="rounded-full bg-white/70 px-3 py-1.5">
+                      Reopened {project.reopened}
+                    </span>
+                  </div>
+
+                  <DistributionBar
+                    total={project.total}
+                    open={project.pending + project.reopened}
+                    closed={project.closed}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <ReportEmptyPanel
+            icon={FolderKanban}
+            title="No project bug data yet"
+            description="Assigned or reported bugs will appear here once they match the selected filters."
+          />
+        )}
+      </CardContent>
+    </Card>
+  </>
+);
+
 const sortByName = (left, right) =>
   (left?.name || left?.email || "").localeCompare(right?.name || right?.email || "");
 
@@ -364,6 +874,7 @@ const buildEmptyUserPerformance = (option) => ({
 const ReportsPage = () => {
   const { user } = useAuth();
   const workspaceScope = getWorkspaceScope(user);
+  const isTesterReports = user?.role === ROLE_TESTER;
   const [filters, setFilters] = useState(createDefaultFilters);
   const [selectedPerformanceUserId, setSelectedPerformanceUserId] = useState("");
   const activeStatusFilter =
@@ -400,6 +911,7 @@ const ReportsPage = () => {
   } = useQuery({
     queryKey: ["teams", "reports-page", workspaceScope],
     queryFn: () => fetchTeams(workspaceScope),
+    enabled: !isTesterReports,
   });
 
   const {
@@ -409,6 +921,7 @@ const ReportsPage = () => {
   } = useQuery({
     queryKey: ["reports", "summary", reportFilters],
     queryFn: () => fetchReports(reportFilters),
+    enabled: !isTesterReports,
   });
 
   const {
@@ -418,6 +931,7 @@ const ReportsPage = () => {
   } = useQuery({
     queryKey: ["reports", "projects", reportFilters],
     queryFn: () => fetchProjectReports(reportFilters),
+    enabled: !isTesterReports,
   });
 
   const {
@@ -427,6 +941,7 @@ const ReportsPage = () => {
   } = useQuery({
     queryKey: ["users", "reports-directory", workspaceScope],
     queryFn: fetchUsers,
+    enabled: !isTesterReports,
   });
 
   const {
@@ -436,20 +951,42 @@ const ReportsPage = () => {
   } = useQuery({
     queryKey: ["reports", "team", reportFilters],
     queryFn: () => fetchTeamReports(reportFilters),
+    enabled: !isTesterReports,
+  });
+
+  const testerBugFilters = useMemo(
+    () => ({
+      projectId: filters.projectId,
+      dateFrom: filters.dateFrom,
+      dateTo: filters.dateTo,
+      type: ISSUE_TYPES.BUG,
+    }),
+    [filters.dateFrom, filters.dateTo, filters.projectId]
+  );
+
+  const {
+    data: testerBugs = [],
+    isLoading: isTesterBugsLoading,
+    error: testerBugsError,
+  } = useQuery({
+    queryKey: ["issues", "tester-reports", testerBugFilters],
+    queryFn: () => fetchIssues(testerBugFilters),
+    enabled: isTesterReports,
   });
 
   const error =
     projectsError ||
-    teamsError ||
-    summaryError ||
-    projectReportsError ||
-    teamReportsError;
+    (isTesterReports
+      ? testerBugsError
+      : teamsError || summaryError || projectReportsError || teamReportsError);
   const isLoading =
     isProjectsLoading ||
-    isTeamsLoading ||
-    isSummaryLoading ||
-    isProjectReportsLoading ||
-    isTeamReportsLoading;
+    (isTesterReports
+      ? isTesterBugsLoading
+      : isTeamsLoading ||
+        isSummaryLoading ||
+        isProjectReportsLoading ||
+        isTeamReportsLoading);
 
   const scopedTeams = useMemo(() => {
     if (hasAdminPanelAccess(user?.role)) {
@@ -697,7 +1234,7 @@ const ReportsPage = () => {
   } = useQuery({
     queryKey: ["reports", "individual-user", selectedUserReportFilters],
     queryFn: () => fetchSelectedUserReport(selectedUserReportFilters),
-    enabled: Boolean(selectedPerformanceUserId),
+    enabled: !isTesterReports && Boolean(selectedPerformanceUserId),
   });
 
   const selectedUserPerformance = useMemo(() => {
@@ -707,6 +1244,186 @@ const ReportsPage = () => {
 
     return selectedUserReport || buildEmptyUserPerformance(selectedPerformanceUserOption);
   }, [selectedPerformanceUserOption, selectedUserReport]);
+
+  const testerProjectById = useMemo(
+    () =>
+      new Map(
+        projects.map((project) => [String(project._id), project])
+      ),
+    [projects]
+  );
+
+  const testerPriorityScopeBugs = useMemo(() => {
+    if (!isTesterReports) {
+      return [];
+    }
+
+    return testerBugs.filter((issue) =>
+      filters.priority === "all" ? true : issue.priority === filters.priority
+    );
+  }, [filters.priority, isTesterReports, testerBugs]);
+
+  const testerVisibleBugs = useMemo(() => {
+    if (!isTesterReports) {
+      return [];
+    }
+
+    return filterTesterBugsByStatus(testerPriorityScopeBugs, activeStatusFilter);
+  }, [activeStatusFilter, isTesterReports, testerPriorityScopeBugs]);
+
+  const testerStatusRows = useMemo(() => {
+    const total = testerPriorityScopeBugs.length;
+
+    return TESTER_STATUS_META.map((item) => {
+      const count = testerPriorityScopeBugs.filter(
+        (issue) => getTesterBugStatusKey(issue) === item.key
+      ).length;
+      const percentage = getPercentage(count, total);
+
+      return {
+        ...item,
+        label: item.shortLabel || item.label,
+        count,
+        percentage,
+      };
+    });
+  }, [testerPriorityScopeBugs]);
+
+  const testerStatusCountMap = useMemo(
+    () =>
+      new Map(testerStatusRows.map((row) => [row.key, row.count])),
+    [testerStatusRows]
+  );
+
+  const testerPriorityRows = useMemo(() => {
+    const statusScopedBugs = filterTesterBugsByStatus(
+      testerBugs,
+      activeStatusFilter
+    );
+    const total = statusScopedBugs.length;
+
+    return PRIORITY_ORDER.map((priority) => {
+      const meta = PRIORITY_ROW_META[priority] || PRIORITY_ROW_META.Medium;
+      const count = statusScopedBugs.filter(
+        (issue) => issue.priority === priority
+      ).length;
+      const percentage = getPercentage(count, total);
+      const fillClassName =
+        priority === "High"
+          ? "bg-[linear-gradient(90deg,#ef4444,#f97316)]"
+          : priority === "Medium"
+            ? "bg-[linear-gradient(90deg,#fb923c,#fbbf24)]"
+            : "bg-[linear-gradient(90deg,#3b82f6,#60a5fa)]";
+
+      return {
+        key: priority,
+        label: priority,
+        helper: meta.helper,
+        count,
+        percentage,
+        width: total ? Math.max(percentage, count ? 8 : 0) : 0,
+        fillClassName,
+        textClassName:
+          priority === "High"
+            ? "text-red-700"
+            : priority === "Medium"
+              ? "text-orange-700"
+              : "text-blue-700",
+      };
+    });
+  }, [activeStatusFilter, testerBugs]);
+
+  const testerSeverityRows = useMemo(() => {
+    const total = testerVisibleBugs.length;
+    const severityValues = [...BUG_SEVERITY_OPTIONS, "Unspecified"];
+
+    return severityValues
+      .map((severity) => {
+        const meta = TESTER_SEVERITY_META[severity] || TESTER_SEVERITY_META.Unspecified;
+        const normalizedCount = testerVisibleBugs.filter(
+          (issue) => (issue.bugDetails?.severity || "Unspecified") === severity
+        ).length;
+        const percentage = getPercentage(normalizedCount, total);
+
+        return {
+          key: severity,
+          label: severity,
+          helper:
+            severity === "Unspecified"
+              ? "Missing severity"
+              : `${severity} severity bugs`,
+          count: normalizedCount,
+          percentage,
+          width: total ? Math.max(percentage, normalizedCount ? 8 : 0) : 0,
+          fillClassName: meta.color,
+          textClassName: meta.text,
+        };
+      })
+      .filter((row) => row.key !== "Unspecified" || row.count > 0);
+  }, [testerVisibleBugs]);
+
+  const testerProjectReports = useMemo(() => {
+    const bucketsById = new Map();
+    const testerId = resolveUserId(user);
+
+    testerVisibleBugs.forEach((issue) => {
+      const projectId = resolveIssueProjectId(issue);
+      const project = testerProjectById.get(projectId);
+      const statusKey = getTesterBugStatusKey(issue);
+      const bucket =
+        bucketsById.get(projectId) || {
+          projectId,
+          name: issue.projectId?.name || project?.name || "Assigned project",
+          total: 0,
+          pending: 0,
+          fixed: 0,
+          closed: 0,
+          reopened: 0,
+          reportedByTester: 0,
+        };
+
+      bucket.total += 1;
+      bucket.reportedByTester +=
+        resolveUserId(issue.reporter) === testerId ? 1 : 0;
+      bucket.pending += ["open", "inProgress"].includes(statusKey) ? 1 : 0;
+      bucket.fixed += statusKey === "resolved" ? 1 : 0;
+      bucket.closed += statusKey === "closed" ? 1 : 0;
+      bucket.reopened += statusKey === "reopened" ? 1 : 0;
+
+      bucketsById.set(projectId, bucket);
+    });
+
+    return Array.from(bucketsById.values()).sort(
+      (left, right) =>
+        right.total - left.total ||
+        right.closed - left.closed ||
+        left.name.localeCompare(right.name)
+    );
+  }, [testerProjectById, testerVisibleBugs, user]);
+
+  const testerTrendRows = useMemo(
+    () => buildTesterTrendRows(testerVisibleBugs),
+    [testerVisibleBugs]
+  );
+
+  const testerSummary = useMemo(() => {
+    const testerId = resolveUserId(user);
+
+    return {
+      totalBugs: testerPriorityScopeBugs.length,
+      visibleBugs: testerVisibleBugs.length,
+      reportedByTester: testerVisibleBugs.filter(
+        (issue) => resolveUserId(issue.reporter) === testerId
+      ).length,
+      pending:
+        (testerStatusCountMap.get("open") || 0) +
+        (testerStatusCountMap.get("inProgress") || 0) +
+        (testerStatusCountMap.get("reopened") || 0),
+      fixed: testerStatusCountMap.get("resolved") || 0,
+      closed: testerStatusCountMap.get("closed") || 0,
+      reopened: testerStatusCountMap.get("reopened") || 0,
+    };
+  }, [testerPriorityScopeBugs.length, testerStatusCountMap, testerVisibleBugs, user]);
 
   const activeFilterChips = useMemo(() => {
     const chips = [];
@@ -773,7 +1490,11 @@ const ReportsPage = () => {
     if (activeStatusFilter !== "all") {
       chips.push({
         key: "status",
-        label: `Status: ${statusFilterLabels[activeStatusFilter] || activeStatusFilter}`,
+        label: `Status: ${
+          isTesterReports
+            ? TESTER_STATUS_LABELS[activeStatusFilter] || activeStatusFilter
+            : statusFilterLabels[activeStatusFilter] || activeStatusFilter
+        }`,
         onClear: () =>
           setFilters((current) => ({
             ...current,
@@ -800,44 +1521,103 @@ const ReportsPage = () => {
     filters.dateTo,
     filters.priority,
     activeStatusFilter,
+    isTesterReports,
     selectedMember,
     selectedProject,
     selectedTeam,
   ]);
 
-  const metricCards = [
-    {
-      key: "all",
-      title: "Total Issues",
-      value: summary.totalIssues,
-      icon: Layers3,
-      tone: "blue",
-      helperText: "Entire report scope",
-      trendLabel: filters.status === "all" ? "Full scope" : "Click to reset",
-    },
-    {
-      key: "OPEN",
-      title: "Open Issues",
-      value: summary.openIssues,
-      icon: AlertTriangle,
-      tone: "amber",
-      helperText: "Queued + active work",
-      trendLabel:
-        activeStatusFilter === OPEN_STATUS_KEY ? "Open filter active" : "Click to focus",
-    },
-    {
-      key: ISSUE_STATUS.DONE,
-      title: "Closed",
-      value: summary.closedIssues,
-      icon: CheckCircle2,
-      tone: "emerald",
-      helperText: "Delivered work",
-      trendLabel:
-        activeStatusFilter === ISSUE_STATUS.DONE
-          ? "Closed filter active"
-          : "Click to focus",
-    },
-  ];
+  const metricCards = isTesterReports
+    ? [
+        {
+          key: "reported",
+          filterKey: "all",
+          title: "Bugs Reported",
+          value: testerSummary.reportedByTester,
+          icon: Bug,
+          tone: "blue",
+          helperText: "Created by you",
+          trendLabel: "Tester scope",
+        },
+        {
+          key: "pending",
+          title: "Pending Bugs",
+          value: testerSummary.pending,
+          icon: AlertTriangle,
+          tone: "amber",
+          helperText: "Open, active, or reopened",
+          trendLabel: "Needs follow-up",
+        },
+        {
+          key: "fixed",
+          filterKey: "resolved",
+          title: "Fixed / Retest",
+          value: testerSummary.fixed,
+          icon: CheckCircle2,
+          tone: "emerald",
+          helperText: "Ready for retest",
+          trendLabel:
+            activeStatusFilter === "resolved" ? "Filter active" : "Click to focus",
+        },
+        {
+          key: "closed",
+          filterKey: "closed",
+          title: "Closed Bugs",
+          value: testerSummary.closed,
+          icon: CheckCircle2,
+          tone: "cyan",
+          helperText: "Completed bugs",
+          trendLabel:
+            activeStatusFilter === "closed" ? "Filter active" : "Click to focus",
+        },
+        {
+          key: "reopened",
+          filterKey: "reopened",
+          title: "Reopened Bugs",
+          value: testerSummary.reopened,
+          icon: RotateCcw,
+          tone: "violet",
+          helperText: "Returned to development",
+          trendLabel:
+            activeStatusFilter === "reopened" ? "Filter active" : "Click to focus",
+        },
+      ]
+    : [
+        {
+          key: "all",
+          filterKey: "all",
+          title: "Total Issues",
+          value: summary.totalIssues,
+          icon: Layers3,
+          tone: "blue",
+          helperText: "Entire report scope",
+          trendLabel: filters.status === "all" ? "Full scope" : "Click to reset",
+        },
+        {
+          key: "OPEN",
+          filterKey: OPEN_STATUS_KEY,
+          title: "Open Issues",
+          value: summary.openIssues,
+          icon: AlertTriangle,
+          tone: "amber",
+          helperText: "Queued + active work",
+          trendLabel:
+            activeStatusFilter === OPEN_STATUS_KEY ? "Open filter active" : "Click to focus",
+        },
+        {
+          key: ISSUE_STATUS.DONE,
+          filterKey: ISSUE_STATUS.DONE,
+          title: "Closed",
+          value: summary.closedIssues,
+          icon: CheckCircle2,
+          tone: "emerald",
+          helperText: "Delivered work",
+          trendLabel:
+            activeStatusFilter === ISSUE_STATUS.DONE
+              ? "Closed filter active"
+              : "Click to focus",
+        },
+      ];
 
   const handleProjectSelect = (projectId) => {
     setFilters((current) => ({
@@ -859,14 +1639,17 @@ const ReportsPage = () => {
   const handleStatusFilter = (status) => {
     setFilters((current) => ({
       ...current,
-      status:
-        status === "all"
+      status: isTesterReports
+        ? status === "all" || current.status === status
           ? "all"
-          : (current.status === ISSUE_STATUS.IN_PROGRESS
-              ? OPEN_STATUS_KEY
-              : current.status) === status
+          : status
+        : status === "all"
             ? "all"
-            : status,
+            : (current.status === ISSUE_STATUS.IN_PROGRESS
+                ? OPEN_STATUS_KEY
+                : current.status) === status
+              ? "all"
+              : status,
     }));
   };
 
@@ -879,10 +1662,11 @@ const ReportsPage = () => {
 
   const handleClearFilters = () => setFilters(createDefaultFilters());
 
-  const hasAnyData =
-    summary.totalIssues > 0 ||
-    projectReports.length > 0 ||
-    teamReports.length > 0;
+  const hasAnyData = isTesterReports
+    ? testerBugs.length > 0 || testerProjectReports.length > 0
+    : summary.totalIssues > 0 ||
+      projectReports.length > 0 ||
+      teamReports.length > 0;
 
   return (
     <div className="space-y-6 page-shell-enter">
@@ -898,11 +1682,12 @@ const ReportsPage = () => {
                   Analytics
                 </div>
                 <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
-                  Reports
+                  {isTesterReports ? "Tester Bug Reports" : "Reports"}
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                  Filter the workspace by project, team, member, and date range to
-                  inspect delivery health from every angle.
+                  {isTesterReports
+                    ? "Review bug reporting, project spread, severity, priority, and status trends for your tester scope."
+                    : "Filter the workspace by project, team, member, and date range to inspect delivery health from every angle."}
                 </p>
               </div>
 
@@ -917,7 +1702,14 @@ const ReportsPage = () => {
               </Button>
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr_1.2fr]">
+            <div
+              className={cn(
+                "grid gap-4",
+                isTesterReports
+                  ? "xl:grid-cols-[1fr_1.2fr]"
+                  : "xl:grid-cols-[1fr_1fr_1fr_1.2fr]"
+              )}
+            >
               <FilterField icon={FolderKanban} label="Project">
                 <select
                   className="field-select border-white/60 bg-white/78 shadow-[0_16px_30px_-24px_rgba(15,23,42,0.3)] backdrop-blur-xl"
@@ -933,40 +1725,44 @@ const ReportsPage = () => {
                 </select>
               </FilterField>
 
-              <FilterField icon={Workflow} label="Team">
-                <select
-                  className="field-select border-white/60 bg-white/78 shadow-[0_16px_30px_-24px_rgba(15,23,42,0.3)] backdrop-blur-xl"
-                  value={filters.teamId}
-                  onChange={(event) => handleTeamSelect(event.target.value)}
-                >
-                  <option value="all">All teams</option>
-                  {teamOptions.map((team) => (
-                    <option key={team._id} value={team._id}>
-                      {team.name}
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
+              {!isTesterReports ? (
+                <>
+                  <FilterField icon={Workflow} label="Team">
+                    <select
+                      className="field-select border-white/60 bg-white/78 shadow-[0_16px_30px_-24px_rgba(15,23,42,0.3)] backdrop-blur-xl"
+                      value={filters.teamId}
+                      onChange={(event) => handleTeamSelect(event.target.value)}
+                    >
+                      <option value="all">All teams</option>
+                      {teamOptions.map((team) => (
+                        <option key={team._id} value={team._id}>
+                          {team.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FilterField>
 
-              <FilterField icon={Users2} label="Member">
-                <select
-                  className="field-select border-white/60 bg-white/78 shadow-[0_16px_30px_-24px_rgba(15,23,42,0.3)] backdrop-blur-xl"
-                  value={filters.assigneeId}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      assigneeId: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="all">All members</option>
-                  {memberOptions.map((member) => (
-                    <option key={member._id} value={member._id}>
-                      {member.name}
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
+                  <FilterField icon={Users2} label="Member">
+                    <select
+                      className="field-select border-white/60 bg-white/78 shadow-[0_16px_30px_-24px_rgba(15,23,42,0.3)] backdrop-blur-xl"
+                      value={filters.assigneeId}
+                      onChange={(event) =>
+                        setFilters((current) => ({
+                          ...current,
+                          assigneeId: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="all">All members</option>
+                      {memberOptions.map((member) => (
+                        <option key={member._id} value={member._id}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FilterField>
+                </>
+              ) : null}
 
               <FilterField icon={CalendarRange} label="Date Range">
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -1024,13 +1820,19 @@ const ReportsPage = () => {
         </Card>
       ) : (
         <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <section
+            className={cn(
+              "grid gap-4 md:grid-cols-2",
+              isTesterReports ? "xl:grid-cols-5" : "xl:grid-cols-3"
+            )}
+          >
             {isLoading ? (
-              <>
-                <Skeleton className="h-[164px] w-full rounded-[16px]" />
-                <Skeleton className="h-[164px] w-full rounded-[16px]" />
-                <Skeleton className="h-[164px] w-full rounded-[16px]" />
-              </>
+              Array.from({ length: isTesterReports ? 5 : 3 }).map((_, index) => (
+                <Skeleton
+                  className="h-[164px] w-full rounded-[16px]"
+                  key={`report-metric-skeleton-${index}`}
+                />
+              ))
             ) : (
               metricCards.map((card) => (
                 <DashboardStatCard
@@ -1044,13 +1846,17 @@ const ReportsPage = () => {
                   trendDirection="flat"
                   compact
                   className={cn(
-                    activeStatusFilter === card.key
+                    card.filterKey && activeStatusFilter === card.filterKey
                       ? "ring-2 ring-white/75 ring-offset-0"
-                      : card.key === "all" && activeStatusFilter === "all"
+                      : card.filterKey === "all" && activeStatusFilter === "all"
                         ? "ring-2 ring-white/75 ring-offset-0"
                         : ""
                   )}
-                  onClick={() => handleStatusFilter(card.key)}
+                  onClick={
+                    card.filterKey
+                      ? () => handleStatusFilter(card.filterKey)
+                      : undefined
+                  }
                 />
               ))
             )}
@@ -1059,10 +1865,30 @@ const ReportsPage = () => {
           {!isLoading && !hasAnyData ? (
             <EmptyState
               title="No analytics in this scope"
-              description="Try widening the filters or create more issues to unlock project, user, and team insights."
+              description={
+                isTesterReports
+                  ? "Try widening the filters or report a bug to unlock tester bug analytics."
+                  : "Try widening the filters or create more issues to unlock project, user, and team insights."
+              }
               icon={<BarChart3 className="h-5 w-5" />}
             />
           ) : (
+            isTesterReports ? (
+              <TesterBugReportsContent
+                activeStatusFilter={activeStatusFilter}
+                filters={filters}
+                isLoading={isLoading}
+                onPriorityFilter={handlePriorityFilter}
+                onProjectSelect={handleProjectSelect}
+                onStatusFilter={handleStatusFilter}
+                priorityRows={testerPriorityRows}
+                projectReports={testerProjectReports}
+                severityRows={testerSeverityRows}
+                statusRows={testerStatusRows}
+                summary={testerSummary}
+                trendRows={testerTrendRows}
+              />
+            ) : (
             <>
               <section className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
                 <Card className={REPORT_PANEL_CLASS}>
@@ -1826,7 +2652,7 @@ const ReportsPage = () => {
                 </Card>
               </section>
             </>
-          )}
+          ))}
         </>
       )}
     </div>
