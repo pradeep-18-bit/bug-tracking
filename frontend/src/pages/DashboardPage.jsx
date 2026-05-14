@@ -181,7 +181,7 @@ const QuickActionButton = ({ icon: Icon, title, className, onClick }) => (
     type="button"
     onClick={onClick}
     className={cn(
-      "inline-flex items-center gap-2.5 rounded-full border px-4 py-2.5 text-sm font-semibold shadow-[0_16px_34px_-22px_rgba(15,23,42,0.45)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_44px_-22px_rgba(15,23,42,0.5)]",
+      "inline-flex w-full items-center justify-start gap-2.5 rounded-full border px-4 py-2.5 text-sm font-semibold shadow-[0_16px_34px_-22px_rgba(15,23,42,0.45)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_44px_-22px_rgba(15,23,42,0.5)] sm:w-auto sm:justify-center",
       className
     )}
   >
@@ -573,7 +573,7 @@ const DashboardPage = () => {
         <CardContent className="relative p-4 sm:p-5">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.16),transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(129,140,248,0.14),transparent_34%)]" />
           <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-wrap gap-3">
+            <div className="grid w-full gap-3 sm:w-auto sm:grid-cols-2 xl:flex xl:flex-wrap">
               <QuickActionButton
                 icon={Plus}
                 title="Create Project"
@@ -660,7 +660,7 @@ const DashboardPage = () => {
       <section className="grid gap-5 xl:grid-cols-2">
         <Card className={DASHBOARD_PANEL_CLASS}>
           <CardHeader className="border-b border-white/45 p-5">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <CardTitle>Issues by Status</CardTitle>
                 <CardDescription>
@@ -721,7 +721,7 @@ const DashboardPage = () => {
 
         <Card className={DASHBOARD_PANEL_CLASS}>
           <CardHeader className="border-b border-white/45 p-5">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <CardTitle>Issues Trend</CardTitle>
                 <CardDescription>
@@ -805,10 +805,10 @@ const DashboardPage = () => {
                     type="button"
                     onClick={() => setSelectedIssue(issue)}
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate text-base font-semibold text-slate-950 transition group-hover:text-blue-700">
+                          <p className="min-w-0 break-words text-base font-semibold text-slate-950 transition group-hover:text-blue-700 sm:truncate">
                             {issue.title}
                           </p>
                           <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>

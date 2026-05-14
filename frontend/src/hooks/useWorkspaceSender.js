@@ -6,7 +6,7 @@ import {
   saveWorkspaceSender,
 } from "@/lib/api";
 
-export const useWorkspaceSender = () => {
+export const useWorkspaceSender = ({ enabled = true } = {}) => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const workspaceId = user?.workspaceId || "default";
@@ -15,11 +15,13 @@ export const useWorkspaceSender = () => {
   const eligibleSendersQuery = useQuery({
     queryKey: ["eligible-senders", workspaceId],
     queryFn: fetchEligibleSenders,
+    enabled,
   });
 
   const workspaceSenderQuery = useQuery({
     queryKey: ["workspace-sender", workspaceId, userId],
     queryFn: fetchWorkspaceSender,
+    enabled,
   });
 
   const saveWorkspaceSenderMutation = useMutation({

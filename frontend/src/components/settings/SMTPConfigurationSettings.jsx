@@ -1,12 +1,21 @@
 import SettingsPanel from "@/components/settings/SettingsPanel";
 import EmailConfigurationCard from "@/components/settings/EmailConfigurationCard";
 
-const SMTPConfigurationSettings = (props) => (
+const SMTPConfigurationSettings = ({ personalAccountMode = false, ...props }) => (
   <SettingsPanel
     title="SMTP Configuration"
-    description="View and edit SMTP credentials for the currently selected Admin or Manager sender."
+    description={
+      personalAccountMode
+        ? "View and edit SMTP credentials for your personal tester mail account."
+        : "View and edit SMTP credentials for the currently selected Admin or Manager sender."
+    }
   >
-    <EmailConfigurationCard {...props} embedded defaultExpanded />
+    <EmailConfigurationCard
+      {...props}
+      embedded
+      defaultExpanded
+      personalAccountMode={personalAccountMode}
+    />
   </SettingsPanel>
 );
 

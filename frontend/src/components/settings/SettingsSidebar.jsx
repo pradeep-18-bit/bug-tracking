@@ -1,5 +1,6 @@
 import {
   FileUp,
+  KeyRound,
   MailCheck,
   MailPlus,
   ServerCog,
@@ -14,13 +15,14 @@ const iconMap = {
   roles: ShieldCheck,
   sender: MailCheck,
   smtp: ServerCog,
+  password: KeyRound,
   import: FileUp,
 };
 
 const SettingsSidebar = ({ activeItem, items = [], onItemChange }) => (
   <aside className="min-w-0 lg:sticky lg:top-28 lg:self-start">
     <nav
-      className="flex gap-2 overflow-x-auto rounded-[16px] border border-slate-200/90 bg-white p-2 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.28)] lg:flex-col lg:overflow-visible"
+      className="flex w-full gap-2 overflow-x-auto rounded-[16px] border border-slate-200/90 bg-white p-2 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.28)] [-ms-overflow-style:none] [scrollbar-width:none] lg:flex-col lg:overflow-visible [&::-webkit-scrollbar]:hidden"
       aria-label="Admin settings"
     >
       {items.map((item) => {

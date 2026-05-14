@@ -74,6 +74,12 @@ const LegacyDashboardRedirect = () => {
   return <Navigate to={getDashboardPathByRole(role)} replace />;
 };
 
+const SelfSettingsRoute = () => {
+  const { role } = useAuth();
+
+  return role === ROLE_TESTER ? <UserSettingsPage /> : <DeveloperSettingsPage />;
+};
+
 const App = () => (
   <Routes>
     <Route path="/" element={<RootRoute />} />
@@ -135,7 +141,7 @@ const App = () => (
         path="/dev/settings"
         element={
           <ProtectedRoute roles={[ROLE_DEVELOPER, ROLE_TESTER]}>
-            <DeveloperSettingsPage />
+            <SelfSettingsRoute />
           </ProtectedRoute>
         }
       />

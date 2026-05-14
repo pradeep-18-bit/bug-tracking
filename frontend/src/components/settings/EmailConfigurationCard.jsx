@@ -153,6 +153,7 @@ const EmailConfigurationCard = ({
   embedded = false,
   currentWorkspaceSender,
   emailConfigQuery,
+  personalAccountMode = false,
   saveEmailConfigMutation,
   selectedSender,
   showToast,
@@ -254,7 +255,12 @@ const EmailConfigurationCard = ({
 
   const handleOpenEdit = () => {
     if (!selectedSenderId) {
-      showToast("error", "Select an Admin or Manager before editing email settings.");
+      showToast(
+        "error",
+        personalAccountMode
+          ? "Your mail account is not available right now."
+          : "Select an Admin or Manager before editing email settings."
+      );
       return;
     }
 
@@ -278,7 +284,12 @@ const EmailConfigurationCard = ({
     setSubmitAttempted(true);
 
     if (!selectedSenderId) {
-      showToast("error", "Select an Admin or Manager before saving email settings.");
+      showToast(
+        "error",
+        personalAccountMode
+          ? "Your mail account is not available right now."
+          : "Select an Admin or Manager before saving email settings."
+      );
       return;
     }
 
@@ -338,8 +349,12 @@ const EmailConfigurationCard = ({
             <CardTitle className="text-base">SMTP Configuration</CardTitle>
             <p className="mt-1 text-sm text-slate-500">
               {selectedSender
-                ? `Saved settings for ${selectedSender.name}`
-                : "Select a sender to view SMTP settings"}
+                ? personalAccountMode
+                  ? "Saved settings for your tester mail account"
+                  : `Saved settings for ${selectedSender.name}`
+                : personalAccountMode
+                  ? "Your mail account is not available right now."
+                  : "Select a sender to view SMTP settings"}
             </p>
           </div>
 
@@ -363,8 +378,9 @@ const EmailConfigurationCard = ({
     <div className="space-y-5">
           {!selectedSender ? (
             <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-sm text-slate-600">
-              Choose an Admin or Manager in the Active Sender section to view or
-              save SMTP credentials for that user.
+              {personalAccountMode
+                ? "Your tester mail account is not available right now."
+                : "Choose an Admin or Manager in the Active Sender section to view or save SMTP credentials for that user."}
             </div>
           ) : emailConfigQuery.isLoading ? (
             <div className="grid gap-4 md:grid-cols-2">
@@ -391,6 +407,9 @@ const EmailConfigurationCard = ({
                       <Badge variant={smtpConfigured ? "success" : "warning"}>
                         {smtpConfigured ? "SMTP Configured" : "Needs SMTP setup"}
                       </Badge>
+                      {personalAccountMode ? (
+                        <Badge variant="secondary">Personal account</Badge>
+                      ) : null}
                       {isSelectedSenderActive ? (
                         <Badge variant="default">Active sender</Badge>
                       ) : null}
@@ -418,6 +437,9 @@ const EmailConfigurationCard = ({
                 <>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline">Edit mode</Badge>
+                    {personalAccountMode ? (
+                      <Badge variant="secondary">Personal account</Badge>
+                    ) : null}
                     {isSelectedSenderActive ? (
                       <Badge variant="default">Active sender</Badge>
                     ) : null}

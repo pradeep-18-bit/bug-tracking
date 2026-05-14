@@ -1,6 +1,6 @@
 const express = require("express");
 const { protect } = require("../middleware/authMiddleware");
-const adminOnly = require("../middleware/adminOnly");
+const mailSettingsAccess = require("../middleware/mailSettingsAccess");
 const {
   getEmailConfig,
   saveEmailConfig,
@@ -12,7 +12,7 @@ const {
 
 const router = express.Router();
 
-router.use(protect, adminOnly);
+router.use(protect, mailSettingsAccess);
 
 router.get("/email-config", getEmailConfig);
 router.post("/email-config", saveEmailConfig);

@@ -55,6 +55,22 @@ export const getRoleNavigation = (role) => {
 };
 
 export const getPageMeta = (pathname, role) => {
+  if (pathname === "/dev/settings") {
+    if (role === ROLE_TESTER) {
+      return {
+        title: "Mail Settings",
+        description:
+          "Manage your personal tester mail sender, SMTP configuration, and password in one place.",
+      };
+    }
+
+    return {
+      title: "Account Settings",
+      description:
+        "Manage your account security and update your password with confidence.",
+    };
+  }
+
   const metaByPath = {
     [dashboardPathByRole[ROLE_ADMIN]]: {
       title: "Admin Command Center",
@@ -65,11 +81,6 @@ export const getPageMeta = (pathname, role) => {
       title: "Developer Dashboard",
       description:
         "Stay focused on your assigned work items, active priorities, and release-ready delivery.",
-    },
-    "/dev/settings": {
-      title: "Account Settings",
-      description:
-        "Manage your account security and update your password with confidence.",
     },
     [dashboardPathByRole[ROLE_TESTER]]: {
       title: "Assigned Projects",

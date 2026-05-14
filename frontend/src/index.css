@@ -1023,6 +1023,29 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .chart-box {
+    height: 220px;
+    min-height: 220px;
+  }
+
+  .stats-tile {
+    padding: 16px;
+  }
+
+  .status-card,
+  .trend-card {
+    border-radius: 16px;
+    padding: 16px;
+  }
+
+  .status-chip {
+    width: 100%;
+  }
+
+  .trend-stat h2 {
+    font-size: 24px;
+  }
+
   .report-card {
     padding: 16px;
   }

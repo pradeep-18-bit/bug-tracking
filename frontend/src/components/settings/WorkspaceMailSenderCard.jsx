@@ -59,6 +59,10 @@ const SummaryRow = ({ label, value }) => (
 );
 
 const getSourceStatusLabel = (source) => {
+  if (source === "personal-account") {
+    return "Personal account active";
+  }
+
   if (source === "manual") {
     return "Manual sender saved";
   }
@@ -71,6 +75,10 @@ const getSourceStatusLabel = (source) => {
 };
 
 const getSourceBadgeLabel = (source) => {
+  if (source === "personal-account") {
+    return "Personal account";
+  }
+
   if (source === "manual") {
     return "Manual sender";
   }
@@ -83,6 +91,10 @@ const getSourceBadgeLabel = (source) => {
 };
 
 const getSourceBadgeVariant = (source) => {
+  if (source === "personal-account") {
+    return "default";
+  }
+
   if (source === "manual") {
     return "default";
   }
@@ -115,6 +127,7 @@ const WorkspaceMailSenderCard = ({
   onActivateSelected,
   onClearSender,
   onSelectedSenderChange,
+  personalAccountMode = false,
   selectedSenderId,
 }) => {
   const [showSenderPicker, setShowSenderPicker] = useState(false);
@@ -138,27 +151,52 @@ const WorkspaceMailSenderCard = ({
       (option) => String(option.value) === String(selectedSenderId)
     ) || null;
   const source = workspaceSender?.source || "global-default";
-  const isUsingGlobalFallback = !hasActiveSender;
+  const isUsingGlobalFallback = !hasActiveSender && !personalAccountMode;
   const activeSenderTitle = activeSenderUser?.name
     ? `${activeSenderUser.name} (${activeSenderUser.role})`
-    : "Using global fallback sender";
-  const activeSenderEmail = activeSenderUser?.email || "No sender configured for your account.";
-  const activeSenderStatus = hasActiveSender
-    ? getSourceStatusLabel(source)
-    : "Using global fallback";
+    : personalAccountMode
+      ? "Your mail account"
+      : "Using global fallback sender";
+  const activeSenderEmail = activeSenderUser?.email || (
+    personalAccountMode
+      ? "No tester account is loaded right now."
+      : "No sender configured for your account."
+  );
+  const activeSenderStatus = personalAccountMode
+    ? activeSenderUser?.smtpConfigured
+      ? "Personal account ready"
+      : "Personal account needs SMTP setup"
+    : hasActiveSender
+      ? getSourceStatusLabel(source)
+      : "Using global fallback";
   const activeSenderNeedsSmtpSetup = Boolean(
     hasActiveSender && activeSenderUser && !activeSenderUser.smtpConfigured
   );
-  const activeSenderBadges = [
-    {
-      label: activeSenderUser?.smtpConfigured ? "SMTP Configured" : "Using global fallback",
-      variant: activeSenderUser?.smtpConfigured ? "success" : "secondary",
-    },
-    {
-      label: getSourceBadgeLabel(source),
-      variant: getSourceBadgeVariant(source),
-    },
-  ];
+  const activeSenderBadges = personalAccountMode
+    ? [
+        {
+          label: activeSenderUser?.smtpConfigured
+            ? "SMTP Configured"
+            : "Needs SMTP setup",
+          variant: activeSenderUser?.smtpConfigured ? "success" : "warning",
+        },
+        {
+          label: "Personal account",
+          variant: "default",
+        },
+      ]
+    : [
+        {
+          label: activeSenderUser?.smtpConfigured
+            ? "SMTP Configured"
+            : "Using global fallback",
+          variant: activeSenderUser?.smtpConfigured ? "success" : "secondary",
+        },
+        {
+          label: getSourceBadgeLabel(source),
+          variant: getSourceBadgeVariant(source),
+        },
+      ];
 
   if (hasActiveSender) {
     activeSenderBadges.push({
@@ -234,19 +272,21 @@ const WorkspaceMailSenderCard = ({
                   </Button>
                 ) : null}
 
-                <Button
-                  type="button"
-                  variant={isUsingGlobalFallback ? "default" : "outline"}
-                  size="sm"
-                  className="sm:min-w-[145px]"
-                  onClick={() => setShowSenderPicker((current) => !current)}
-                  disabled={!eligibleSenders.length}
-                >
-                  <Settings2 className="h-4 w-4" />
-                  {isUsingGlobalFallback ? "Set Active Sender" : "Change Sender"}
-                </Button>
+                {!personalAccountMode ? (
+                  <Button
+                    type="button"
+                    variant={isUsingGlobalFallback ? "default" : "outline"}
+                    size="sm"
+                    className="sm:min-w-[145px]"
+                    onClick={() => setShowSenderPicker((current) => !current)}
+                    disabled={!eligibleSenders.length}
+                  >
+                    <Settings2 className="h-4 w-4" />
+                    {isUsingGlobalFallback ? "Set Active Sender" : "Change Sender"}
+                  </Button>
+                ) : null}
 
-                {manualSenderUser ? (
+                {!personalAccountMode && manualSenderUser ? (
                   <Button
                     type="button"
                     variant="ghost"
@@ -267,16 +307,23 @@ const WorkspaceMailSenderCard = ({
               <div className="grid gap-3 md:grid-cols-3">
                 <SummaryRow
                   label="Role"
-                  value={activeSenderUser?.role || "Global fallback"}
+                  value={activeSenderUser?.role || (personalAccountMode ? "Tester" : "Global fallback")}
                 />
                 <SummaryRow label="Status" value={activeSenderStatus} />
-                <SummaryRow
-                  label="Fallback"
-                  value={getFallbackLabel({ source, workspaceDefaultSender })}
-                />
+                {personalAccountMode ? (
+                  <SummaryRow
+                    label="Account"
+                    value={activeSenderUser?.email || "Not available"}
+                  />
+                ) : (
+                  <SummaryRow
+                    label="Fallback"
+                    value={getFallbackLabel({ source, workspaceDefaultSender })}
+                  />
+                )}
               </div>
 
-              {workspaceDefaultSender ? (
+              {!personalAccountMode && workspaceDefaultSender ? (
                 <div className="rounded-[12px] border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600">
                   Workspace default sender:{" "}
                   <span className="font-medium text-slate-900">
@@ -291,12 +338,14 @@ const WorkspaceMailSenderCard = ({
               <div className="flex items-start gap-2 rounded-[12px] border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm text-amber-800">
                 <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>
-                  SMTP is not configured for this sender.
+                  {personalAccountMode
+                    ? "SMTP is not configured for your mail account yet."
+                    : "SMTP is not configured for this sender."}
                 </span>
               </div>
             ) : null}
 
-            {showSenderPicker ? (
+            {!personalAccountMode && showSenderPicker ? (
               eligibleSenders.length ? (
                 <div className="space-y-3 rounded-[16px] border border-slate-200 bg-slate-50/70 p-4">
                   <div>
@@ -400,8 +449,9 @@ const WorkspaceMailSenderCard = ({
         <div>
           <CardTitle>Workspace Mail Sender</CardTitle>
           <CardDescription>
-            Save an active sender for your account. Your manual choice stays in place
-            across logins until you reset it to the workspace default.
+            {personalAccountMode
+              ? "Your tester account is the active mail sender used for your personal SMTP setup."
+              : "Save an active sender for your account. Your manual choice stays in place across logins until you reset it to the workspace default."}
           </CardDescription>
         </div>
       </CardHeader>

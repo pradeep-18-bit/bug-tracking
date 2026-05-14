@@ -9,12 +9,14 @@ import {
 import {
   getDashboardPathByRole,
   hasAdminPanelAccess,
+  ROLE_TESTER,
 } from "@/lib/roles";
 import { getWorkspaceSenderResponseState } from "@/lib/workspaceSender";
 import { useAuth } from "@/hooks/use-auth";
 import { useEmailSettings } from "@/hooks/useEmailSettings";
 import { useWorkspaceSender } from "@/hooks/useWorkspaceSender";
 import AdminSettingsLayout from "@/components/settings/AdminSettingsLayout";
+import ChangePasswordSettings from "@/components/settings/ChangePasswordSettings";
 import ImportUsersCSVSettings from "@/components/settings/ImportUsersCSVSettings";
 import InviteUserSettings from "@/components/settings/InviteUserSettings";
 import ModifyRoleSettings from "@/components/settings/ModifyRoleSettings";
@@ -24,7 +26,7 @@ import WorkspaceMailSenderSettings from "@/components/settings/WorkspaceMailSend
 import ToastNotice from "@/components/shared/ToastNotice";
 import { Card, CardContent } from "@/components/ui/card";
 
-const SETTINGS_ITEMS = [
+const ADMIN_SETTINGS_ITEMS = [
   { id: "users", label: "Users" },
   { id: "invite", label: "Invite User" },
   { id: "roles", label: "Modify User Role" },
@@ -33,7 +35,14 @@ const SETTINGS_ITEMS = [
   { id: "import", label: "Import Users from CSV" },
 ];
 
-const DEFAULT_SETTINGS_ITEM = "users";
+const TESTER_SETTINGS_ITEMS = [
+  { id: "sender", label: "Workspace Mail Sender" },
+  { id: "smtp", label: "SMTP Configuration" },
+  { id: "password", label: "Change Password" },
+];
+
+const ADMIN_DEFAULT_SETTINGS_ITEM = "users";
+const TESTER_DEFAULT_SETTINGS_ITEM = "sender";
 const USER_FILTER_KEY_ALL = "all";
 
 const UserSettingsPage = () => {
@@ -42,8 +51,16 @@ const UserSettingsPage = () => {
   const redirectTimeoutRef = useRef(null);
   const workspaceSenderNoteRef = useRef("");
   const { token, user: authUser, setAuthSession } = useAuth();
+  const canManageWorkspaceUsers = hasAdminPanelAccess(authUser?.role);
+  const isTesterSettingsMode = authUser?.role === ROLE_TESTER;
+  const settingsItems = canManageWorkspaceUsers
+    ? ADMIN_SETTINGS_ITEMS
+    : TESTER_SETTINGS_ITEMS;
+  const defaultSettingsItem = canManageWorkspaceUsers
+    ? ADMIN_DEFAULT_SETTINGS_ITEM
+    : TESTER_DEFAULT_SETTINGS_ITEM;
 
-  const [activeSettingsItem, setActiveSettingsItem] = useState(DEFAULT_SETTINGS_ITEM);
+  const [activeSettingsItem, setActiveSettingsItem] = useState(defaultSettingsItem);
   const [activeUserFilter, setActiveUserFilter] = useState(USER_FILTER_KEY_ALL);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("Developer");
@@ -85,6 +102,14 @@ const UserSettingsPage = () => {
     []
   );
 
+  useEffect(() => {
+    if (settingsItems.some((item) => item.id === activeSettingsItem)) {
+      return;
+    }
+
+    setActiveSettingsItem(defaultSettingsItem);
+  }, [activeSettingsItem, defaultSettingsItem, settingsItems]);
+
   const {
     data: users = [],
     isLoading,
@@ -92,15 +117,18 @@ const UserSettingsPage = () => {
   } = useQuery({
     queryKey: ["managed-users"],
     queryFn: fetchManagedUsers,
+    enabled: canManageWorkspaceUsers,
   });
 
   const {
     eligibleSendersQuery,
     workspaceSenderQuery,
     saveWorkspaceSenderMutation,
-  } = useWorkspaceSender();
+  } = useWorkspaceSender({
+    enabled: canManageWorkspaceUsers,
+  });
 
-  const eligibleSenders = eligibleSendersQuery.data || [];
+  const eligibleSenders = canManageWorkspaceUsers ? eligibleSendersQuery.data || [] : [];
   const {
     workspaceSender,
     manualSelection,
@@ -132,13 +160,28 @@ const UserSettingsPage = () => {
   const {
     emailConfigQuery,
     saveEmailConfigMutation,
-  } = useEmailSettings(selectedSenderId);
+  } = useEmailSettings(selectedSenderId, {
+    enabled: canManageWorkspaceUsers && Boolean(selectedSenderId),
+  });
   const {
     emailConfigQuery: activeSenderEmailConfigQuery,
     testEmailConfigMutation: activeSenderTestEmailMutation,
-  } = useEmailSettings(activeSenderId);
+  } = useEmailSettings(activeSenderId, {
+    enabled: canManageWorkspaceUsers && Boolean(activeSenderId),
+  });
+  const {
+    emailConfigQuery: testerEmailConfigQuery,
+    saveEmailConfigMutation: testerSaveEmailConfigMutation,
+    testEmailConfigMutation: testerTestEmailConfigMutation,
+  } = useEmailSettings(authUser?._id || "", {
+    enabled: isTesterSettingsMode && Boolean(authUser?._id),
+  });
 
   useEffect(() => {
+    if (!canManageWorkspaceUsers) {
+      return;
+    }
+
     if (
       isSenderDirty ||
       workspaceSenderQuery.isLoading ||
@@ -153,9 +196,15 @@ const UserSettingsPage = () => {
     isSenderDirty,
     preferredSenderId,
     workspaceSenderQuery.isLoading,
+    canManageWorkspaceUsers,
   ]);
 
   useEffect(() => {
+    if (!canManageWorkspaceUsers) {
+      workspaceSenderNoteRef.current = "";
+      return;
+    }
+
     const note = workspaceSender?.note || "";
 
     if (!note) {
@@ -169,10 +218,10 @@ const UserSettingsPage = () => {
 
     workspaceSenderNoteRef.current = note;
     showToast("warning", note);
-  }, [workspaceSender?.note]);
+  }, [canManageWorkspaceUsers, workspaceSender?.note]);
 
   useEffect(() => {
-    if (!selectedSenderId) {
+    if (!canManageWorkspaceUsers || !selectedSenderId) {
       return;
     }
 
@@ -197,6 +246,7 @@ const UserSettingsPage = () => {
     selectedSenderId,
     workspaceSender?.user?._id,
     workspaceSenderQuery.isLoading,
+    canManageWorkspaceUsers,
   ]);
 
   const sortedUsers = useMemo(
@@ -245,6 +295,50 @@ const UserSettingsPage = () => {
     workspaceSender?.user,
   ]);
   const activeSenderEmailConfig = activeSenderEmailConfigQuery.data?.config || null;
+  const testerEmailConfig = testerEmailConfigQuery.data?.config || null;
+  const testerSenderProfile = testerEmailConfigQuery.data?.user || null;
+  const testerSelectedSender = useMemo(() => {
+    if (!authUser?._id) {
+      return null;
+    }
+
+    return {
+      _id: authUser._id,
+      name: authUser.name || "Tester",
+      email: authUser.email || "",
+      role: authUser.role || ROLE_TESTER,
+      smtpConfigured: Boolean(
+        testerSenderProfile?.smtpConfigured || testerEmailConfig?.hasPassword
+      ),
+    };
+  }, [
+    authUser?._id,
+    authUser?.email,
+    authUser?.name,
+    authUser?.role,
+    testerEmailConfig?.hasPassword,
+    testerSenderProfile?.smtpConfigured,
+  ]);
+  const testerWorkspaceSender = useMemo(
+    () => ({
+      enabled: Boolean(testerSelectedSender?._id),
+      userId: testerSelectedSender?._id || "",
+      user: testerSelectedSender,
+      source: "personal-account",
+      manualSelection: {
+        enabled: Boolean(testerSelectedSender?._id),
+        userId: testerSelectedSender?._id || "",
+        user: testerSelectedSender,
+      },
+      workspaceDefault: {
+        enabled: false,
+        userId: "",
+        user: null,
+      },
+      note: "",
+    }),
+    [testerSelectedSender]
+  );
 
   const inviteMutation = useMutation({
     mutationFn: inviteUser,
@@ -448,6 +542,44 @@ const UserSettingsPage = () => {
   };
 
   const handleTestActiveSender = async () => {
+    if (isTesterSettingsMode) {
+      if (!authUser?._id || !testerSelectedSender?.smtpConfigured) {
+        showToast(
+          "error",
+          "Finish your SMTP configuration before sending a test email."
+        );
+        return;
+      }
+
+      if (!testerEmailConfig) {
+        showToast("error", "Unable to load your SMTP configuration.");
+        return;
+      }
+
+      try {
+        const response = await testerTestEmailConfigMutation.mutateAsync({
+          userId: authUser._id,
+          host: testerEmailConfig.host,
+          port: testerEmailConfig.port,
+          secure: testerEmailConfig.secure,
+          username: testerEmailConfig.username,
+          password: "",
+          fromName: testerEmailConfig.fromName,
+          fromEmail: testerEmailConfig.fromEmail,
+        });
+
+        showToast("success", response?.message || "Test email sent successfully.");
+      } catch (mutationError) {
+        showToast(
+          "error",
+          mutationError.response?.data?.message ||
+            "Unable to send a test email right now."
+        );
+      }
+
+      return;
+    }
+
     if (!activeSenderId || !workspaceSender?.user?.smtpConfigured) {
       showToast(
         "error",
@@ -486,7 +618,7 @@ const UserSettingsPage = () => {
   };
 
   const renderActiveSettingsItem = () => {
-    if (activeSettingsItem === "invite") {
+    if (canManageWorkspaceUsers && activeSettingsItem === "invite") {
       return (
         <InviteUserSettings
           feedback={inviteFeedback}
@@ -501,7 +633,7 @@ const UserSettingsPage = () => {
       );
     }
 
-    if (activeSettingsItem === "roles") {
+    if (canManageWorkspaceUsers && activeSettingsItem === "roles") {
       return (
         <ModifyRoleSettings
           currentRole={currentRole}
@@ -521,6 +653,31 @@ const UserSettingsPage = () => {
     }
 
     if (activeSettingsItem === "sender") {
+      if (isTesterSettingsMode) {
+        return (
+          <WorkspaceMailSenderSettings
+            currentUser={authUser}
+            currentWorkspaceSender={testerWorkspaceSender}
+            eligibleSenders={[]}
+            errorMessage=""
+            isLoading={!authUser?._id}
+            isSaving={false}
+            isTesting={testerTestEmailConfigMutation.isPending}
+            canSendTestMail={Boolean(
+              testerSelectedSender?.smtpConfigured &&
+                testerEmailConfig &&
+                !testerEmailConfigQuery.isLoading
+            )}
+            personalAccountMode
+            selectedSenderId={authUser?._id || ""}
+            onSelectedSenderChange={() => {}}
+            onSendTestMail={handleTestActiveSender}
+            onActivateSelected={() => {}}
+            onClearSender={() => {}}
+          />
+        );
+      }
+
       return (
         <WorkspaceMailSenderSettings
           currentUser={authUser}
@@ -553,6 +710,19 @@ const UserSettingsPage = () => {
     }
 
     if (activeSettingsItem === "smtp") {
+      if (isTesterSettingsMode) {
+        return (
+          <SMTPConfigurationSettings
+            currentWorkspaceSender={testerWorkspaceSender}
+            emailConfigQuery={testerEmailConfigQuery}
+            personalAccountMode
+            saveEmailConfigMutation={testerSaveEmailConfigMutation}
+            selectedSender={testerSelectedSender}
+            showToast={showToast}
+          />
+        );
+      }
+
       return (
         <SMTPConfigurationSettings
           currentWorkspaceSender={workspaceSender}
@@ -564,7 +734,15 @@ const UserSettingsPage = () => {
       );
     }
 
-    if (activeSettingsItem === "import") {
+    if (activeSettingsItem === "password") {
+      return (
+        <div className="w-full max-w-[520px]">
+          <ChangePasswordSettings />
+        </div>
+      );
+    }
+
+    if (canManageWorkspaceUsers && activeSettingsItem === "import") {
       return (
         <ImportUsersCSVSettings
           onImported={() => {
@@ -576,21 +754,46 @@ const UserSettingsPage = () => {
       );
     }
 
+    if (canManageWorkspaceUsers) {
+      return (
+        <UsersSettings
+          activeFilter={activeUserFilter}
+          isLoading={isLoading}
+          onActiveFilterChange={setActiveUserFilter}
+          users={users}
+        />
+      );
+    }
+
     return (
-      <UsersSettings
-        activeFilter={activeUserFilter}
-        isLoading={isLoading}
-        onActiveFilterChange={setActiveUserFilter}
-        users={users}
+      <WorkspaceMailSenderSettings
+        currentUser={authUser}
+        currentWorkspaceSender={testerWorkspaceSender}
+        eligibleSenders={[]}
+        errorMessage=""
+        isLoading={!authUser?._id}
+        isSaving={false}
+        isTesting={testerTestEmailConfigMutation.isPending}
+        canSendTestMail={Boolean(
+          testerSelectedSender?.smtpConfigured &&
+            testerEmailConfig &&
+            !testerEmailConfigQuery.isLoading
+        )}
+        personalAccountMode
+        selectedSenderId={authUser?._id || ""}
+        onSelectedSenderChange={() => {}}
+        onSendTestMail={handleTestActiveSender}
+        onActivateSelected={() => {}}
+        onClearSender={() => {}}
       />
     );
   };
 
-  if (error) {
+  if (canManageWorkspaceUsers && error) {
     return (
       <Card>
         <CardContent className="p-6 text-sm text-rose-700">
-          {error.response?.data?.message || "Unable to load user settings."}
+          {error.response?.data?.message || "Unable to load settings right now."}
         </CardContent>
       </Card>
     );
@@ -602,7 +805,7 @@ const UserSettingsPage = () => {
 
       <AdminSettingsLayout
         activeItem={activeSettingsItem}
-        items={SETTINGS_ITEMS}
+        items={settingsItems}
         onActiveItemChange={setActiveSettingsItem}
       >
         {renderActiveSettingsItem()}

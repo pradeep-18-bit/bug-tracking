@@ -233,7 +233,7 @@ const ProjectsPage = () => {
           <CardContent className="flex flex-col gap-3 p-2 sm:flex-row sm:items-center sm:justify-between sm:p-3">
             <div
               aria-label="Projects and teams"
-              className="grid gap-2 rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-1 sm:inline-grid sm:grid-cols-2"
+              className="grid grid-cols-2 gap-2 rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-1 sm:inline-grid"
               role="tablist"
             >
               {[
@@ -455,7 +455,7 @@ const ProjectsPage = () => {
       ) : null}
 
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="grid-rows-[auto_minmax(0,1fr)] max-h-[88vh] w-[calc(100%-1rem)] max-w-[720px] gap-0 overflow-hidden rounded-[26px] border-white/80 bg-white/94 p-0 shadow-[0_34px_90px_-54px_rgba(15,23,42,0.44)] backdrop-blur-xl sm:w-[calc(100%-2rem)] [&>button]:right-4 [&>button]:top-4 [&>button]:h-8 [&>button]:w-8 [&>button]:rounded-lg [&>button]:border-slate-200/90 [&>button]:bg-white/90 [&>button]:p-0 [&>button]:text-slate-400 [&>button]:shadow-sm [&>button:hover]:bg-slate-50 [&>button:hover]:text-slate-700">
+        <DialogContent className="grid-rows-[auto_minmax(0,1fr)] max-h-[88vh] w-[calc(100%-2rem)] max-w-[720px] gap-0 overflow-hidden rounded-[26px] border-white/80 bg-white/94 p-0 shadow-[0_34px_90px_-54px_rgba(15,23,42,0.44)] backdrop-blur-xl [&>button]:right-4 [&>button]:top-4 [&>button]:h-8 [&>button]:w-8 [&>button]:rounded-lg [&>button]:border-slate-200/90 [&>button]:bg-white/90 [&>button]:p-0 [&>button]:text-slate-400 [&>button]:shadow-sm [&>button:hover]:bg-slate-50 [&>button:hover]:text-slate-700">
           <DialogHeader className="border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] px-4 py-3 sm:px-5 sm:py-3.5">
             <DialogTitle className="pr-10 text-lg tracking-tight text-slate-950">
               Create Project
@@ -479,7 +479,7 @@ const ProjectsPage = () => {
       </Dialog>
 
       <Dialog open={isCreateTeamDialogOpen} onOpenChange={setIsCreateTeamDialogOpen}>
-        <DialogContent className="grid-rows-[auto_minmax(0,1fr)] max-h-[88vh] w-[calc(100%-1rem)] max-w-[860px] gap-0 overflow-hidden rounded-[26px] border-white/80 bg-white/94 p-0 shadow-[0_34px_90px_-54px_rgba(15,23,42,0.44)] backdrop-blur-xl sm:w-[calc(100%-2rem)] [&>button]:right-4 [&>button]:top-4 [&>button]:h-8 [&>button]:w-8 [&>button]:rounded-lg [&>button]:border-slate-200/90 [&>button]:bg-white/90 [&>button]:p-0 [&>button]:text-slate-400 [&>button]:shadow-sm [&>button:hover]:bg-slate-50 [&>button:hover]:text-slate-700">
+        <DialogContent className="grid-rows-[auto_minmax(0,1fr)] max-h-[88vh] w-[calc(100%-2rem)] max-w-[860px] gap-0 overflow-hidden rounded-[26px] border-white/80 bg-white/94 p-0 shadow-[0_34px_90px_-54px_rgba(15,23,42,0.44)] backdrop-blur-xl [&>button]:right-4 [&>button]:top-4 [&>button]:h-8 [&>button]:w-8 [&>button]:rounded-lg [&>button]:border-slate-200/90 [&>button]:bg-white/90 [&>button]:p-0 [&>button]:text-slate-400 [&>button]:shadow-sm [&>button:hover]:bg-slate-50 [&>button:hover]:text-slate-700">
           <DialogHeader className="border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] px-4 py-3 sm:px-5 sm:py-3.5">
             <DialogTitle className="pr-10 text-lg tracking-tight text-slate-950">
               Create Team

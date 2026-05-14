@@ -14,6 +14,7 @@ const { decryptSecret, encryptSecret } = require("../utils/emailCrypto");
 const {
   ROLE_ADMIN,
   ROLE_MANAGER,
+  ROLE_TESTER,
   isEligibleWorkspaceSenderRole,
 } = require("../utils/roles");
 const {
@@ -157,7 +158,34 @@ const logSenderResolution = (step, payload = {}) => {
   });
 };
 
-const resolveEligibleSenderUser = async (userId, workspaceId, res) => {
+const isTesterSelfSenderRequest = (requestUser, targetUserId) =>
+  requestUser?.role === ROLE_TESTER &&
+  String(requestUser?._id || "") === String(targetUserId || "");
+
+const buildTesterPersonalSenderSelection = (user, smtpConfigured = false) => {
+  const personalSender = serializeSenderUser(user, smtpConfigured);
+
+  return {
+    enabled: Boolean(personalSender?._id),
+    userId: personalSender?._id || "",
+    user: personalSender,
+    source: "personal-account",
+    manualSelection: {
+      enabled: Boolean(personalSender?._id),
+      userId: personalSender?._id || "",
+      user: personalSender,
+    },
+    workspaceDefault: buildSenderSelectionPayload(),
+    note: "",
+  };
+};
+
+const resolveAccessibleSenderUser = async ({
+  requestUser,
+  userId,
+  workspaceId,
+  res,
+}) => {
   if (!mongoose.isValidObjectId(userId)) {
     res.status(400);
     throw new Error("Please provide a valid sender user");
@@ -175,12 +203,22 @@ const resolveEligibleSenderUser = async (userId, workspaceId, res) => {
     throw new Error("Selected sender user was not found in this workspace");
   }
 
-  if (!isEligibleWorkspaceSenderRole(user.role)) {
+  const testerSelfRequest = isTesterSelfSenderRequest(requestUser, user._id);
+
+  if (requestUser?.role === ROLE_TESTER && !testerSelfRequest) {
+    res.status(403);
+    throw new Error("Testers can only access their own mail account");
+  }
+
+  if (!testerSelfRequest && !isEligibleWorkspaceSenderRole(user.role)) {
     res.status(400);
     throw new Error("Only Admin and Manager users can be configured as senders");
   }
 
-  return user;
+  return {
+    user,
+    testerSelfRequest,
+  };
 };
 
 const buildConfigFromRequest = ({ body, existingConfig }) => {
@@ -623,7 +661,12 @@ const getEmailConfig = asyncHandler(async (req, res) => {
     throw new Error("A sender user id is required");
   }
 
-  const user = await resolveEligibleSenderUser(userId, workspaceId, res);
+  const { user } = await resolveAccessibleSenderUser({
+    requestUser: req.user,
+    userId,
+    workspaceId,
+    res,
+  });
   const config = await UserEmailConfig.findOne({
     workspaceId,
     userId,
@@ -665,7 +708,12 @@ const saveEmailConfig = asyncHandler(async (req, res) => {
     throw new Error("A sender user must be selected before saving configuration");
   }
 
-  const user = await resolveEligibleSenderUser(userId, workspaceId, res);
+  const { user, testerSelfRequest } = await resolveAccessibleSenderUser({
+    requestUser: req.user,
+    userId,
+    workspaceId,
+    res,
+  });
   const existingConfig = await UserEmailConfig.findOne({
     workspaceId,
     userId,
@@ -735,6 +783,15 @@ const saveEmailConfig = asyncHandler(async (req, res) => {
     .select("host port secure username fromName fromEmail updatedAt")
     .lean();
 
+  if (testerSelfRequest) {
+    await saveUserSenderPreference({
+      workspaceId,
+      ownerUserId: req.user._id,
+      senderUserId: req.user._id,
+      updatedByUserId: req.user._id,
+    });
+  }
+
   res.status(200).json({
     message: `${user.name}'s email configuration saved successfully`,
     user: serializeSenderUser(user, true),
@@ -754,7 +811,12 @@ const testEmailConfig = asyncHandler(async (req, res) => {
     throw new Error("Select a sender user before sending a test email");
   }
 
-  await resolveEligibleSenderUser(userId, workspaceId, res);
+  await resolveAccessibleSenderUser({
+    requestUser: req.user,
+    userId,
+    workspaceId,
+    res,
+  });
 
   const existingConfig = await UserEmailConfig.findOne({
     workspaceId,
@@ -803,6 +865,19 @@ const testEmailConfig = asyncHandler(async (req, res) => {
 
 const getEligibleSenders = asyncHandler(async (req, res) => {
   const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+
+  if (req.user.role === ROLE_TESTER) {
+    const { smtpConfigured } = await getUserSmtpConfigState({
+      workspaceId,
+      userId: req.user._id,
+    });
+
+    res.status(200).json([
+      serializeSenderUser(req.user, smtpConfigured),
+    ]);
+    return;
+  }
+
   const eligibleUsers = await User.find({
     workspaceId,
     role: {
@@ -841,6 +916,24 @@ const getEligibleSenders = asyncHandler(async (req, res) => {
 
 const getWorkspaceSender = asyncHandler(async (req, res) => {
   const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+
+  if (req.user.role === ROLE_TESTER) {
+    const { smtpConfigured } = await getUserSmtpConfigState({
+      workspaceId,
+      userId: req.user._id,
+    });
+
+    res.status(200).json(
+      buildWorkspaceSenderResponse({
+        senderSelection: buildTesterPersonalSenderSelection(
+          req.user,
+          smtpConfigured
+        ),
+      })
+    );
+    return;
+  }
+
   const effectiveSender = await resolveEffectiveSenderSelection({
     workspaceId,
     ownerUserId: req.user._id,
@@ -859,6 +952,45 @@ const saveWorkspaceSender = asyncHandler(async (req, res) => {
   const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
   const selectedSenderUserId = String(req.body.userId || "").trim();
   const enabled = Boolean(req.body.enabled);
+
+  if (req.user.role === ROLE_TESTER) {
+    if (!enabled || !selectedSenderUserId) {
+      res.status(403);
+      throw new Error("Testers can only use their own mail account as the active sender");
+    }
+
+    if (!isTesterSelfSenderRequest(req.user, selectedSenderUserId)) {
+      res.status(403);
+      throw new Error("Testers can only activate their own mail account");
+    }
+
+    const { smtpConfigured } = await getUserSmtpConfigState({
+      workspaceId,
+      userId: req.user._id,
+    });
+
+    if (!smtpConfigured) {
+      res.status(400);
+      throw new Error(
+        "Save your SMTP configuration before activating your mail account."
+      );
+    }
+
+    await saveUserSenderPreference({
+      workspaceId,
+      ownerUserId: req.user._id,
+      senderUserId: req.user._id,
+      updatedByUserId: req.user._id,
+    });
+
+    res.status(200).json(
+      buildWorkspaceSenderResponse({
+        message: "Your mail account is now the active sender.",
+        senderSelection: buildTesterPersonalSenderSelection(req.user, true),
+      })
+    );
+    return;
+  }
 
   if (!enabled || !selectedSenderUserId) {
     await clearUserSenderPreference({
@@ -885,11 +1017,12 @@ const saveWorkspaceSender = asyncHandler(async (req, res) => {
     return;
   }
 
-  const senderUser = await resolveEligibleSenderUser(
-    selectedSenderUserId,
+  const { user: senderUser } = await resolveAccessibleSenderUser({
+    requestUser: req.user,
+    userId: selectedSenderUserId,
     workspaceId,
-    res
-  );
+    res,
+  });
   const { smtpConfigured } = await getUserSmtpConfigState({
     workspaceId,
     userId: senderUser._id,

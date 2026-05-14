@@ -22,7 +22,7 @@ const AppShell = () => {
   return (
     <div className="relative min-h-screen bg-transparent text-gray-900">
       <Navbar />
-      <main className="mt-4 px-4 pb-10 pt-20 sm:px-6 lg:px-8">
+      <main className="mt-4 px-4 pb-10 pt-16 sm:px-6 sm:pt-20 lg:px-8">
         <Suspense fallback={<RouteContentFallback />}>
           <div key={`${location.pathname}${location.search}`} className="page-shell-enter">
             <Outlet />

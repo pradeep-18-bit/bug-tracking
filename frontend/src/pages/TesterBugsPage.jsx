@@ -33,6 +33,7 @@ import { useAuth } from "@/hooks/use-auth";
 import IssueComposer from "@/components/issues/IssueComposer";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import EmptyState from "@/components/shared/EmptyState";
+import ToastNotice from "@/components/shared/ToastNotice";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -263,7 +264,16 @@ const TesterBugsPage = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [selectedIssue, setSelectedIssue] = useState(null);
+  const [toast, setToast] = useState(null);
   const testerId = String(user?._id || user?.id || "");
+
+  const showToast = (type, message) => {
+    setToast({
+      id: Date.now(),
+      type,
+      message,
+    });
+  };
 
   const {
     data: projects = [],
@@ -295,6 +305,16 @@ const TesterBugsPage = () => {
       setSelectedIssue(nextIssue);
     }
   }, [issues, selectedIssue]);
+
+  useEffect(() => {
+    if (!toast?.id) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setToast(null), 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [toast?.id]);
 
   const assignedProjects = useMemo(
     () =>
@@ -387,7 +407,7 @@ const TesterBugsPage = () => {
                 comments, attachments, and status history in one place.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:w-auto">
+            <div className="grid grid-cols-1 gap-3 sm:w-auto sm:grid-cols-2">
               <div className="rounded-[24px] border border-white/70 bg-white/80 px-4 py-3 shadow-sm">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                   Reported
@@ -419,7 +439,25 @@ const TesterBugsPage = () => {
               createIssueMutation.isPending || uploadAttachmentMutation.isPending
             }
             lockType
-            onSubmit={(payload) => createIssueMutation.mutateAsync(payload)}
+            onSubmit={async (payload) => {
+              const createdIssue = await createIssueMutation.mutateAsync(payload);
+              const hasAssignedDeveloper = Boolean(
+                payload?.bugDetails?.developerLeadId
+              );
+
+              if (hasAssignedDeveloper) {
+                showToast(
+                  createdIssue?.emailNotification?.status === "sent"
+                    ? "success"
+                    : "warning",
+                  createdIssue?.emailNotification?.status === "sent"
+                    ? "Bug created and email sent to developer."
+                    : "Bug created, but email notification failed."
+                );
+              }
+
+              return createdIssue;
+            }}
             onUploadAttachment={(payload) =>
               uploadAttachmentMutation.mutateAsync(payload)
             }
@@ -495,6 +533,7 @@ const TesterBugsPage = () => {
         canEditAssignee={false}
         canDeleteIssue={false}
       />
+      <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 };

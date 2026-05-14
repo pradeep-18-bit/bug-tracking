@@ -1253,7 +1253,7 @@ const ReportsPage = () => {
                     ) : (
                       <div className="space-y-3">
                         <div className="space-y-2.5">
-                          <div className="flex items-center justify-between gap-4">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
                               Distribution
                             </p>
@@ -1465,7 +1465,7 @@ const ReportsPage = () => {
                               </span>
                             </div>
 
-                            <div className="grid grid-cols-3 gap-2">
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                               <div className="rounded-[14px] bg-slate-950/[0.03] px-3 py-2">
                                 <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
                                   Total
@@ -1759,7 +1759,7 @@ const ReportsPage = () => {
                                   : "bg-[linear-gradient(180deg,rgba(255,255,255,0.74),rgba(248,250,252,0.54))]"
                               )}
                             >
-                              <div className="flex items-center justify-between gap-3">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
                                   <p className="text-sm font-semibold text-slate-950">
                                     {team.name}
@@ -1773,7 +1773,7 @@ const ReportsPage = () => {
                                 </span>
                               </div>
 
-                              <div className="grid grid-cols-3 gap-2">
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                 <div className="rounded-[14px] bg-slate-950/[0.03] px-3 py-2">
                                   <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
                                     Total

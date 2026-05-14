@@ -9,10 +9,15 @@ const User = require("../models/User");
 const UserEmailConfig = require("../models/UserEmailConfig");
 const WorkspaceSetting = require("../models/WorkspaceSetting");
 const { decryptSecret } = require("../utils/emailCrypto");
-const { isEligibleWorkspaceSenderRole } = require("../utils/roles");
+const {
+  ROLE_TESTER,
+  isEligibleWorkspaceSenderRole,
+} = require("../utils/roles");
 const { getWorkspaceSenderState } = require("../utils/workspaceSender");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const TESTER_SMTP_REQUIRED_MESSAGE =
+  "Please configure your SMTP settings before assigning bugs by email.";
 const ipv4Regex =
   /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
 const hostnameRegex =
@@ -400,6 +405,7 @@ const clearOwnerManualSenderPreference = async ({
 const loadUserMailerConfig = async ({
   userId,
   workspaceId,
+  allowSelfSenderUserId = null,
   sourceLabel = "Sender",
 }) => {
   const normalizedWorkspaceId = workspaceId ? normalizeWorkspaceId(workspaceId) : "";
@@ -444,7 +450,11 @@ const loadUserMailerConfig = async ({
     };
   }
 
-  if (!isEligibleWorkspaceSenderRole(senderUser.role)) {
+  const canUseSelfSender =
+    allowSelfSenderUserId &&
+    String(senderUser._id) === String(allowSelfSenderUserId);
+
+  if (!canUseSelfSender && !isEligibleWorkspaceSenderRole(senderUser.role)) {
     return {
       config: null,
       fallbackReason: `${sourceLabel} ${senderUser.email} has ineligible role ${senderUser.role}.`,
@@ -547,6 +557,72 @@ const loadUserMailerConfig = async ({
   };
 };
 
+const createSmtpConfigurationRequiredError = (message, fallbackReason = "") => {
+  const error = new Error(message || TESTER_SMTP_REQUIRED_MESSAGE);
+  error.code = "SMTP_CONFIG_REQUIRED";
+  error.fallbackReason = fallbackReason;
+  return error;
+};
+
+const ensureUserSmtpConfigured = async ({
+  userId,
+  workspaceId,
+  sourceLabel = "User personal sender",
+  message = TESTER_SMTP_REQUIRED_MESSAGE,
+} = {}) => {
+  const userMailerConfig = await loadUserMailerConfig({
+    allowSelfSenderUserId: userId,
+    userId,
+    workspaceId,
+    sourceLabel,
+  });
+
+  if (!userMailerConfig.config) {
+    throw createSmtpConfigurationRequiredError(
+      message,
+      userMailerConfig.fallbackReason
+    );
+  }
+
+  return userMailerConfig;
+};
+
+const getRequiredUserMailer = async ({
+  userId,
+  workspaceId,
+  sourceLabel = "User personal sender",
+  senderSource = "user",
+  enforceUserFromIdentity = false,
+  message = TESTER_SMTP_REQUIRED_MESSAGE,
+} = {}) => {
+  const userMailerConfig = await ensureUserSmtpConfigured({
+    userId,
+    workspaceId,
+    sourceLabel,
+    message,
+  });
+  const senderIdentityConfig =
+    enforceUserFromIdentity && userMailerConfig.senderUser
+      ? {
+          ...userMailerConfig.config,
+          fromName:
+            String(userMailerConfig.senderUser.name || "").trim() ||
+            userMailerConfig.config.fromName,
+          fromEmail:
+            normalizeEmailAddress(userMailerConfig.senderUser.email) ||
+            userMailerConfig.config.fromEmail,
+        }
+      : userMailerConfig.config;
+
+  return buildMailerResult({
+    config: senderIdentityConfig,
+    fallbackReason: "",
+    senderSource,
+    senderUser: userMailerConfig.senderUser,
+    workspaceId: userMailerConfig.workspaceId,
+  });
+};
+
 const loadWorkspaceMailerConfig = async (workspaceId) => {
   const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
 
@@ -645,6 +721,20 @@ const loadManualSenderPreferenceConfig = async ({
   }
 
   if (!ownerUser.senderPreference?.userId) {
+    if (ownerUser.role === ROLE_TESTER) {
+      const testerPersonalSenderConfig = await loadUserMailerConfig({
+        allowSelfSenderUserId: ownerUser._id,
+        userId: ownerUser._id,
+        workspaceId: normalizedWorkspaceId,
+        sourceLabel: "Tester personal sender",
+      });
+
+      return {
+        ...testerPersonalSenderConfig,
+        ownerUser,
+      };
+    }
+
     return {
       config: null,
       fallbackReason: `No user-specific sender is saved for ${ownerUser.email}.`,
@@ -654,7 +744,35 @@ const loadManualSenderPreferenceConfig = async ({
     };
   }
 
+  if (
+    ownerUser.role === ROLE_TESTER &&
+    String(ownerUser.senderPreference.userId) !== String(ownerUser._id)
+  ) {
+    await clearOwnerManualSenderPreference({
+      workspaceId: normalizedWorkspaceId,
+      ownerUserId: ownerUser._id,
+      matchSenderUserId: ownerUser.senderPreference.userId,
+    });
+
+    const testerPersonalSenderConfig = await loadUserMailerConfig({
+      allowSelfSenderUserId: ownerUser._id,
+      userId: ownerUser._id,
+      workspaceId: normalizedWorkspaceId,
+      sourceLabel: "Tester personal sender",
+    });
+
+    return {
+      ...testerPersonalSenderConfig,
+      fallbackReason: testerPersonalSenderConfig.config
+        ? ""
+        : `The saved sender for ${ownerUser.email} was reset because testers can only use their own mail account.`,
+      ownerUser,
+    };
+  }
+
   const manualSenderConfig = await loadUserMailerConfig({
+    allowSelfSenderUserId:
+      ownerUser.role === ROLE_TESTER ? ownerUser._id : null,
     userId: ownerUser.senderPreference.userId,
     workspaceId: normalizedWorkspaceId,
     sourceLabel: "User-selected sender",
@@ -747,6 +865,7 @@ const getNotificationMailer = async ({ creatorUserId, workspaceId }) => {
           workspaceId: "",
         }),
   ]);
+  const isTesterOwner = manualSenderConfig.ownerUser?.role === ROLE_TESTER;
 
   const manualMailer = manualSenderConfig.config
     ? buildMailerResult({
@@ -757,7 +876,7 @@ const getNotificationMailer = async ({ creatorUserId, workspaceId }) => {
         workspaceId: normalizedWorkspaceId,
       })
     : null;
-  const workspaceMailer = workspaceMailerConfig.config
+  const workspaceMailer = !isTesterOwner && workspaceMailerConfig.config
     ? buildMailerResult({
         config: workspaceMailerConfig.config,
         fallbackReason: manualSenderConfig.fallbackReason,
@@ -770,7 +889,7 @@ const getNotificationMailer = async ({ creatorUserId, workspaceId }) => {
     workspaceId: normalizedWorkspaceId,
     fallbackReason: [
       manualSenderConfig.fallbackReason,
-      workspaceMailerConfig.fallbackReason,
+      !isTesterOwner ? workspaceMailerConfig.fallbackReason : "",
     ]
       .filter(Boolean)
       .join(" "),
@@ -886,6 +1005,7 @@ const sendMailWithMailer = async ({
     from: mailer.from,
     replyTo: mailer.replyTo,
     authUser: mailer.config.username,
+    smtpProvider: mailer.config.host,
     senderSource: mailer.senderSource,
     senderUser: mailer.senderUser,
     workspaceId: mailer.workspaceId,
@@ -925,6 +1045,48 @@ const sendWorkspaceEmail = async ({
     text,
     logLabel: "sendWorkspaceEmail",
   });
+};
+
+const sendUserNotificationEmail = async ({
+  senderUserId,
+  workspaceId,
+  to,
+  cc,
+  bcc,
+  subject,
+  html,
+  text,
+  sourceLabel = "User personal sender",
+  senderSource = "user",
+  enforceUserFromIdentity = false,
+  missingConfigMessage = TESTER_SMTP_REQUIRED_MESSAGE,
+}) => {
+  const userMailer = await getRequiredUserMailer({
+    userId: senderUserId,
+    workspaceId,
+    sourceLabel,
+    senderSource,
+    enforceUserFromIdentity,
+    message: missingConfigMessage,
+  });
+
+  try {
+    return await sendMailWithMailer({
+      mailer: userMailer,
+      workspaceId,
+      to,
+      cc,
+      bcc,
+      subject,
+      html,
+      text,
+      logLabel: "sendUserNotificationEmail",
+    });
+  } catch (error) {
+    error.smtpProvider = userMailer?.config?.host || "";
+    error.senderSource = userMailer?.senderSource || "";
+    throw error;
+  }
 };
 
 const sendIssueNotificationEmail = async ({
@@ -1037,6 +1199,86 @@ const sendIssueEmail = async (emails, issue, options = {}) => {
   });
 };
 
+const sendBugAssignmentEmail = async (emails, bug, options = {}) => {
+  const appUrl = (process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "");
+  const bugUrl = bug.bugUrl || `${appUrl}/issues/${bug._id}`;
+  const bugId = String(bug._id || "");
+  const bugTitle = String(bug.title || "Untitled bug");
+  const projectName = bug.projectName || "N/A";
+  const severity = bug.severity || "N/A";
+  const priority = bug.priority || "N/A";
+  const description = bug.description || "N/A";
+  const assignedByName =
+    bug.assignedByName || options.assignedByName || "Tester";
+  const assignedByEmail = bug.assignedByEmail || options.assignedByEmail || "";
+  const assignedToName = bug.assigneeName || "Assigned developer";
+  const assignedByText = assignedByEmail
+    ? `${assignedByName} (${assignedByEmail})`
+    : assignedByName;
+  const subject = `Bug Assigned: ${bugTitle}`;
+  const html = `
+      <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <h2 style="color: #2563EB;">Bug Assigned</h2>
+
+        <p><b>Bug ID:</b> ${escapeHtml(bugId)}</p>
+        <p><b>Bug Title:</b> ${escapeHtml(bugTitle)}</p>
+        <p><b>Project:</b> ${escapeHtml(projectName)}</p>
+        <p><b>Severity:</b> ${escapeHtml(severity)}</p>
+        <p><b>Priority:</b> ${escapeHtml(priority)}</p>
+        <p><b>Description:</b> ${escapeHtml(description)}</p>
+
+        <hr />
+
+        <p><b>Assigned To:</b> ${escapeHtml(assignedToName)}</p>
+        <p><b>Assigned By:</b> ${escapeHtml(assignedByText)}</p>
+
+        <br />
+
+        <a
+          href="${escapeHtml(bugUrl)}"
+          style="background: #2563EB; color: #fff; padding: 10px 16px; border-radius: 6px; text-decoration: none;"
+        >
+          View Bug Details
+        </a>
+      </div>
+    `;
+  const text = [
+    `Bug ID: ${bugId}`,
+    `Bug Title: ${bugTitle}`,
+    `Project: ${projectName}`,
+    `Severity: ${severity}`,
+    `Priority: ${priority}`,
+    `Description: ${description}`,
+    `Assigned To: ${assignedToName}`,
+    `Assigned By: ${assignedByText}`,
+    `Link: ${bugUrl}`,
+  ].join("\n");
+
+  if (options.strictSenderUserId) {
+    return sendUserNotificationEmail({
+      senderUserId: options.strictSenderUserId,
+      workspaceId: options.workspaceId,
+      to: emails,
+      subject,
+      html,
+      text,
+      sourceLabel: "Tester personal sender",
+      senderSource: "tester-personal",
+      enforceUserFromIdentity: true,
+      missingConfigMessage: TESTER_SMTP_REQUIRED_MESSAGE,
+    });
+  }
+
+  return sendIssueNotificationEmail({
+    creatorUserId: options.creatorUserId || options.senderUserId,
+    workspaceId: options.workspaceId,
+    to: emails,
+    subject,
+    html,
+    text,
+  });
+};
+
 const sendProjectMeetingInviteEmail = async (emails, meeting, options = {}) => {
   const meetingTitleText = String(meeting?.subject || "Project team meeting").trim();
   const meetingTitle = escapeHtml(meetingTitleText || "Project team meeting");
@@ -1103,16 +1345,20 @@ const sendTestEmail = async ({ to, workspaceId, overrideConfig = null }) =>
   });
 
 module.exports = {
+  TESTER_SMTP_REQUIRED_MESSAGE,
   getWorkspaceMailer,
   getNotificationMailer,
   getIssueNotificationMailer,
   sendWorkspaceEmail,
+  sendUserNotificationEmail,
   sendIssueNotificationEmail,
+  ensureUserSmtpConfigured,
   normalizeEmailConfig,
   hasCompleteEmailConfig,
   isValidEmailAddress,
   isValidSmtpHost,
   sendIssueEmail,
+  sendBugAssignmentEmail,
   sendProjectMeetingInviteEmail,
   sendTestEmail,
 };

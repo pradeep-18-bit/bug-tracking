@@ -6,15 +6,17 @@ import {
   testEmailConfig,
 } from "@/lib/api";
 
-export const useEmailSettings = (userId) => {
+export const useEmailSettings = (userId, options = {}) => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const workspaceId = user?.workspaceId || "default";
+  const queryEnabled =
+    typeof options.enabled === "boolean" ? options.enabled : Boolean(userId);
 
   const emailConfigQuery = useQuery({
     queryKey: ["email-config", workspaceId, userId],
     queryFn: () => fetchEmailConfig(userId),
-    enabled: Boolean(userId),
+    enabled: queryEnabled && Boolean(userId),
   });
 
   const saveEmailConfigMutation = useMutation({

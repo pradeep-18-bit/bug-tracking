@@ -21,7 +21,7 @@ const ToastNotice = ({ toast, onDismiss }) => {
     toast.title || (isSuccess ? "Success" : isWarning ? "Heads up" : "Something went wrong");
 
   return (
-    <div className="fixed right-4 top-4 z-50 w-[calc(100%-2rem)] max-w-sm sm:right-6 sm:top-6">
+    <div className="fixed inset-x-4 bottom-4 z-50 w-auto max-w-sm sm:inset-x-auto sm:bottom-auto sm:right-6 sm:top-6 sm:w-[calc(100%-2rem)]">
       <div
         className={`rounded-[26px] border px-4 py-4 shadow-[0_28px_60px_-30px_rgba(15,23,42,0.42)] backdrop-blur-xl ${containerClass}`}
         role={isSuccess ? "status" : "alert"}

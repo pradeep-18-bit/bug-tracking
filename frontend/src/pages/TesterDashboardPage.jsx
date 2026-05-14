@@ -514,7 +514,7 @@ const TesterDashboardPage = () => {
           </div>
 
           <Button
-            className="interactive-button h-11 shrink-0 rounded-2xl border border-indigo-300/30 bg-[linear-gradient(90deg,#2563EB_0%,#6366F1_55%,#8B5CF6_100%)] px-4 sm:px-5 text-white shadow-[0_14px_28px_-18px_rgba(99,102,241,0.82)] hover:brightness-105"
+            className="interactive-button h-11 w-full shrink-0 rounded-2xl border border-indigo-300/30 bg-[linear-gradient(90deg,#2563EB_0%,#6366F1_55%,#8B5CF6_100%)] px-4 text-white shadow-[0_14px_28px_-18px_rgba(99,102,241,0.82)] hover:brightness-105 sm:w-auto sm:px-5"
             onClick={() => navigate("/bugs")}
             type="button"
           >
@@ -523,7 +523,7 @@ const TesterDashboardPage = () => {
           </Button>
         </div>
 
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="ml-0 flex w-full shrink-0 items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:justify-end">
           <DashboardIconButton aria-label="Notifications">
             <Bell className="h-4 w-4" />
           </DashboardIconButton>
@@ -740,13 +740,98 @@ const TesterDashboardPage = () => {
 
       <Card className="overflow-hidden border-white/70 bg-white/90 shadow-[0_20px_56px_-36px_rgba(15,23,42,0.38)] backdrop-blur-xl">
         <CardContent className="p-0">
-          <div className="border-b border-slate-200/80 px-5 py-4">
+          <div className="border-b border-slate-200/80 px-4 py-4 sm:px-5">
             <h2 className="text-base font-semibold tracking-tight text-slate-950">
               Recently Updated Bugs
             </h2>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="space-y-3 p-4 md:hidden">
+            {recentlyUpdatedBugs.length ? (
+              recentlyUpdatedBugs.map((issue) => {
+                const updatedAt = getBugUpdatedAt(issue);
+
+                return (
+                  <article
+                    className="rounded-[20px] border border-slate-200/80 bg-white/78 p-4 shadow-sm"
+                    key={issue._id}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        aria-label={`Select ${getIssueDisplayKey(issue)}`}
+                        checked={selectedBugIds.includes(issue._id)}
+                        className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        onChange={(event) =>
+                          handleToggleRow(issue._id, event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs font-semibold text-slate-500">
+                            {getIssueDisplayKey(issue)}
+                          </span>
+                          <TableBadge variant={getIssueStatusVariant(issue.status)}>
+                            {getIssueStatusLabel(issue.status)}
+                          </TableBadge>
+                        </div>
+                        <h3 className="mt-2 break-words text-sm font-semibold text-slate-950">
+                          {issue.title || "Untitled bug"}
+                        </h3>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-2 text-sm text-slate-600">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                          Project
+                        </span>
+                        <span className="min-w-0 truncate text-right font-medium">
+                          {getProjectName(issue, assignedProjects)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                          Priority
+                        </span>
+                        <TableBadge variant={getIssuePriorityVariant(issue.priority)}>
+                          {issue.priority || "Not set"}
+                        </TableBadge>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                          Assignee
+                        </span>
+                        <span className="min-w-0 truncate text-right font-medium">
+                          {getAssigneeName(issue)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                          Updated
+                        </span>
+                        <span className="text-right font-medium">
+                          {updatedAt
+                            ? formatDateTime(updatedAt, {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })
+                            : "Unknown"}
+                        </span>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })
+            ) : (
+              <p className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500">
+                No bugs match the current dashboard filters.
+              </p>
+            )}
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[920px] text-left text-sm">
               <thead className="bg-slate-50/90 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                 <tr>
@@ -846,10 +931,10 @@ const TesterDashboardPage = () => {
       </Card>
 
       <section className="flex flex-col gap-3 rounded-[24px] border border-white/70 bg-white/78 p-3 shadow-[0_16px_42px_-34px_rgba(15,23,42,0.32)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
-        <label className="flex items-center gap-3">
+        <label className="flex w-full items-center gap-3 sm:w-auto">
           <span className="sr-only">Project filter</span>
           <select
-            className="h-11 rounded-2xl border border-slate-200/90 bg-white/86 px-4 text-sm font-semibold text-slate-700 shadow-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/25"
+            className="h-11 w-full rounded-2xl border border-slate-200/90 bg-white/86 px-4 text-sm font-semibold text-slate-700 shadow-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/25 sm:w-auto"
             onChange={(event) => setProjectFilter(event.target.value)}
             value={projectFilter}
           >
@@ -862,7 +947,7 @@ const TesterDashboardPage = () => {
           </select>
         </label>
 
-        <div className="flex items-center justify-between gap-3 sm:justify-end">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
           <p className="text-sm text-slate-500">
             Last refreshed {formatDateTime(lastRefreshedAt)}
           </p>

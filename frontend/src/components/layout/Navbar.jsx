@@ -47,7 +47,7 @@ const Navbar = () => {
   }, [location.pathname]);
 
   return (
-    <header className="fixed inset-x-0 top-0 z-30 h-20 border-b border-white/45 bg-gradient-to-r from-white/78 via-blue-50/74 to-sky-100/70 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-2xl">
+    <header className="fixed inset-x-0 top-0 z-30 h-16 border-b border-white/45 bg-gradient-to-r from-white/78 via-blue-50/74 to-sky-100/70 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-2xl sm:h-20">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.16),transparent_32%),radial-gradient(circle_at_top_right,_rgba(186,230,253,0.22),transparent_40%)]" />
 
       <div className="relative z-10 mx-auto h-full w-full max-w-screen-2xl px-4 sm:px-6 lg:px-8">
@@ -59,7 +59,7 @@ const Navbar = () => {
             <img
               src={pirnavLogo}
               alt="Pirnav Software Solutions Pvt. Ltd."
-              className="h-auto max-h-10 w-auto max-w-[160px] object-contain sm:max-w-[190px]"
+              className="h-auto max-h-9 w-auto max-w-[132px] object-contain sm:max-h-10 sm:max-w-[190px]"
             />
           </NavLink>
 
@@ -107,7 +107,7 @@ const Navbar = () => {
           </div>
 
           <Button
-            className="ml-auto lg:hidden"
+            className="ml-auto shrink-0 lg:hidden"
             variant="outline"
             size="icon"
             type="button"
@@ -119,7 +119,7 @@ const Navbar = () => {
       </div>
 
       {isMenuOpen ? (
-        <div className="absolute inset-x-0 top-full border-b border-white/45 bg-gradient-to-r from-white/82 via-blue-50/78 to-sky-100/74 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur-2xl lg:hidden">
+        <div className="absolute inset-x-0 top-full max-h-[calc(100vh-4rem)] overflow-y-auto border-b border-white/45 bg-gradient-to-r from-white/82 via-blue-50/78 to-sky-100/74 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur-2xl sm:max-h-[calc(100vh-5rem)] lg:hidden">
           <div className="mx-auto w-full max-w-screen-2xl space-y-4 px-4 py-4 sm:px-6 lg:px-8">
             <nav className="grid gap-2">
               {navigation.map((item) => {
@@ -132,7 +132,7 @@ const Navbar = () => {
                     className={({ isActive }) =>
                       cn(
                         navItemClassName,
-                        "justify-between bg-white/38",
+                        "w-full justify-between bg-white/38",
                         isActive
                           ? "border-blue-200/80 bg-gradient-to-r from-blue-500/85 via-sky-400/80 to-cyan-300/75 font-semibold text-white shadow-[0_12px_28px_rgba(37,99,235,0.3)]"
                           : "border-white/35 text-slate-700 hover:border-blue-200/70 hover:bg-white/55 hover:text-slate-950"
