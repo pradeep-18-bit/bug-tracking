@@ -209,8 +209,7 @@ const DashboardPage = () => {
                 Admin Command Center
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-400">
-                Live workload, issue health, recent movement, and project risk from the
-                shared analytics engine.
+              
               </p>
             </div>
 

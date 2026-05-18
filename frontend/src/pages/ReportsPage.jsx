@@ -436,8 +436,6 @@ const ReportsPage = () => {
                 Reports & Analytics
               </h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-400">
-                Full analytics, productivity, risk, and issue management insights powered
-                by the same live metrics used on the Dashboard.
               </p>
             </div>
 

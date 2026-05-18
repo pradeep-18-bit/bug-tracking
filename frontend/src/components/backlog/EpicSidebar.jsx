@@ -51,7 +51,6 @@ const EpicSidebar = ({
             </div>
             <p className="mt-3 text-sm font-semibold text-slate-950">Group work by stream</p>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              Keep planning compact while bigger initiatives stay easy to scan.
             </p>
           </div>
 
