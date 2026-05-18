@@ -303,6 +303,55 @@ export const createComment = async (payload) => {
   return response.data;
 };
 
+export const fetchAnalyticsOverview = async (filters = {}) => {
+  const response = await api.get("/analytics/overview", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const fetchAnalyticsTrends = async (filters = {}) => {
+  const response = await api.get("/analytics/trends", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const fetchAnalyticsPriorities = async (filters = {}) => {
+  const response = await api.get("/analytics/priorities", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const fetchAnalyticsProjects = async (filters = {}) => {
+  const response = await api.get("/analytics/projects", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const fetchAnalyticsTeams = async (filters = {}) => {
+  const response = await api.get("/analytics/teams", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const fetchAnalyticsRecentActivity = async (filters = {}) => {
+  const response = await api.get("/analytics/recent-activity", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const fetchAnalyticsIssues = async (filters = {}) => {
+  const response = await api.get("/analytics/issues", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
 export const fetchReports = async (filters = {}) => {
   const response = await api.get("/reports", {
     params: buildParams(normalizeIssueFilters(filters)),

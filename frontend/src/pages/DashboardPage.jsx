@@ -1,919 +1,582 @@
-import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
   Bug,
+  CalendarClock,
   CheckCircle2,
-  ClipboardList,
+  Clock3,
+  FolderKanban,
   Layers3,
   Plus,
+  Rocket,
+  ShieldCheck,
+  Sparkles,
   Users2,
   Zap,
 } from "lucide-react";
+import useAnalytics from "@/hooks/use-analytics";
 import {
-  deleteIssue,
-  fetchIssues,
-  fetchProjects,
-  fetchTeams,
-  updateIssue,
-} from "@/lib/api";
-import { useAuth } from "@/hooks/use-auth";
-import {
-  getIssueStatusMetrics,
-  getIssuePriorityVariant,
-  ISSUE_STATUS,
-  isIssueClosed,
-  isIssueOpen,
-  resolveIssueAssignee,
-  getIssueTypeVariant,
-} from "@/lib/issues";
-import { cn, formatDateTime, getInitials } from "@/lib/utils";
-import { getWorkspaceScope } from "@/lib/workspace";
-import DashboardStatCard from "@/components/dashboard/DashboardStatCard";
-import BugReportsDialog from "@/components/dashboard/BugReportsDialog";
-import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
-import EmptyState from "@/components/shared/EmptyState";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+  ANALYTICS_PANEL_CLASS,
+  ANALYTICS_SUBPANEL_CLASS,
+  AnalyticsEmptyState,
+  AnalyticsKpiCard,
+  AnalyticsPanel,
+  AnalyticsSkeletonGrid,
+  formatCompactNumber,
+  formatDuration,
+} from "@/components/analytics/analytics-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn, formatDateTime, getInitials } from "@/lib/utils";
 
-const DAY_IN_MS = 24 * 60 * 60 * 1000;
-const OPEN_STATUS_KEY = "OPEN";
-const CLOSED_STATUS_KEY = "CLOSED";
-const STATUS_CARD_META = {
-  [OPEN_STATUS_KEY]: {
-    tone: "blue",
-    helper: "Backlog + active work",
-  },
-  [ISSUE_STATUS.DONE]: {
-    tone: "green",
-    helper: "Completed and resolved",
-  },
-};
-const DASHBOARD_PANEL_CLASS =
-  "overflow-hidden rounded-[16px] border border-white/55 bg-white/58 shadow-[0_22px_55px_-32px_rgba(15,23,42,0.38)] backdrop-blur-2xl";
-
-const startOfDay = (value) => {
-  const date = new Date(value);
-  date.setHours(0, 0, 0, 0);
-  return date.getTime();
+const statusTone = {
+  TODO: "bg-slate-400",
+  IN_PROGRESS: "bg-blue-500",
+  BLOCKED: "bg-rose-500",
+  REVIEW: "bg-violet-500",
+  QA: "bg-cyan-500",
+  DONE: "bg-emerald-500",
+  NEW: "bg-amber-500",
+  OPEN: "bg-blue-500",
+  ASSIGNED: "bg-indigo-500",
+  FIXED: "bg-emerald-400",
+  CLOSED: "bg-emerald-600",
+  REOPEN: "bg-pink-500",
+  REJECTED: "bg-slate-500",
+  DEFERRED: "bg-teal-500",
 };
 
-const getProjectKey = (project) => String(project?._id || "");
-const getIssueProjectKey = (issue) => String(issue?.projectId?._id || issue?.projectId || "");
-const getIssuesRouteFromCardKey = (cardKey) => {
-  if (cardKey === "open-issues") {
-    return `/issues?status=${OPEN_STATUS_KEY}`;
-  }
-
-  if (cardKey === "closed") {
-    return `/issues?status=${CLOSED_STATUS_KEY}`;
-  }
-
-  return "/issues";
+const activityIcon = {
+  created: Layers3,
+  closed: CheckCircle2,
+  assigned: Users2,
+  critical: AlertTriangle,
 };
 
-const buildWindowSnapshot = ({
-  items,
-  getDate,
-  predicate = () => true,
-  days = 7,
-}) => {
-  const today = startOfDay(Date.now());
-  const currentStart = today - (days - 1) * DAY_IN_MS;
-  const previousStart = currentStart - days * DAY_IN_MS;
-
-  const current = items.filter((item) => {
-    const timestamp = getDate(item);
-
-    return (
-      predicate(item) &&
-      timestamp &&
-      timestamp >= currentStart &&
-      timestamp <= today + DAY_IN_MS
-    );
-  }).length;
-
-  const previous = items.filter((item) => {
-    const timestamp = getDate(item);
-
-    return (
-      predicate(item) &&
-      timestamp &&
-      timestamp >= previousStart &&
-      timestamp < currentStart
-    );
-  }).length;
-
-  return {
-    current,
-    previous,
-    difference: current - previous,
-  };
+const activityTone = {
+  created: "border-blue-200 bg-blue-50 text-blue-700",
+  closed: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  assigned: "border-violet-200 bg-violet-50 text-violet-700",
+  critical: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
-const formatTrend = (
-  { current, previous, difference },
-  directionLabel = "vs previous 7 days"
-) => {
-  if (!current && !previous) {
-    return {
-      current,
-      previous,
-      difference,
-      direction: "flat",
-      label: `0 ${directionLabel}`,
-    };
-  }
-
-  if (!previous) {
-    return {
-      current,
-      previous,
-      difference,
-      direction: "up",
-      label: `+${current} ${directionLabel}`,
-    };
-  }
-
-  if (difference === 0) {
-    return {
-      current,
-      previous,
-      difference,
-      direction: "flat",
-      label: `0 ${directionLabel}`,
-    };
-  }
-
-  return {
-    current,
-    previous,
-    difference,
-    direction: difference > 0 ? "up" : "down",
-    label: `${difference > 0 ? "+" : ""}${difference} ${directionLabel}`,
-  };
-};
-
-const buildWindowTrend = (config) => formatTrend(buildWindowSnapshot(config));
-const formatSignedCount = (value) => `${value > 0 ? "+" : ""}${value}`;
-const getDashboardIssueBadge = (issue) =>
-  isIssueClosed(issue)
-    ? {
-        label: "Closed",
-        variant: "success",
-      }
-    : {
-        label: "Open",
-        variant: "default",
-      };
-
-const QuickActionButton = ({ icon: Icon, title, className, onClick }) => (
+const QuickActionButton = ({ icon: Icon, title, helper, className, onClick }) => (
   <button
     type="button"
     onClick={onClick}
     className={cn(
-      "inline-flex w-full items-center justify-start gap-2.5 rounded-full border px-4 py-2.5 text-sm font-semibold shadow-[0_16px_34px_-22px_rgba(15,23,42,0.45)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_44px_-22px_rgba(15,23,42,0.5)] sm:w-auto sm:justify-center",
+      "group flex min-h-[76px] w-full items-center gap-3 rounded-[16px] border px-4 py-3 text-left shadow-[0_16px_34px_-24px_rgba(15,23,42,0.34)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_24px_48px_-24px_rgba(15,23,42,0.38)]",
       className
     )}
   >
-    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/18 backdrop-blur">
-      <Icon className="h-4 w-4" />
+    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-white/26 text-current shadow-sm backdrop-blur transition-transform duration-200 group-hover:scale-105">
+      <Icon className="h-5 w-5" />
     </span>
-    <span>{title}</span>
+    <span className="min-w-0">
+      <span className="block text-sm font-semibold">{title}</span>
+      <span className="mt-1 block truncate text-xs opacity-75">{helper}</span>
+    </span>
   </button>
+);
+
+const DashboardLoading = () => (
+  <div className="space-y-5">
+    <Skeleton className="h-[170px] rounded-[16px] bg-gradient-to-r from-slate-200/70 via-white/80 to-slate-200/70" />
+    <AnalyticsSkeletonGrid />
+    <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+      <Skeleton className="h-[350px] rounded-[16px]" />
+      <Skeleton className="h-[350px] rounded-[16px]" />
+    </div>
+  </div>
 );
 
 const DashboardPage = () => {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [isBugReportsOpen, setIsBugReportsOpen] = useState(false);
-  const [selectedIssue, setSelectedIssue] = useState(null);
-  const { user } = useAuth();
-  const workspaceScope = getWorkspaceScope(user);
-
-  const {
-    data: projects = [],
-    isLoading: isProjectsLoading,
-    error: projectsError,
-  } = useQuery({
-    queryKey: ["projects"],
-    queryFn: fetchProjects,
-  });
-
-  const {
-    data: issues = [],
-    isLoading: isIssuesLoading,
-    error: issuesError,
-  } = useQuery({
-    queryKey: ["issues", "admin-dashboard"],
-    queryFn: () => fetchIssues(),
-  });
-
-  const {
-    data: teams = [],
-    isLoading: isTeamsLoading,
-    error: teamsError,
-  } = useQuery({
-    queryKey: ["teams", "admin-dashboard", workspaceScope],
-    queryFn: () => fetchTeams(workspaceScope),
-  });
-
-  useEffect(() => {
-    if (!selectedIssue) {
-      return;
-    }
-
-    const nextIssue = issues.find((issue) => issue._id === selectedIssue._id);
-
-    if (nextIssue) {
-      setSelectedIssue(nextIssue);
-    }
-  }, [issues, selectedIssue]);
-
-  const updateIssueMutation = useMutation({
-    mutationFn: updateIssue,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
+  const analytics = useAnalytics();
+  const summary = analytics.overview?.summary || {};
+  const trends = analytics.overview?.trends || {};
+  const statusRows = useMemo(
+    () =>
+      (analytics.overview?.statusDistribution || []).filter((row) => row.count > 0),
+    [analytics.overview?.statusDistribution]
+  );
+  const projects = analytics.projects?.projects || [];
+  const teams = analytics.teams?.teams || [];
+  const activity = analytics.recentActivity?.activity || [];
+  const mostActiveProject = analytics.overview?.mostActiveProject || projects[0] || null;
+  const highestWorkloadTeam = teams[0] || null;
+  const maxStatusCount = Math.max(...statusRows.map((row) => row.count), 0);
+  const kpiCards = [
+    {
+      key: "total",
+      title: "Total Issues",
+      value: formatCompactNumber(summary.totalIssues),
+      helper: "Tracked work",
+      icon: Layers3,
+      tone: "blue",
+      trend: trends.totalIssues,
+      route: "/issues",
     },
-  });
-
-  const deleteIssueMutation = useMutation({
-    mutationFn: deleteIssue,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
+    {
+      key: "open",
+      title: "Open Issues",
+      value: formatCompactNumber(summary.openIssues),
+      helper: "Active workload",
+      icon: AlertTriangle,
+      tone: "amber",
+      trend: trends.openIssues,
+      route: "/issues?status=OPEN",
     },
-  });
-
-  const error = projectsError || issuesError || teamsError;
-  const isLoading = isProjectsLoading || isIssuesLoading || isTeamsLoading;
-
-  const projectInsights = useMemo(() => {
-    const base = projects.map((project) => ({
-      key: getProjectKey(project),
-      name: project.name,
-      total: 0,
-      open: 0,
-      createdAt: project.createdAt,
-    }));
-
-    const projectMap = new Map(base.map((project) => [project.key, project]));
-
-    issues.forEach((issue) => {
-      const key = getIssueProjectKey(issue);
-
-      if (!key) {
-        return;
-      }
-
-      const project = projectMap.get(key) || {
-        key,
-        name: issue.projectId?.name || "Unknown project",
-        total: 0,
-        open: 0,
-        createdAt: issue.projectId?.createdAt || issue.createdAt,
-      };
-
-      project.total += 1;
-
-      if (isIssueOpen(issue)) {
-        project.open += 1;
-      }
-
-      projectMap.set(key, project);
-    });
-
-    return Array.from(projectMap.values()).sort(
-      (left, right) =>
-        right.total - left.total ||
-        right.open - left.open ||
-        new Date(right.createdAt || 0) - new Date(left.createdAt || 0)
-    );
-  }, [issues, projects]);
-
-  const stats = useMemo(() => {
-    const statusMetrics = getIssueStatusMetrics(issues);
-    const highPriorityPending = issues.filter(
-      (issue) => issue.priority === "High" && isIssueOpen(issue)
-    ).length;
-    const completionRate = issues.length
-      ? Math.round((statusMetrics.closed / issues.length) * 100)
-      : 0;
-    const startedThisWeek = issues.filter((issue) => {
-      if (!issue.startedAt) {
-        return false;
-      }
-
-      return new Date(issue.startedAt).getTime() >= Date.now() - 7 * DAY_IN_MS;
-    }).length;
-
-    return {
-      totalIssues: statusMetrics.total,
-      openIssues: statusMetrics.open,
-      closedIssues: statusMetrics.closed,
-      highPriorityPending,
-      completionRate,
-      startedThisWeek,
-      teamsCount: teams.length,
-      teamMembersAssigned: teams.reduce(
-        (total, team) => total + (team.memberCount || team.members?.length || 0),
-        0
-      ),
-    };
-  }, [issues, teams]);
-
-  const totalIssuesTrend = useMemo(
-    () =>
-      buildWindowTrend({
-        items: issues,
-        getDate: (issue) => new Date(issue.createdAt).getTime(),
-      }),
-    [issues]
-  );
-
-  const openIssuesTrend = useMemo(
-    () =>
-      buildWindowTrend({
-        items: issues,
-        getDate: (issue) => new Date(issue.createdAt).getTime(),
-        predicate: (issue) => isIssueOpen(issue),
-      }),
-    [issues]
-  );
-
-  const highPriorityTrend = useMemo(
-    () =>
-      buildWindowTrend({
-        items: issues,
-        getDate: (issue) => new Date(issue.createdAt).getTime(),
-        predicate: (issue) => issue.priority === "High" && isIssueOpen(issue),
-      }),
-    [issues]
-  );
-
-  const startedThisWeekTrend = useMemo(
-    () =>
-      buildWindowTrend({
-        items: issues,
-        getDate: (issue) => new Date(issue.startedAt || issue.createdAt).getTime(),
-        predicate: (issue) => Boolean(issue.startedAt),
-      }),
-    [issues]
-  );
-
-  const statCards = useMemo(
-    () => [
-      {
-        key: "total-issues",
-        title: "Total Issues",
-        value: stats.totalIssues,
-        icon: Layers3,
-        tone: "blue",
-        helperText: "Tracked work",
-        trend: totalIssuesTrend,
+    {
+      key: "closed",
+      title: "Closed Issues",
+      value: formatCompactNumber(summary.closedIssues),
+      helper: "Resolved work",
+      icon: CheckCircle2,
+      tone: "emerald",
+      trend: trends.closedIssues,
+      route: "/issues?status=CLOSED",
+    },
+    {
+      key: "priority",
+      title: "High Priority",
+      value: formatCompactNumber(summary.highPriorityIssues),
+      helper: "Open risk items",
+      icon: ShieldCheck,
+      tone: "rose",
+      trend: trends.highPriorityIssues,
+      route: "/issues?priority=High",
+    },
+    {
+      key: "teams",
+      title: "Active Teams",
+      value: formatCompactNumber(summary.activeTeams),
+      helper: "Teams with workload",
+      icon: Users2,
+      tone: "cyan",
+      trend: {
+        direction: "flat",
+        label: `${teams.length} in reports`,
       },
-      {
-        key: "open-issues",
-        title: "Open Issues",
-        value: stats.openIssues,
-        icon: ClipboardList,
-        tone: "amber",
-        helperText: "Backlog + active",
-        trend: openIssuesTrend,
+      route: "/projects",
+    },
+    {
+      key: "rate",
+      title: "Resolution Rate",
+      value: `${summary.resolutionRate || 0}%`,
+      helper: "Closed / total",
+      icon: Rocket,
+      tone: "violet",
+      trend: {
+        direction: "flat",
+        label: `${formatDuration(summary.avgResolutionTimeMs)} avg`,
       },
-      {
-        key: "closed",
-        title: "Closed",
-        value: stats.closedIssues,
-        icon: CheckCircle2,
-        tone: "emerald",
-        helperText: "Resolved work",
-        trend: {
-          direction: "flat",
-          label: `${stats.completionRate}% of all issues`,
-        },
-      },
-      {
-        key: "teams",
-        title: "Teams",
-        value: stats.teamsCount,
-        icon: Users2,
-        tone: "cyan",
-        helperText: "Workspace teams",
-        trend: {
-          direction: "flat",
-          label: `${stats.teamMembersAssigned} members assigned`,
-        },
-      },
-    ],
-    [
-      stats.closedIssues,
-      openIssuesTrend,
-      stats.completionRate,
-      stats.openIssues,
-      stats.teamMembersAssigned,
-      stats.teamsCount,
-      stats.totalIssues,
-      totalIssuesTrend,
-    ]
-  );
+      route: "/reports",
+    },
+  ];
 
-  const statusData = useMemo(
-    () => [
-      {
-        key: OPEN_STATUS_KEY,
-        name: "Open Issues",
-        value: stats.openIssues,
-      },
-      {
-        key: ISSUE_STATUS.DONE,
-        name: "Closed",
-        value: stats.closedIssues,
-      },
-    ],
-    [stats.closedIssues, stats.openIssues]
-  );
+  if (analytics.isLoading) {
+    return <DashboardLoading />;
+  }
 
-  const statusOverview = useMemo(() => {
-    const maxValue = Math.max(...statusData.map((entry) => entry.value), 0);
-
-    return statusData.map((entry) => {
-      const meta = STATUS_CARD_META[entry.key] || STATUS_CARD_META[OPEN_STATUS_KEY];
-      const share = stats.totalIssues
-        ? Math.round((entry.value / stats.totalIssues) * 100)
-        : 0;
-      const progressWidth = maxValue
-        ? Math.max(Math.round((entry.value / maxValue) * 100), entry.value ? 18 : 0)
-        : 0;
-
-      return {
-        ...entry,
-        helper: meta.helper,
-        tone: meta.tone,
-        progressWidth,
-        shareLabel: `${share}% of all issues`,
-      };
-    });
-  }, [statusData, stats.totalIssues]);
-
-  const leadingStatus = useMemo(
-    () =>
-      statusOverview.reduce(
-        (leader, entry) => (entry.value > (leader?.value ?? -1) ? entry : leader),
-        null
-      ),
-    [statusOverview]
-  );
-
-  const trendTiles = useMemo(
-    () => [
-      {
-        key: "total",
-        label: "Total Issues",
-        value: stats.totalIssues,
-        helper: `${stats.openIssues} still active`,
-        tone: "blue",
-      },
-      {
-        key: "weekly",
-        label: "This Week",
-        value: formatSignedCount(totalIssuesTrend.current),
-        helper: totalIssuesTrend.label,
-        tone: "purple",
-      },
-      {
-        key: "completion",
-        label: "Completion Rate",
-        value: `${stats.completionRate}%`,
-        helper: `${stats.closedIssues} issues closed`,
-        tone: "green",
-      },
-    ],
-    [
-      stats.closedIssues,
-      stats.completionRate,
-      stats.openIssues,
-      stats.totalIssues,
-      totalIssuesTrend.current,
-      totalIssuesTrend.label,
-    ]
-  );
-
-  const recentIssues = useMemo(
-    () =>
-      [...issues]
-        .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
-        .slice(0, 6),
-    [issues]
-  );
-
-  const mostActiveProject =
-    projectInsights.find((project) => project.total > 0) || null;
-
-  const headerHighlights = useMemo(
-    () => [
-      {
-        key: "priority",
-        label: "Pending High",
-        value: stats.highPriorityPending,
-        helper: highPriorityTrend.label,
-        toneClassName: "bg-rose-50 text-rose-700 border-rose-100/90",
-      },
-      {
-        key: "active-project",
-        label: "Most Active",
-        value: mostActiveProject?.name || "No project",
-        helper: mostActiveProject
-          ? `${mostActiveProject.total} issues tracked`
-          : "Waiting for issue activity",
-        toneClassName: "bg-violet-50 text-violet-700 border-violet-100/90",
-      },
-      {
-        key: "weekly",
-        label: "7 Day Pulse",
-        value: `${stats.startedThisWeek} started`,
-        helper: startedThisWeekTrend.label,
-        toneClassName: "bg-emerald-50 text-emerald-700 border-emerald-100/90",
-      },
-    ],
-    [
-      highPriorityTrend.label,
-      mostActiveProject,
-      startedThisWeekTrend.label,
-      stats.highPriorityPending,
-      stats.startedThisWeek,
-    ]
-  );
-
-  if (error) {
+  if (analytics.error) {
     return (
-      <Card>
+      <Card className={ANALYTICS_PANEL_CLASS}>
         <CardContent className="p-6 text-sm text-rose-700">
-          {error.response?.data?.message || "Unable to load admin dashboard data."}
+          {analytics.error.response?.data?.message ||
+            "Unable to load dashboard analytics right now."}
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <Card className="overflow-hidden rounded-[16px] border-white/60 bg-[linear-gradient(135deg,rgba(255,255,255,0.82),rgba(239,246,255,0.72),rgba(238,242,255,0.64))] shadow-[0_24px_70px_-36px_rgba(15,23,42,0.42)] backdrop-blur-2xl">
+    <div className="space-y-5">
+      <Card className="overflow-hidden rounded-[16px] border-white/60 bg-[linear-gradient(135deg,rgba(255,255,255,0.84),rgba(239,246,255,0.74),rgba(238,242,255,0.66))] shadow-[0_24px_70px_-36px_rgba(15,23,42,0.42)] backdrop-blur-2xl dark:border-white/10 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.88),rgba(30,41,59,0.76),rgba(15,23,42,0.82))]">
         <CardContent className="relative p-4 sm:p-5">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.16),transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(129,140,248,0.14),transparent_34%)]" />
-          <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div className="grid w-full gap-3 sm:w-auto sm:grid-cols-2 xl:flex xl:flex-wrap">
+          <div className="relative grid gap-4 xl:grid-cols-[1fr_1.4fr] xl:items-center">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/65 bg-white/72 px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm backdrop-blur-xl">
+                <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+                Operational Overview
+              </div>
+              <h1 className="mt-3 text-2xl font-semibold text-slate-950 dark:text-slate-100">
+                Admin Command Center
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-400">
+                Live workload, issue health, recent movement, and project risk from the
+                shared analytics engine.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               <QuickActionButton
                 icon={Plus}
                 title="Create Project"
-                className="border-blue-200/70 bg-white text-slate-900 hover:border-blue-300 hover:bg-blue-50"
-                onClick={() => navigate("/projects")}
-              />
-              <QuickActionButton
-                icon={Bug}
-                title="Bug Reports"
-                className="border-rose-200/70 bg-rose-50/85 text-rose-900 hover:border-rose-300 hover:bg-rose-100/80"
-                onClick={() => setIsBugReportsOpen(true)}
-              />
-              <QuickActionButton
-                icon={Users2}
-                title="Projects & Teams"
-                className="border-violet-200/70 bg-violet-50/80 text-violet-900 hover:border-violet-300 hover:bg-violet-100/80"
+                helper="Set up delivery space"
+                className="border-blue-200/70 bg-white/72 text-blue-900 hover:border-blue-300 hover:bg-blue-50"
                 onClick={() => navigate("/projects")}
               />
               <QuickActionButton
                 icon={Zap}
                 title="Create Issue"
-                className="border-amber-200/70 bg-amber-50/85 text-amber-900 hover:border-amber-300 hover:bg-amber-100/80"
+                helper="Log work or bug"
+                className="border-amber-200/70 bg-amber-50/85 text-amber-900 hover:border-amber-300"
                 onClick={() => navigate("/issues?compose=1")}
               />
+              <QuickActionButton
+                icon={Users2}
+                title="Projects & Teams"
+                helper="Manage ownership"
+                className="border-violet-200/70 bg-violet-50/80 text-violet-900 hover:border-violet-300"
+                onClick={() => navigate("/projects")}
+              />
+              <QuickActionButton
+                icon={BarChart3}
+                title="Reports"
+                helper="Open analytics center"
+                className="border-cyan-200/70 bg-cyan-50/80 text-cyan-900 hover:border-cyan-300"
+                onClick={() => navigate("/reports")}
+              />
+              <QuickActionButton
+                icon={Activity}
+                title="Recent Activity"
+                helper="Jump to live feed"
+                className="border-emerald-200/70 bg-emerald-50/80 text-emerald-900 hover:border-emerald-300"
+                onClick={() =>
+                  document
+                    .getElementById("dashboard-activity")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                }
+              />
             </div>
-
-            {isLoading ? (
-              <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[540px]">
-                <Skeleton className="h-[78px] w-full rounded-[24px]" />
-                <Skeleton className="h-[78px] w-full rounded-[24px]" />
-                <Skeleton className="h-[78px] w-full rounded-[24px]" />
-              </div>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[540px]">
-                {headerHighlights.map((item) => (
-                  <div
-                    key={item.key}
-                    className={cn(
-                      "rounded-[16px] border bg-white/56 px-4 py-3 shadow-[0_16px_34px_-24px_rgba(15,23,42,0.28)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_42px_-24px_rgba(15,23,42,0.34)]",
-                      item.toneClassName
-                    )}
-                  >
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] opacity-70">
-                      {item.label}
-                    </p>
-                    <p className="mt-2 truncate text-sm font-semibold">{item.value}</p>
-                    <p className="mt-1 truncate text-xs opacity-75">{item.helper}</p>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </CardContent>
       </Card>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {isLoading ? (
-          <>
-            <Skeleton className="h-[162px] w-full rounded-[16px]" />
-            <Skeleton className="h-[162px] w-full rounded-[16px]" />
-            <Skeleton className="h-[162px] w-full rounded-[16px]" />
-            <Skeleton className="h-[162px] w-full rounded-[16px]" />
-          </>
-        ) : (
-          statCards.map((card) => (
-            <DashboardStatCard
-              key={card.key}
-              title={card.title}
-              value={card.value}
-              icon={card.icon}
-              tone={card.tone}
-              helperText={card.helperText}
-              trendDirection={card.trend.direction}
-              trendLabel={card.trend.label}
-              compact
-              onClick={() =>
-                navigate(card.key === "teams" ? "/projects" : getIssuesRouteFromCardKey(card.key))
-              }
-            />
-          ))
-        )}
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        {kpiCards.map((card) => (
+          <AnalyticsKpiCard
+            key={card.key}
+            title={card.title}
+            value={card.value}
+            icon={card.icon}
+            tone={card.tone}
+            helper={card.helper}
+            trend={card.trend}
+            onClick={() => navigate(card.route)}
+          />
+        ))}
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-2">
-        <Card className={DASHBOARD_PANEL_CLASS}>
-          <CardHeader className="border-b border-white/45 p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <CardTitle>Issues by Status</CardTitle>
-                <CardDescription>
-                  Open workload and completed delivery in one quick scan.
-                </CardDescription>
-              </div>
-              <Badge className="rounded-full border border-white/45 bg-white/62 text-rose-600 shadow-sm backdrop-blur-xl hover:bg-white/62">
-                {stats.highPriorityPending} pending high
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="p-5">
-            {isLoading ? (
-              <Skeleton className="h-[320px] w-full rounded-[16px]" />
-            ) : (
-              <div className="status-card">
-                <div className="status-card-summary">
-                  <span className="status-chip">Total {stats.totalIssues}</span>
-                  <span className="status-chip muted">
-                    {leadingStatus?.value
-                      ? `${leadingStatus.name} holds the largest share`
-                      : "No issue activity yet"}
-                  </span>
-                </div>
-
-                <div className="space-y-1">
-                  {statusOverview.map((entry) => (
-                    <div key={entry.key} className="status-item">
-                      <div className="status-meta">
-                        <span className={cn("status-dot", entry.tone)} />
-                        <div>
-                          <span className="status-name">{entry.name}</span>
-                          <p className="status-helper">{entry.helper}</p>
-                        </div>
-                      </div>
-
-                      <div className="status-progress-wrap">
-                        <div className="progress-bar">
-                          <div
-                            className={cn("progress", entry.tone)}
-                            style={{ width: `${entry.progressWidth}%` }}
-                          />
-                        </div>
-                        <p className="status-share">{entry.shareLabel}</p>
-                      </div>
-
-                      <div className="status-count">
-                        <span>{entry.value}</span>
-                        <small>{entry.value === 1 ? "issue" : "issues"}</small>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className={DASHBOARD_PANEL_CLASS}>
-          <CardHeader className="border-b border-white/45 p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <CardTitle>Issues Trend</CardTitle>
-                <CardDescription>
-                  Compact KPIs for volume, weekly intake, and delivery health.
-                </CardDescription>
-              </div>
-              <Badge className="rounded-full border border-white/45 bg-white/62 text-blue-600 shadow-sm backdrop-blur-xl hover:bg-white/62">
-                {totalIssuesTrend.label}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4 p-5">
-            {isLoading ? (
-              <Skeleton className="h-[320px] w-full rounded-[16px]" />
-            ) : (
-              <div className="trend-card">
-                <div className="trend-stats">
-                  {trendTiles.map((tile) => (
-                    <div key={tile.key} className={cn("trend-stat", tile.tone)}>
-                      <p>{tile.label}</p>
-                      <h2>{tile.value}</h2>
-                      <span>{tile.helper}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="trend-footer">
-                  <span>Most Active Project</span>
-                  <strong>{mostActiveProject?.name || "No project yet"}</strong>
-                  <p>
-                    {mostActiveProject
-                      ? `${mostActiveProject.total} issues tracked and ${mostActiveProject.open} still open.`
-                      : "Create a few issues to reveal where work is clustering."}
-                  </p>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </section>
-
-      <Card className={cn(DASHBOARD_PANEL_CLASS, "bg-white/62")}>
-        <CardHeader className="border-b border-white/45">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <CardTitle>Recent Issues</CardTitle>
-              <CardDescription>
-                Latest issue activity with clearer assignee context, status, priority,
-                and created time.
-              </CardDescription>
-            </div>
-            <Button
-              variant="outline"
-              type="button"
-              className="rounded-full border-white/60 bg-white/70 text-slate-700 shadow-[0_16px_34px_-22px_rgba(15,23,42,0.24)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/90 hover:text-blue-700 hover:shadow-[0_22px_42px_-24px_rgba(59,130,246,0.28)]"
-              onClick={() => navigate("/issues")}
-            >
-              View all issues
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6">
-          {isLoading ? (
+      <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+        <AnalyticsPanel
+          title="Issue Status Overview"
+          description="Distribution of active and resolved workload from live issue data."
+          action={
+            <Badge className="border-white/60 bg-white/72 text-slate-600">
+              {summary.totalIssues || 0} total
+            </Badge>
+          }
+        >
+          {statusRows.length ? (
             <div className="space-y-3">
-              <Skeleton className="h-28 w-full rounded-[16px]" />
-              <Skeleton className="h-28 w-full rounded-[16px]" />
-              <Skeleton className="h-28 w-full rounded-[16px]" />
-            </div>
-          ) : recentIssues.length ? (
-            <div className="space-y-3">
-              {recentIssues.map((issue) => {
-                const assignee = resolveIssueAssignee(issue);
-                const assigneeName = assignee?.name || "";
-                const assigneeRole = assignee?.role || "";
-                const statusBadge = getDashboardIssueBadge(issue);
+              {statusRows.map((row) => {
+                const width = maxStatusCount
+                  ? Math.max(Math.round((row.count / maxStatusCount) * 100), 8)
+                  : 0;
 
                 return (
                   <button
-                    key={issue._id}
-                    className="group flex w-full flex-col gap-4 rounded-[16px] border border-white/55 bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(248,250,252,0.52))] p-4 text-left shadow-[0_16px_34px_-24px_rgba(15,23,42,0.26)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-1 hover:border-blue-200/70 hover:shadow-[0_24px_48px_-24px_rgba(59,130,246,0.32)] sm:p-5"
+                    key={row.key}
                     type="button"
-                    onClick={() => setSelectedIssue(issue)}
+                    onClick={() => navigate(`/issues?status=${row.key}`)}
+                    className={cn(
+                      ANALYTICS_SUBPANEL_CLASS,
+                      "grid w-full gap-3 px-4 py-3 text-left md:grid-cols-[180px_minmax(0,1fr)_90px] md:items-center"
+                    )}
                   >
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="min-w-0 break-words text-base font-semibold text-slate-950 transition group-hover:text-blue-700 sm:truncate">
-                            {issue.title}
-                          </p>
-                          <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
-                          <Badge variant={getIssuePriorityVariant(issue.priority)}>
-                            {issue.priority}
-                          </Badge>
-                          <Badge variant={getIssueTypeVariant(issue.type)}>{issue.type}</Badge>
-                        </div>
-
-                        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                          {issue.description || "No description provided."}
-                        </p>
-                      </div>
-
-                      <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">
-                        #{issue._id.slice(-6)}
-                      </span>
-                    </div>
-
-                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
-                      <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
-                        <span className="rounded-full bg-slate-100 px-3 py-1.5 font-medium text-slate-700">
-                          {issue.projectId?.name || "Unknown project"}
-                        </span>
-                        <span>Created {formatDateTime(issue.createdAt)}</span>
-                        {issue.startedAt ? (
-                          <span>Started {formatDateTime(issue.startedAt)}</span>
-                        ) : null}
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        {assigneeName ? (
-                          <>
-                            <Avatar className="h-10 w-10 rounded-2xl">
-                              <AvatarFallback>{getInitials(assigneeName)}</AvatarFallback>
-                            </Avatar>
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-slate-900">
-                                {assigneeName}
-                              </p>
-                              <p className="truncate text-xs text-slate-500">
-                                {assigneeRole || "Assignee"}
-                              </p>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500">
-                            Unassigned
-                          </div>
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span
+                        className={cn(
+                          "h-3 w-3 shrink-0 rounded-full",
+                          statusTone[row.key] || "bg-slate-400"
                         )}
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+                          {row.label}
+                        </p>
+                        <p className="text-xs text-slate-500">{row.percentage}% of scope</p>
                       </div>
-
-                      <div className="flex justify-start lg:justify-end">
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
-                            isIssueClosed(issue)
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                              : "border-blue-200 bg-blue-50 text-blue-700"
-                          )}
-                        >
-                          {isIssueClosed(issue) ? "Closed issue" : "Open issue"}
-                        </span>
-                      </div>
+                    </div>
+                    <div className="h-2.5 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-800">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          statusTone[row.key] || "bg-slate-400"
+                        )}
+                        style={{ width: `${width}%` }}
+                      />
+                    </div>
+                    <div className="text-left md:text-right">
+                      <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">
+                        {row.count}
+                      </p>
+                      <p className="text-xs text-slate-500">issues</p>
                     </div>
                   </button>
                 );
               })}
             </div>
           ) : (
-            <EmptyState
-              title="No issue activity yet"
-              description="Create a project and add the first issue to turn this dashboard into a live command center."
-              icon={<Layers3 className="h-5 w-5" />}
+            <AnalyticsEmptyState
+              icon={Layers3}
+              title="No issue status data yet"
+              description="Create issues to populate the operational status overview."
             />
           )}
-        </CardContent>
-      </Card>
+        </AnalyticsPanel>
 
-      <IssueDetailsDialog
-        deletingId={deleteIssueMutation.isPending ? deleteIssueMutation.variables : ""}
-        issue={selectedIssue}
-        onDeleteIssue={(id) => deleteIssueMutation.mutateAsync(id)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedIssue(null);
+        <AnalyticsPanel
+          title="Most Active Project"
+          description="Highest issue volume with open workload and assigned teams."
+        >
+          {mostActiveProject ? (
+            <div className={cn(ANALYTICS_SUBPANEL_CLASS, "space-y-5 p-5")}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="truncate text-lg font-semibold text-slate-950 dark:text-slate-100">
+                    {mostActiveProject.name}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {mostActiveProject.teamCount || 0} assigned team
+                    {mostActiveProject.teamCount === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">
+                  {mostActiveProject.completionRate}% complete
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-[14px] bg-slate-950/[0.03] px-3 py-2">
+                  <p className="text-xs text-slate-500">Issues</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-950">
+                    {mostActiveProject.totalIssues}
+                  </p>
+                </div>
+                <div className="rounded-[14px] bg-amber-50 px-3 py-2">
+                  <p className="text-xs text-amber-700">Open</p>
+                  <p className="mt-1 text-xl font-semibold text-amber-900">
+                    {mostActiveProject.openIssues}
+                  </p>
+                </div>
+                <div className="rounded-[14px] bg-emerald-50 px-3 py-2">
+                  <p className="text-xs text-emerald-700">Closed</p>
+                  <p className="mt-1 text-xl font-semibold text-emerald-900">
+                    {mostActiveProject.closedIssues}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+                  <span>Resolution progress</span>
+                  <span>{mostActiveProject.openIssues} open</span>
+                </div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-slate-200/70">
+                  <div
+                    className="h-full rounded-full bg-[linear-gradient(90deg,#8b5cf6,#06b6d4)]"
+                    style={{ width: `${Math.max(mostActiveProject.completionRate, 5)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {(mostActiveProject.teams || []).slice(0, 4).map((team) => (
+                  <span
+                    key={team}
+                    className="rounded-full border border-white/60 bg-white/72 px-3 py-1 text-xs font-semibold text-slate-600"
+                  >
+                    {team}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <AnalyticsEmptyState
+              icon={FolderKanban}
+              title="No active project yet"
+              description="Project analytics appear once issues are created."
+            />
+          )}
+        </AnalyticsPanel>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
+        <AnalyticsPanel
+          title="Live Activity Feed"
+          description="Recently created issues, resolved tickets, assignments, and critical alerts."
+          className="scroll-mt-28"
+          action={
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full border-white/60 bg-white/72 text-slate-700 shadow-sm"
+              onClick={() => navigate("/issues")}
+            >
+              View all
+            </Button>
           }
-        }}
-        onUpdateIssue={(id, payload) =>
-          updateIssueMutation.mutateAsync({ id, payload })
-        }
-        open={Boolean(selectedIssue)}
-        projects={projects}
-        updatingId={updateIssueMutation.isPending ? updateIssueMutation.variables?.id : ""}
-        canEditCoreDetails
-      />
+        >
+          <div id="dashboard-activity" className="space-y-3">
+            {activity.length ? (
+              activity.slice(0, 8).map((item) => {
+                const Icon = activityIcon[item.activityType] || Activity;
 
-      <BugReportsDialog
-        issues={issues}
-        open={isBugReportsOpen}
-        onOpenChange={setIsBugReportsOpen}
-        projects={projects}
-        teams={teams}
-        workspaceScope={workspaceScope}
-      />
+                return (
+                  <button
+                    key={`${item.activityType}-${item._id}`}
+                    type="button"
+                    onClick={() => navigate(`/issues?search=${encodeURIComponent(item.issueId)}`)}
+                    className={cn(
+                      ANALYTICS_SUBPANEL_CLASS,
+                      "flex w-full items-start gap-3 px-4 py-3 text-left"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-sm",
+                        activityTone[item.activityType] || activityTone.created
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+                          {item.title}
+                        </span>
+                        <Badge variant={item.priority === "High" ? "danger" : "secondary"}>
+                          {item.priority}
+                        </Badge>
+                      </span>
+                      <span className="mt-1 block text-sm text-slate-500">
+                        {item.activityLabel} in {item.project?.name || "Unknown project"}
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-400">
+                        {formatDateTime(item.activityAt)}
+                      </span>
+                    </span>
+                    {item.assignee ? (
+                      <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/76 text-xs font-semibold text-slate-600 shadow-sm sm:flex">
+                        {getInitials(item.assignee.name)}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })
+            ) : (
+              <AnalyticsEmptyState
+                icon={Activity}
+                title="No live activity yet"
+                description="Recent issue movement will appear here as work changes."
+              />
+            )}
+          </div>
+        </AnalyticsPanel>
+
+        <AnalyticsPanel
+          title="Active Workload"
+          description="Team and delivery pressure signals from current issue volume."
+        >
+          <div className="space-y-4">
+            {highestWorkloadTeam ? (
+              <div className={cn(ANALYTICS_SUBPANEL_CLASS, "p-4")}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950 dark:text-slate-100">
+                      {highestWorkloadTeam.name}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Highest current workload
+                    </p>
+                  </div>
+                  <Badge className="border-cyan-200 bg-cyan-50 text-cyan-700">
+                    {highestWorkloadTeam.productivity}% productivity
+                  </Badge>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  <div className="rounded-[14px] bg-slate-950/[0.03] px-3 py-2">
+                    <p className="text-xs text-slate-500">Total</p>
+                    <p className="text-lg font-semibold">{highestWorkloadTeam.totalIssues}</p>
+                  </div>
+                  <div className="rounded-[14px] bg-amber-50 px-3 py-2">
+                    <p className="text-xs text-amber-700">Pending</p>
+                    <p className="text-lg font-semibold text-amber-900">
+                      {highestWorkloadTeam.pendingWorkload}
+                    </p>
+                  </div>
+                  <div className="rounded-[14px] bg-emerald-50 px-3 py-2">
+                    <p className="text-xs text-emerald-700">Closed</p>
+                    <p className="text-lg font-semibold text-emerald-900">
+                      {highestWorkloadTeam.closedIssues}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                {
+                  icon: CalendarClock,
+                  title: "SLA Tracking",
+                  helper: "Reserved widget slot",
+                },
+                {
+                  icon: Rocket,
+                  title: "Sprint Metrics",
+                  helper: "Velocity and carryover",
+                },
+                {
+                  icon: Activity,
+                  title: "Deployment Health",
+                  helper: "Release signals",
+                },
+                {
+                  icon: Bug,
+                  title: "AI Insights",
+                  helper: "Risk summaries",
+                },
+              ].map((widget) => {
+                const Icon = widget.icon;
+
+                return (
+                  <div
+                    key={widget.title}
+                    className="rounded-[16px] border border-dashed border-white/65 bg-white/34 p-4 backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/48"
+                  >
+                    <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/60 bg-white/72 text-slate-600 shadow-sm">
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <p className="mt-3 text-sm font-semibold text-slate-950">
+                      {widget.title}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">{widget.helper}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </AnalyticsPanel>
+      </section>
     </div>
   );
 };

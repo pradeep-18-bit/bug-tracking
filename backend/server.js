@@ -6,6 +6,7 @@ require("dotenv").config({
 
 const cors = require("cors");
 const express = require("express");
+const analyticsRoutes = require("./routes/analyticsRoutes");
 const backlogRoutes = require("./routes/backlogRoutes");
 const connectDB = require("./config/db");
 const epicRoutes = require("./routes/epicRoutes");
@@ -44,6 +45,7 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/analytics", analyticsRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/workspaces", workspaceRoutes);
 app.use("/api/projects", projectRoutes);
