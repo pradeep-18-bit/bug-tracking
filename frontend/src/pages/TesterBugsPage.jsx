@@ -70,12 +70,13 @@ const getAssignedTeamsForTester = (project, testerId) =>
   getProjectTeams(project).filter((team) => isTesterTeam(team, testerId));
 
 const buildTesterProject = (project, testerId) => {
-  const teams = getAssignedTeamsForTester(project, testerId);
+  const assignedTeams = getAssignedTeamsForTester(project, testerId);
 
-  if (!teams.length) {
+  if (!assignedTeams.length) {
     return null;
   }
 
+  const teams = getProjectTeams(project);
   const uniqueMembers = new Map();
 
   teams.forEach((team) => {

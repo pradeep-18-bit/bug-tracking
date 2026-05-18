@@ -138,6 +138,7 @@ const ProjectsPage = () => {
     mutationFn: attachProjectTeam,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["project-teams"] });
     },
   });
 
@@ -145,6 +146,7 @@ const ProjectsPage = () => {
     mutationFn: detachProjectTeam,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["project-teams"] });
     },
   });
 
@@ -163,6 +165,7 @@ const ProjectsPage = () => {
       });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-teams"] }),
         queryClient.invalidateQueries({ queryKey: ["issues"] }),
         queryClient.invalidateQueries({ queryKey: ["reports"] }),
       ]);

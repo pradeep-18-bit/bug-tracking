@@ -165,15 +165,15 @@ const getAssignedTeamsForTester = (project, testerId) =>
   getProjectTeams(project).filter((team) => isTesterTeam(team, testerId));
 
 const buildTesterProject = (project, testerId) => {
-  const teams = getAssignedTeamsForTester(project, testerId);
+  const assignedTeams = getAssignedTeamsForTester(project, testerId);
 
-  if (!teams.length) {
+  if (!assignedTeams.length) {
     return null;
   }
 
   return {
     ...project,
-    teams,
+    teams: getProjectTeams(project),
   };
 };
 

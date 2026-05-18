@@ -3,6 +3,7 @@ const Comment = require("../models/Comment");
 const Issue = require("../models/Issue");
 const Project = require("../models/Project");
 const asyncHandler = require("../utils/asyncHandler");
+const { recordIssueHistory } = require("../utils/issueHistory");
 const { buildProjectAccessQuery } = require("../utils/projectRelations");
 const { hasAdminAccess } = require("../utils/roles");
 const { normalizeWorkspaceId } = require("../utils/workspace");
@@ -75,6 +76,22 @@ const createComment = asyncHandler(async (req, res) => {
     userId: req.user._id,
     comment: text.trim(),
   });
+  issue.updatedAt = new Date();
+  await Promise.all([
+    issue.save(),
+    recordIssueHistory({
+      issueId: issue._id,
+      projectId: issue.projectId,
+      actorId: req.user._id,
+      eventType: "COMMENT_CREATED",
+      field: "comment",
+      fromValue: null,
+      toValue: comment.comment,
+      meta: {
+        title: issue.title,
+      },
+    }),
+  ]);
 
   await comment.populate("userId", "name email role");
 

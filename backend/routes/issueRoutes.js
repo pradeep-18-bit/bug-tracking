@@ -2,6 +2,7 @@ const express = require("express");
 const {
   getIssues,
   getMyIssues,
+  getRecentIssueActivity,
   createIssue,
   updateIssue,
   deleteIssue,
@@ -23,6 +24,7 @@ const { protect } = require("../middleware/authMiddleware");
 const router = express.Router();
 
 router.get("/my", protect, getMyIssues);
+router.get("/activity", protect, getRecentIssueActivity);
 router.patch("/:id/planning", protect, updateIssuePlanning);
 router.post("/:id/sprint", protect, moveIssueToSprint);
 router.delete("/:id/sprint", protect, removeIssueFromSprint);

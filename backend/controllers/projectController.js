@@ -17,6 +17,7 @@ const {
   loadSerializedProjectById,
   serializeProjectsWithRelations,
 } = require("../utils/projectRelations");
+const { attachMembersToTeams } = require("../utils/teamRelations");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 const { PLANNING_ORDER_INCREMENT } = require("../utils/planningOrder");
 
@@ -611,6 +612,60 @@ const attachProjectTeam = asyncHandler(async (req, res) => {
   });
 });
 
+const getProjectTeams = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Unauthorized");
+  }
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid project id");
+  }
+
+  const project = await Project.findOne({
+    _id: req.params.id,
+    ...(await buildProjectQuery(req.user)),
+  })
+    .select("_id name workspaceId")
+    .lean();
+
+  if (!project) {
+    res.status(404);
+    throw new Error("Project not found");
+  }
+
+  const workspaceId = normalizeWorkspaceId(project.workspaceId || req.user.workspaceId);
+  const projectTeams = await ProjectTeam.find({
+    projectId: project._id,
+  })
+    .sort({ createdAt: 1 })
+    .select("teamId")
+    .lean();
+  const teamIds = Array.from(
+    new Set(projectTeams.map((projectTeam) => String(projectTeam.teamId)).filter(Boolean))
+  );
+
+  if (!teamIds.length) {
+    res.status(200).json([]);
+    return;
+  }
+
+  const teams = await Team.find({
+    _id: {
+      $in: teamIds,
+    },
+    workspaceId,
+  }).lean();
+  const serializedTeams = await attachMembersToTeams(teams);
+  const teamsById = new Map(serializedTeams.map((team) => [String(team._id), team]));
+  const orderedTeams = teamIds
+    .map((teamId) => teamsById.get(teamId))
+    .filter(Boolean);
+
+  res.status(200).json(orderedTeams);
+});
+
 const detachProjectTeam = asyncHandler(async (req, res) => {
   if (!req.user) {
     res.status(401);
@@ -870,6 +925,7 @@ const getProjectMeetings = asyncHandler(async (req, res) => {
 
 module.exports = {
   getProjects,
+  getProjectTeams,
   createProject,
   deleteProject,
   attachProjectTeam,

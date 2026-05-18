@@ -43,6 +43,7 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
         VITE_ENABLE_ADMIN_DEFAULT_LOGIN: ${VITE_ENABLE_ADMIN_DEFAULT_LOGIN:-true}
+        VITE_DEBUG_TEAM_SELECTION: ${VITE_DEBUG_TEAM_SELECTION:-false}
     container_name: bug-tracking-frontend
     restart: unless-stopped
     depends_on:

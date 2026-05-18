@@ -176,6 +176,11 @@ const issueSchema = new Schema(
       default: Date.now,
       immutable: true,
     },
+    updatedAt: {
+      type: Date,
+      default: Date.now,
+      index: true,
+    },
     startedAt: {
       type: Date,
       default: null,

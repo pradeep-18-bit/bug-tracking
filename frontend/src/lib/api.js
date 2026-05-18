@@ -74,6 +74,17 @@ const logIssuePayload = (label, payload) => {
   console.log(`[api] ${label} payload:`, payload);
 };
 
+const isTeamSelectionDebugEnabled = () =>
+  import.meta.env.DEV || import.meta.env.VITE_DEBUG_TEAM_SELECTION === "true";
+
+export const logTeamSelectionDebug = (label, payload) => {
+  if (!isTeamSelectionDebugEnabled()) {
+    return;
+  }
+
+  console.log(`[team-selection] ${label}:`, payload);
+};
+
 export const loginRequest = async (payload) => {
   const response = await api.post("/auth/login", payload);
   return response.data;
@@ -152,6 +163,8 @@ export const fetchProjects = async () => {
   const response = await api.get("/projects");
   const data = response.data;
 
+  logTeamSelectionDebug("Projects API response", data);
+
   if (Array.isArray(data)) {
     return data;
   }
@@ -161,6 +174,31 @@ export const fetchProjects = async () => {
   }
 
   console.warn("[api] Unexpected projects response shape:", data);
+  return [];
+};
+
+export const fetchProjectTeams = async (projectId) => {
+  if (!projectId) {
+    return [];
+  }
+
+  const response = await api.get(`/projects/${projectId}/teams`);
+  const data = response.data;
+
+  logTeamSelectionDebug("Project teams API response", {
+    projectId,
+    response: data,
+  });
+
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (Array.isArray(data?.teams)) {
+    return data.teams;
+  }
+
+  console.warn("[api] Unexpected project teams response shape:", data);
   return [];
 };
 
@@ -265,6 +303,25 @@ export const fetchMyIssues = async (filters = {}) => {
     params,
   });
   return response.data;
+};
+
+export const fetchIssueActivity = async (filters = {}) => {
+  const params = buildParams(normalizeIssueFilters(filters));
+  const response = await api.get("/issues/activity", {
+    params,
+  });
+  const data = response.data;
+
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (Array.isArray(data?.activity)) {
+    return data.activity;
+  }
+
+  console.warn("[api] Unexpected issue activity response shape:", data);
+  return [];
 };
 
 export const createIssue = async (payload) => {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ClipboardList,
   FileText,
@@ -25,6 +26,7 @@ import {
   ISSUE_TYPE_OPTIONS,
   ISSUE_WORKFLOW_STATUS_OPTIONS,
 } from "@/lib/issues";
+import { fetchProjectTeams, logTeamSelectionDebug } from "@/lib/api";
 import {
   findProjectById,
   getProjectTeamMembers,
@@ -50,14 +52,25 @@ const resolveProjectSelection = (defaultProjectId, projects = []) => {
   return resolveProjectId(projects[0]);
 };
 
-const resolveTeamSelection = (defaultTeamId, project) => {
-  const teams = getProjectTeams(project);
+const hasTeamMember = (team, userId = "") =>
+  Boolean(userId) &&
+  (team?.members || []).some((member) => resolveUserId(member) === String(userId));
 
-  if (defaultTeamId && teams.some((team) => resolveTeamId(team) === String(defaultTeamId))) {
+const resolveTeamSelection = (defaultTeamId, teams = [], preferredMemberId = "") => {
+  const projectTeams = getProjectTeams({ teams });
+
+  if (
+    defaultTeamId &&
+    projectTeams.some((team) => resolveTeamId(team) === String(defaultTeamId))
+  ) {
     return String(defaultTeamId);
   }
 
-  return resolveTeamId(teams[0]);
+  const preferredTeam = projectTeams.find((team) =>
+    hasTeamMember(team, preferredMemberId)
+  );
+
+  return resolveTeamId(preferredTeam || projectTeams[0]);
 };
 
 const buildInitialState = ({
@@ -70,7 +83,8 @@ const buildInitialState = ({
 }) => {
   const projectId = resolveProjectSelection(defaultProjectId, projects);
   const project = findProjectById(projects, projectId);
-  const teamId = resolveTeamSelection(defaultTeamId, project);
+  const projectTeams = getProjectTeams(project);
+  const teamId = resolveTeamSelection(defaultTeamId, projectTeams, defaultAssigneeId);
   const teamMembers = getProjectTeamMembers(project, teamId);
   const defaultAssigneeKey = String(defaultAssigneeId || "");
   const assigneeId = teamMembers.some(
@@ -147,13 +161,40 @@ const IssueComposer = ({
     () => findProjectById(projects, formData.projectId),
     [formData.projectId, projects]
   );
+  const selectedProjectId = String(formData.projectId || "");
+  const { data: projectTeamsData } = useQuery({
+    queryKey: ["project-teams", selectedProjectId],
+    queryFn: () => fetchProjectTeams(selectedProjectId),
+    enabled: Boolean(selectedProjectId),
+    refetchOnMount: "always",
+  });
+  const projectTeamsSource = Array.isArray(projectTeamsData)
+    ? "project-teams-api"
+    : "projects-api";
   const availableTeams = useMemo(
-    () => getProjectTeams(selectedProject),
-    [selectedProject]
+    () =>
+      getProjectTeams({
+        teams: Array.isArray(projectTeamsData)
+          ? projectTeamsData
+          : selectedProject?.teams || [],
+      }),
+    [projectTeamsData, selectedProject]
+  );
+  const selectedProjectWithTeams = useMemo(
+    () =>
+      selectedProject
+        ? {
+            ...selectedProject,
+            teams: availableTeams,
+          }
+        : {
+            teams: availableTeams,
+          },
+    [availableTeams, selectedProject]
   );
   const availableAssignees = useMemo(
-    () => getProjectTeamMembers(selectedProject, formData.teamId),
-    [formData.teamId, selectedProject]
+    () => getProjectTeamMembers(selectedProjectWithTeams, formData.teamId),
+    [formData.teamId, selectedProjectWithTeams]
   );
   const isBugType = formData.type === "Bug";
   const testerOptions = useMemo(
@@ -181,6 +222,27 @@ const IssueComposer = ({
   );
 
   useEffect(() => {
+    logTeamSelectionDebug("Selected project", {
+      component: "IssueComposer",
+      projectId: selectedProjectId,
+      projectName: selectedProject?.name || "",
+    });
+  }, [selectedProject?.name, selectedProjectId]);
+
+  useEffect(() => {
+    logTeamSelectionDebug("Filtered teams", {
+      component: "IssueComposer",
+      projectId: selectedProjectId,
+      source: projectTeamsSource,
+      teams: availableTeams.map((team) => ({
+        id: resolveTeamId(team),
+        name: team?.name || "",
+        memberCount: team?.memberCount || team?.members?.length || 0,
+      })),
+    });
+  }, [availableTeams, projectTeamsSource, selectedProjectId]);
+
+  useEffect(() => {
     const currentProject = findProjectById(projects, formData.projectId);
 
     if (currentProject) {
@@ -198,7 +260,7 @@ const IssueComposer = ({
       (team) => resolveTeamId(team) === String(formData.teamId)
     )
       ? String(formData.teamId)
-      : resolveTeamSelection(defaultTeamId, selectedProject);
+      : resolveTeamSelection(defaultTeamId, availableTeams, defaultAssigneeKey);
 
     if (nextTeamId === String(formData.teamId || "")) {
       return;
@@ -208,7 +270,7 @@ const IssueComposer = ({
       ...current,
       teamId: nextTeamId,
     }));
-  }, [availableTeams, defaultTeamId, formData.teamId, selectedProject]);
+  }, [availableTeams, defaultAssigneeKey, defaultTeamId, formData.teamId]);
 
   useEffect(() => {
     const availableAssigneeIds = new Set(
@@ -288,7 +350,11 @@ const IssueComposer = ({
         return {
           ...current,
           projectId: value,
-          teamId: resolveTeamSelection("", nextProject),
+          teamId: resolveTeamSelection(
+            "",
+            getProjectTeams(nextProject),
+            defaultAssigneeKey
+          ),
           assigneeId: "",
           bugDetails: {
             ...current.bugDetails,
@@ -340,18 +406,11 @@ const IssueComposer = ({
       return "Attach a team to this project before creating work items.";
     }
 
-    if (!showAssigneeField && defaultAssigneeKey && !defaultAssigneeInTeam) {
-      return "You can only create work in teams that include you as a member.";
-    }
-
     return "";
   }, [
     availableTeams.length,
-    defaultAssigneeInTeam,
-    defaultAssigneeKey,
     projects.length,
     selectedProject,
-    showAssigneeField,
   ]);
   const isSubmitPending = isPending || isUploadingAttachments;
 

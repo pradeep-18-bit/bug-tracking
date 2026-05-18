@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Comment = require("../models/Comment");
 const Issue = require("../models/Issue");
+const IssueHistory = require("../models/IssueHistory");
 const Project = require("../models/Project");
 const ProjectTeam = require("../models/ProjectTeam");
 const Sprint = require("../models/Sprint");
@@ -985,6 +986,46 @@ const parseDateFilterInput = (value, label, { endOfDay = false } = {}) => {
   };
 };
 
+const parsePositiveInteger = (value, fallback, { max = 100 } = {}) => {
+  const parsedValue = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+    return fallback;
+  }
+
+  return Math.min(parsedValue, max);
+};
+
+const getIssueSortOptions = (sortBy = "") => {
+  const normalizedSort = String(sortBy || "newest").trim().toLowerCase();
+
+  if (normalizedSort === "oldest") {
+    return { createdAt: 1 };
+  }
+
+  if (normalizedSort === "updated" || normalizedSort === "recently-updated") {
+    return { updatedAt: -1, createdAt: -1 };
+  }
+
+  if (normalizedSort === "priority") {
+    return { priority: 1, updatedAt: -1, createdAt: -1 };
+  }
+
+  return { createdAt: -1 };
+};
+
+const applyListOptions = (queryBuilder, req) => {
+  const page = parsePositiveInteger(req.query.page, 1, { max: 10000 });
+  const limit = parsePositiveInteger(req.query.limit, 0, { max: 100 });
+  const sortedQuery = queryBuilder.sort(getIssueSortOptions(req.query.sortBy));
+
+  if (!limit) {
+    return sortedQuery;
+  }
+
+  return sortedQuery.skip((page - 1) * limit).limit(limit);
+};
+
 const buildIssueQueryFromRequest = async (
   req,
   res,
@@ -1201,10 +1242,7 @@ const buildIssueQueryFromRequest = async (
 
 const getIssues = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res);
-
-  const issues = await populateIssueQuery(Issue.find(query)).sort({
-    createdAt: -1,
-  });
+  const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
 
   res.status(200).json(serializeIssues(issues));
 });
@@ -1218,12 +1256,82 @@ const getMyIssues = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: true,
   });
-
-  const issues = await populateIssueQuery(Issue.find(query)).sort({
-    createdAt: -1,
-  });
+  const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
 
   res.status(200).json(serializeIssues(issues));
+});
+
+const serializeActivityEntry = (entry) => {
+  const issue = entry.issueId && typeof entry.issueId === "object" ? entry.issueId : null;
+  const actor = entry.actorId && typeof entry.actorId === "object" ? entry.actorId : null;
+
+  return {
+    _id: entry._id,
+    eventType: entry.eventType,
+    field: entry.field,
+    fromValue: entry.fromValue,
+    toValue: entry.toValue,
+    meta: entry.meta || {},
+    createdAt: entry.createdAt,
+    actor: actor
+      ? {
+          _id: actor._id,
+          name: actor.name,
+          role: actor.role,
+        }
+      : null,
+    issue: issue
+      ? {
+          _id: issue._id,
+          issueKey: issue.issueKey,
+          title: issue.title,
+          type: issue.type,
+          status: issue.status,
+          priority: issue.priority,
+          severity: issue.bugDetails?.severity || "",
+          project: issue.projectId,
+          team: issue.teamId,
+          assignee: issue.assignee,
+          reporter: issue.reporter,
+          createdAt: issue.createdAt,
+          updatedAt: issue.updatedAt,
+        }
+      : null,
+  };
+};
+
+const getRecentIssueActivity = asyncHandler(async (req, res) => {
+  const query = await buildIssueQueryFromRequest(req, res);
+  const limit = parsePositiveInteger(req.query.limit, 12, { max: 50 });
+  const issueIds = await Issue.find(query).distinct("_id");
+
+  if (!issueIds.length) {
+    res.status(200).json([]);
+    return;
+  }
+
+  const activity = await IssueHistory.find({
+    issueId: {
+      $in: issueIds,
+    },
+  })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .populate({
+      path: "issueId",
+      select:
+        "_id issueKey title type status priority projectId teamId assignee reporter bugDetails createdAt updatedAt",
+      populate: [
+        { path: "projectId", select: "name" },
+        { path: "teamId", select: "name" },
+        { path: "assignee", select: "name email role" },
+        { path: "reporter", select: "name email role" },
+      ],
+    })
+    .populate("actorId", "name role")
+    .lean();
+
+  res.status(200).json(activity.map(serializeActivityEntry));
 });
 
 const statusLabelMap = {
@@ -2371,6 +2479,10 @@ const updateIssue = asyncHandler(async (req, res) => {
     issue.bugDetails = {};
   }
 
+  if (changeEntries.some((entry) => String(entry.fromValue || "") !== String(entry.toValue || ""))) {
+    issue.updatedAt = new Date();
+  }
+
   await issue.save();
   await populateIssueDocument(issue);
   const statusChangeEntry = changeEntries.find(
@@ -2492,6 +2604,7 @@ const deleteIssue = asyncHandler(async (req, res) => {
 module.exports = {
   getIssues,
   getMyIssues,
+  getRecentIssueActivity,
   getReports,
   getProjectReports,
   getUserReports,

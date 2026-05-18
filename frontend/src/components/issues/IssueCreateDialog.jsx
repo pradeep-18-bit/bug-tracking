@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Select from "react-select";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +19,7 @@ import {
   getIssueDisplayKey,
   resolveIssueProjectId,
 } from "@/lib/issues";
+import { fetchProjectTeams, logTeamSelectionDebug } from "@/lib/api";
 import {
   findProjectById,
   getProjectTeamMembers,
@@ -52,18 +54,18 @@ const resolveProjectSelection = (defaultProjectId, projects = []) => {
   return resolveProjectId(projects[0]);
 };
 
-const resolveTeamSelection = (project, defaultTeamId = "") => {
-  const teams = getProjectTeams(project);
+const resolveTeamSelection = (teams = [], defaultTeamId = "") => {
+  const projectTeams = getProjectTeams({ teams });
 
   if (
     defaultTeamId &&
     defaultTeamId !== "all" &&
-    teams.some((team) => resolveTeamId(team) === String(defaultTeamId))
+    projectTeams.some((team) => resolveTeamId(team) === String(defaultTeamId))
   ) {
     return String(defaultTeamId);
   }
 
-  return resolveTeamId(teams[0]);
+  return resolveTeamId(projectTeams[0]);
 };
 
 const buildInitialState = ({
@@ -80,7 +82,7 @@ const buildInitialState = ({
     title: "",
     description: "",
     projectId,
-    teamId: resolveTeamSelection(project, defaultTeamId),
+    teamId: resolveTeamSelection(getProjectTeams(project), defaultTeamId),
     assigneeId: "",
     priority: isBug ? "High" : "Medium",
     type: defaultType,
@@ -332,10 +334,37 @@ const IssueCreateDialog = ({
       projectOptions.find((project) => project.value === String(formData.projectId)) || null,
     [formData.projectId, projectOptions]
   );
+  const selectedProjectId = String(formData.projectId || "");
+  const { data: projectTeamsData } = useQuery({
+    queryKey: ["project-teams", selectedProjectId],
+    queryFn: () => fetchProjectTeams(selectedProjectId),
+    enabled: open && Boolean(selectedProjectId),
+    refetchOnMount: "always",
+  });
+  const projectTeamsSource = Array.isArray(projectTeamsData)
+    ? "project-teams-api"
+    : "projects-api";
 
   const availableTeams = useMemo(
-    () => getProjectTeams(selectedProject),
-    [selectedProject]
+    () =>
+      getProjectTeams({
+        teams: Array.isArray(projectTeamsData)
+          ? projectTeamsData
+          : selectedProject?.teams || [],
+      }),
+    [projectTeamsData, selectedProject]
+  );
+  const selectedProjectWithTeams = useMemo(
+    () =>
+      selectedProject
+        ? {
+            ...selectedProject,
+            teams: availableTeams,
+          }
+        : {
+            teams: availableTeams,
+          },
+    [availableTeams, selectedProject]
   );
   const teamOptions = useMemo(
     () => availableTeams.map(buildTeamOption),
@@ -347,8 +376,8 @@ const IssueCreateDialog = ({
   );
 
   const availableAssignees = useMemo(
-    () => getProjectTeamMembers(selectedProject, formData.teamId),
-    [formData.teamId, selectedProject]
+    () => getProjectTeamMembers(selectedProjectWithTeams, formData.teamId),
+    [formData.teamId, selectedProjectWithTeams]
   );
   const assigneeOptions = useMemo(
     () => availableAssignees.map(buildAssigneeOption),
@@ -403,6 +432,35 @@ const IssueCreateDialog = ({
       return;
     }
 
+    logTeamSelectionDebug("Selected project", {
+      component: "IssueCreateDialog",
+      projectId: selectedProjectId,
+      projectName: selectedProject?.name || "",
+    });
+  }, [open, selectedProject?.name, selectedProjectId]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    logTeamSelectionDebug("Filtered teams", {
+      component: "IssueCreateDialog",
+      projectId: selectedProjectId,
+      source: projectTeamsSource,
+      teams: availableTeams.map((team) => ({
+        id: resolveTeamId(team),
+        name: team?.name || "",
+        memberCount: team?.memberCount || team?.members?.length || 0,
+      })),
+    });
+  }, [availableTeams, open, projectTeamsSource, selectedProjectId]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
     setFormData(
       buildInitialState({
         projects,
@@ -422,7 +480,7 @@ const IssueCreateDialog = ({
       (team) => resolveTeamId(team) === String(formData.teamId)
     )
       ? String(formData.teamId)
-      : resolveTeamSelection(selectedProject, defaultTeamId);
+      : resolveTeamSelection(availableTeams, defaultTeamId);
 
     if (nextTeamId === String(formData.teamId || "")) {
       return;
@@ -438,7 +496,7 @@ const IssueCreateDialog = ({
         developerLeadId: "",
       },
     }));
-  }, [availableTeams, defaultTeamId, formData.teamId, selectedProject]);
+  }, [availableTeams, defaultTeamId, formData.teamId]);
 
   useEffect(() => {
     const assigneeIds = new Set(
