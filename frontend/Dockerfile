@@ -3,18 +3,23 @@ FROM node:20.19.0-bookworm-slim AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+
+# Skip lifecycle scripts temporarily
+RUN npm ci --ignore-scripts
 
 COPY . .
 
 ARG VITE_API_BASE_URL=/api
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
 ARG VITE_ENABLE_ADMIN_DEFAULT_LOGIN=true
 ENV VITE_ENABLE_ADMIN_DEFAULT_LOGIN=$VITE_ENABLE_ADMIN_DEFAULT_LOGIN
+
 ARG VITE_DEBUG_TEAM_SELECTION=false
 ENV VITE_DEBUG_TEAM_SELECTION=$VITE_DEBUG_TEAM_SELECTION
 
-RUN npm run build
+# Build app directly
+RUN npm run build --ignore-scripts
 
 FROM nginx:1.27-alpine
 
