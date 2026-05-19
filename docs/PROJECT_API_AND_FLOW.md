@@ -68,7 +68,7 @@ The main API client is in `frontend/src/lib/api.js`.
 Important behavior:
 
 - Base URL comes from `VITE_API_BASE_URL`
-- Default fallback is `http://localhost:5000/api`
+- Default fallback is `/api`
 - JWT token is read from the stored session
 - `Authorization: Bearer <token>` is added automatically
 - `FormData` requests remove JSON content-type headers automatically
@@ -89,7 +89,7 @@ Main frontend API helpers:
 Base backend URL:
 
 - local backend: `http://localhost:5000`
-- frontend API base: `/api` or `http://localhost:5000/api`
+- frontend API base: `/api`
 
 General conventions:
 
