@@ -140,6 +140,8 @@ const IssueComposer = ({
   includeAttachments = false,
   attachmentAccept = DEFAULT_ATTACHMENT_ACCEPT,
   onUploadAttachment,
+  isTesterBugReport = false,
+  reporterName = "",
 }) => {
   const resolvedDefaultType = allowedTypes.includes(defaultType)
     ? defaultType
@@ -216,11 +218,18 @@ const IssueComposer = ({
     [projectMembers]
   );
   const developerOptions = useMemo(
-    () =>
-      availableAssignees.filter((assignee) => assignee.role === "Developer").length
-        ? availableAssignees.filter((assignee) => assignee.role === "Developer")
-        : availableAssignees,
-    [availableAssignees]
+    () => {
+      const developers = availableAssignees.filter(
+        (assignee) => assignee.role === "Developer"
+      );
+
+      if (isTesterBugReport) {
+        return developers;
+      }
+
+      return developers.length ? developers : availableAssignees;
+    },
+    [availableAssignees, isTesterBugReport]
   );
   const defaultAssigneeKey = String(defaultAssigneeId || "");
   const defaultAssigneeInTeam = useMemo(
@@ -295,13 +304,17 @@ const IssueComposer = ({
     const availableAssigneeIds = new Set(
       availableAssignees.map((assignee) => resolveUserId(assignee))
     );
-    const nextAssigneeId = showAssigneeField
-      ? availableAssigneeIds.has(String(formData.assigneeId || ""))
-        ? String(formData.assigneeId || "")
-        : ""
-      : defaultAssigneeInTeam
-        ? defaultAssigneeKey
-        : "";
+    let nextAssigneeId = "";
+
+    if (!isTesterBugReport) {
+      nextAssigneeId = showAssigneeField
+        ? availableAssigneeIds.has(String(formData.assigneeId || ""))
+          ? String(formData.assigneeId || "")
+          : ""
+        : defaultAssigneeInTeam
+          ? defaultAssigneeKey
+          : "";
+    }
 
     if (nextAssigneeId === String(formData.assigneeId || "")) {
       return;
@@ -316,6 +329,7 @@ const IssueComposer = ({
     defaultAssigneeInTeam,
     defaultAssigneeKey,
     formData.assigneeId,
+    isTesterBugReport,
     showAssigneeField,
   ]);
 
@@ -326,13 +340,18 @@ const IssueComposer = ({
     const projectMemberIds = new Set(
       projectMembers.map((member) => resolveUserId(member))
     );
-    const testerOwnerId =
+    let testerOwnerId = "";
+
+    if (isTesterBugReport) {
+      testerOwnerId = defaultAssigneeKey;
+    } else if (
       formData.bugDetails.testerOwnerId &&
       projectMemberIds.has(String(formData.bugDetails.testerOwnerId))
-        ? formData.bugDetails.testerOwnerId
-        : defaultAssigneeInProject
-          ? defaultAssigneeKey
-          : "";
+    ) {
+      testerOwnerId = formData.bugDetails.testerOwnerId;
+    } else if (defaultAssigneeInProject) {
+      testerOwnerId = defaultAssigneeKey;
+    }
     const developerLeadId =
       formData.bugDetails.developerLeadId &&
       availableAssigneeIds.has(String(formData.bugDetails.developerLeadId))
@@ -360,6 +379,7 @@ const IssueComposer = ({
     defaultAssigneeKey,
     formData.bugDetails.developerLeadId,
     formData.bugDetails.testerOwnerId,
+    isTesterBugReport,
     projectMembers,
   ]);
 
@@ -479,7 +499,9 @@ const IssueComposer = ({
         priority: formData.priority,
         projectId: formData.projectId,
         teamId: formData.teamId,
-        assigneeId: showAssigneeField
+        assigneeId: isTesterBugReport
+          ? null
+          : showAssigneeField
           ? formData.assigneeId || null
           : defaultAssigneeInTeam
             ? defaultAssigneeKey || null
@@ -488,7 +510,11 @@ const IssueComposer = ({
           ? {
               bugDetails: {
                 severity: formData.bugDetails.severity,
-                testerOwnerId: formData.bugDetails.testerOwnerId || null,
+                ...(!isTesterBugReport
+                  ? {
+                      testerOwnerId: formData.bugDetails.testerOwnerId || null,
+                    }
+                  : {}),
                 developerLeadId: formData.bugDetails.developerLeadId || null,
                 stepsToReproduce: formData.bugDetails.stepsToReproduce.trim(),
                 expectedResult: formData.bugDetails.expectedResult.trim(),
@@ -534,6 +560,8 @@ const IssueComposer = ({
     }
   };
 
+  const reporterLabel = reporterName || "Logged-in tester";
+
   const formContent = (
     <form className="space-y-5" onSubmit={handleSubmit}>
       {submitBlockedMessage ? (
@@ -568,7 +596,252 @@ const IssueComposer = ({
         />
       </div>
 
-      {isBugType ? (
+      {isTesterBugReport && isBugType ? (
+        <div className="space-y-4 rounded-[24px] border border-blue-100/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(239,246,255,0.82))] p-4 shadow-sm">
+          <div className="inline-flex w-fit rounded-full border border-blue-100 bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">
+            Reported by: {reporterLabel}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2">
+              <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <ClipboardList className="h-4 w-4 text-blue-600" />
+                {projectLabel}
+              </span>
+              <select
+                className="field-select"
+                name="projectId"
+                value={formData.projectId}
+                onChange={handleChange}
+              >
+                {projects.length ? (
+                  projects.map((project) => (
+                    <option key={project._id} value={project._id}>
+                      {project.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No projects available</option>
+                )}
+              </select>
+            </label>
+
+            <label className="space-y-2">
+              <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <Users2 className="h-4 w-4 text-blue-600" />
+                Team
+              </span>
+              <select
+                className="field-select"
+                name="teamId"
+                value={formData.teamId}
+                onChange={handleChange}
+                disabled={!availableTeams.length}
+              >
+                {availableTeams.length ? (
+                  availableTeams.map((team) => (
+                    <option key={team._id} value={team._id}>
+                      {team.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No attached teams</option>
+                )}
+              </select>
+            </label>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">Severity</span>
+              <select
+                className="field-select"
+                value={formData.bugDetails.severity}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    bugDetails: {
+                      ...current.bugDetails,
+                      severity: event.target.value,
+                    },
+                  }))
+                }
+              >
+                <option value="">Select severity</option>
+                {BUG_SEVERITY_OPTIONS.map((severity) => (
+                  <option key={severity} value={severity}>
+                    {severity}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">Priority</span>
+              <select
+                className="field-select"
+                value={formData.priority}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    priority: event.target.value,
+                  }))
+                }
+              >
+                {BUG_PRIORITY_OPTIONS.map((priorityOption) => (
+                  <option key={priorityOption} value={priorityOption}>
+                    {priorityOption}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">Status</span>
+              <select className="field-select" value={ISSUE_STATUS.NEW} disabled>
+                {BUG_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">
+                Developer / Dev Lead
+              </span>
+              <select
+                className="field-select"
+                value={formData.bugDetails.developerLeadId}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    bugDetails: {
+                      ...current.bugDetails,
+                      developerLeadId: event.target.value,
+                    },
+                  }))
+                }
+                disabled={!formData.teamId}
+              >
+                <option value="">Unassigned</option>
+                {developerOptions.map((assignee) => (
+                  <option key={assignee._id} value={assignee._id}>
+                    {assignee.name} ({assignee.role})
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-2">
+              <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <ClipboardList className="h-4 w-4 text-blue-600" />
+                Type
+              </span>
+              <select
+                className="field-select"
+                name="type"
+                value={formData.type}
+                disabled={lockType || allowedTypes.length === 1}
+                onChange={handleChange}
+              >
+                {allowedTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="space-y-4">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">
+                Steps to Reproduce
+              </span>
+              <Textarea
+                value={formData.bugDetails.stepsToReproduce}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    bugDetails: {
+                      ...current.bugDetails,
+                      stepsToReproduce: event.target.value,
+                    },
+                  }))
+                }
+              />
+            </label>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-gray-700">
+                  Expected Result
+                </span>
+                <Textarea
+                  value={formData.bugDetails.expectedResult}
+                  onChange={(event) =>
+                    setFormData((current) => ({
+                      ...current,
+                      bugDetails: {
+                        ...current.bugDetails,
+                        expectedResult: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-gray-700">
+                  Actual Result
+                </span>
+                <Textarea
+                  value={formData.bugDetails.actualResult}
+                  onChange={(event) =>
+                    setFormData((current) => ({
+                      ...current,
+                      bugDetails: {
+                        ...current.bugDetails,
+                        actualResult: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+            </div>
+
+            {includeAttachments ? (
+              <label className="space-y-2">
+                <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <FileText className="h-4 w-4 text-blue-600" />
+                  Attachments
+                </span>
+                <Input
+                  type="file"
+                  multiple
+                  accept={attachmentAccept}
+                  className="h-12 rounded-2xl border-slate-200 bg-white shadow-none file:mr-3 file:rounded-xl file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700"
+                  onChange={(event) =>
+                    setAttachmentFiles(Array.from(event.target.files || []))
+                  }
+                  disabled={isSubmitPending}
+                />
+                {attachmentFiles.length ? (
+                  <div className="rounded-2xl border border-slate-200 bg-white/80 px-3 py-2 text-xs leading-5 text-slate-600">
+                    {attachmentFiles.map((file) => file.name).join(", ")}
+                  </div>
+                ) : null}
+              </label>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {isBugType && !isTesterBugReport ? (
         <div className="rounded-[24px] border border-rose-100 bg-rose-50/60 p-4">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <label className="space-y-2">
@@ -765,146 +1038,150 @@ const IssueComposer = ({
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <label className="space-y-2">
-          <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
-            <ClipboardList className="h-4 w-4 text-blue-600" />
-            {projectLabel}
-          </span>
-          <select
-            className="field-select"
-            name="projectId"
-            value={formData.projectId}
-            onChange={handleChange}
-          >
-            {projects.length ? (
-              projects.map((project) => (
-                <option key={project._id} value={project._id}>
-                  {project.name}
-                </option>
-              ))
-            ) : (
-              <option value="">No projects available</option>
-            )}
-          </select>
-        </label>
+      {!isTesterBugReport ? (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <label className="space-y-2">
+              <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <ClipboardList className="h-4 w-4 text-blue-600" />
+                {projectLabel}
+              </span>
+              <select
+                className="field-select"
+                name="projectId"
+                value={formData.projectId}
+                onChange={handleChange}
+              >
+                {projects.length ? (
+                  projects.map((project) => (
+                    <option key={project._id} value={project._id}>
+                      {project.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No projects available</option>
+                )}
+              </select>
+            </label>
 
-        <label className="space-y-2">
-          <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
-            <Users2 className="h-4 w-4 text-blue-600" />
-            Team
-          </span>
-          <select
-            className="field-select"
-            name="teamId"
-            value={formData.teamId}
-            onChange={handleChange}
-            disabled={!availableTeams.length}
-          >
-            {availableTeams.length ? (
-              availableTeams.map((team) => (
-                <option key={team._id} value={team._id}>
-                  {team.name}
-                </option>
-              ))
-            ) : (
-              <option value="">No attached teams</option>
-            )}
-          </select>
-        </label>
+            <label className="space-y-2">
+              <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <Users2 className="h-4 w-4 text-blue-600" />
+                Team
+              </span>
+              <select
+                className="field-select"
+                name="teamId"
+                value={formData.teamId}
+                onChange={handleChange}
+                disabled={!availableTeams.length}
+              >
+                {availableTeams.length ? (
+                  availableTeams.map((team) => (
+                    <option key={team._id} value={team._id}>
+                      {team.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No attached teams</option>
+                )}
+              </select>
+            </label>
 
-        {showAssigneeField ? (
-          <label className="space-y-2">
-            <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
-              <UserCircle2 className="h-4 w-4 text-blue-600" />
-              Assignee
-            </span>
-            <select
-              className="field-select"
-              name="assigneeId"
-              value={formData.assigneeId}
-              onChange={handleChange}
-              disabled={!formData.teamId}
-            >
-              <option value="">Unassigned</option>
-              {availableAssignees.length ? (
-                availableAssignees.map((assignee) => (
-                  <option key={assignee._id} value={assignee._id}>
-                    {assignee.name} ({assignee.role})
+            {showAssigneeField ? (
+              <label className="space-y-2">
+                <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <UserCircle2 className="h-4 w-4 text-blue-600" />
+                  Assignee
+                </span>
+                <select
+                  className="field-select"
+                  name="assigneeId"
+                  value={formData.assigneeId}
+                  onChange={handleChange}
+                  disabled={!formData.teamId}
+                >
+                  <option value="">Unassigned</option>
+                  {availableAssignees.length ? (
+                    availableAssignees.map((assignee) => (
+                      <option key={assignee._id} value={assignee._id}>
+                        {assignee.name} ({assignee.role})
+                      </option>
+                    ))
+                  ) : (
+                    <option disabled value="__empty">
+                      No team members available
+                    </option>
+                  )}
+                </select>
+              </label>
+            ) : null}
+          </div>
+
+          <div
+            className={`grid gap-4 ${
+              showStatusField ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2 xl:grid-cols-3"
+            }`}
+          >
+            <label className="space-y-2">
+              <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <ClipboardList className="h-4 w-4 text-blue-600" />
+                Type
+              </span>
+              <select
+                className="field-select"
+                name="type"
+                value={formData.type}
+                disabled={lockType || allowedTypes.length === 1}
+                onChange={handleChange}
+              >
+                {allowedTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
                   </option>
-                ))
-              ) : (
-                <option disabled value="__empty">
-                  No team members available
-                </option>
-              )}
-            </select>
-          </label>
-        ) : null}
-      </div>
+                ))}
+              </select>
+            </label>
 
-      <div
-        className={`grid gap-4 ${
-          showStatusField ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2 xl:grid-cols-3"
-        }`}
-      >
-        <label className="space-y-2">
-          <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
-            <ClipboardList className="h-4 w-4 text-blue-600" />
-            Type
-          </span>
-          <select
-            className="field-select"
-            name="type"
-            value={formData.type}
-            disabled={lockType || allowedTypes.length === 1}
-            onChange={handleChange}
-          >
-            {allowedTypes.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-        </label>
+            {!isBugType ? (
+              <label className="space-y-2">
+                <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <Flag className="h-4 w-4 text-blue-600" />
+                  Priority
+                </span>
+                <select
+                  className="field-select"
+                  name="priority"
+                  value={formData.priority}
+                  onChange={handleChange}
+                >
+                  <option value="Low">Low</option>
+                  <option value="Medium">Medium</option>
+                  <option value="High">High</option>
+                </select>
+              </label>
+            ) : null}
 
-        {!isBugType ? (
-          <label className="space-y-2">
-            <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
-              <Flag className="h-4 w-4 text-blue-600" />
-              Priority
-            </span>
-            <select
-              className="field-select"
-              name="priority"
-              value={formData.priority}
-              onChange={handleChange}
-            >
-              <option value="Low">Low</option>
-              <option value="Medium">Medium</option>
-              <option value="High">High</option>
-            </select>
-          </label>
-        ) : null}
-
-        {showStatusField && !isBugType ? (
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-gray-700">Status</span>
-            <select
-              className="field-select"
-              name="status"
-              value={formData.status}
-              onChange={handleChange}
-            >
-              {ISSUE_WORKFLOW_STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-      </div>
+            {showStatusField && !isBugType ? (
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-gray-700">Status</span>
+                <select
+                  className="field-select"
+                  name="status"
+                  value={formData.status}
+                  onChange={handleChange}
+                >
+                  {ISSUE_WORKFLOW_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+        </>
+      ) : null}
 
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">

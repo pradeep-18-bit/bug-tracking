@@ -470,12 +470,14 @@ const TesterBugsPage = () => {
             headerLabel="Bug / Issue Reporting Form"
             cardTitle="Report assigned project bug / issue"
             cardDescription="Choose one of your assigned projects, describe the issue clearly, and attach screenshots, documents, PDFs, or logs."
-            projectLabel="Assigned project"
+            projectLabel="Assigned Project"
             titleLabel="Issue title"
             titlePlaceholder="Describe the assigned project issue"
             descriptionPlaceholder="Summarize the behavior, impacted area, and testing context."
             includeAttachments
             attachmentAccept={ATTACHMENT_ACCEPT}
+            isTesterBugReport
+            reporterName={user?.name || user?.email || "Tester"}
           />
         </div>
 

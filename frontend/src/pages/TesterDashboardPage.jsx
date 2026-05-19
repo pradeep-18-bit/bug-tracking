@@ -3,7 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Bell,
   Bug,
+  CalendarDays,
   CheckCircle2,
+  ChevronRight,
   Clock3,
   FolderKanban,
   Plus,
@@ -14,18 +16,13 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
-  CartesianGrid,
   Cell,
-  Line,
-  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
   Tooltip,
-  XAxis,
-  YAxis,
 } from "recharts";
-import { fetchIssues, fetchProjects } from "@/lib/api";
+import { fetchIssues, fetchProjects, fetchRecentTasks } from "@/lib/api";
 import {
   ISSUE_STATUS,
   getIssueDisplayKey,
@@ -38,7 +35,8 @@ import {
   resolveIssueProjectId,
 } from "@/lib/issues";
 import { getProjectTeams, resolveUserId } from "@/lib/project-teams";
-import { cn, formatDateTime, getInitials } from "@/lib/utils";
+import { ROLE_TESTER } from "@/lib/roles";
+import { cn, formatDate, formatDateTime, getInitials } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import EmptyState from "@/components/shared/EmptyState";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -193,46 +191,6 @@ const getAssigneeName = (issue) => {
 const getBugUpdatedAt = (issue) =>
   issue?.updatedAt || issue?.lastUpdatedAt || issue?.createdAt || null;
 
-const getDateKey = (value) => {
-  const date = value ? new Date(value) : new Date();
-
-  return new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-};
-
-const buildTimeSeries = (issues) => {
-  const today = new Date();
-
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - (6 - index));
-
-    const key = getDateKey(date);
-    const count = issues.filter((issue) => getDateKey(issue.createdAt) === key).length;
-
-    return {
-      date: new Intl.DateTimeFormat("en-US", {
-        month: "short",
-        day: "numeric",
-      }).format(date),
-      created: count,
-      resolved: issues.filter(
-        (issue) =>
-          STATUS_BUCKETS.resolved.includes(getComparableStatus(issue)) &&
-          getDateKey(getBugUpdatedAt(issue)) === key
-      ).length,
-      closed: issues.filter(
-        (issue) =>
-          STATUS_BUCKETS.closed.includes(getComparableStatus(issue)) &&
-          getDateKey(getBugUpdatedAt(issue)) === key
-      ).length,
-    };
-  });
-};
-
 const filterBugs = ({ issues, projects, projectId, searchTerm }) => {
   const normalizedSearch = searchTerm.trim().toLowerCase();
 
@@ -317,10 +275,99 @@ const TableBadge = ({ children, variant }) => (
   </Badge>
 );
 
+const RecentTasksPanel = ({
+  error,
+  isLoading,
+  onOpenTask,
+  tasks = [],
+}) => (
+  <ChartCard title="Recent Tasks">
+    {isLoading ? (
+      <div className="space-y-3">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div
+            className="rounded-[20px] border border-slate-200/80 bg-white/70 p-4"
+            key={`recent-task-skeleton-${index}`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <Skeleton className="h-5 w-24 rounded-full" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+            </div>
+            <Skeleton className="mt-3 h-5 w-3/4 rounded-full" />
+            <Skeleton className="mt-3 h-4 w-1/2 rounded-full" />
+          </div>
+        ))}
+      </div>
+    ) : error ? (
+      <div
+        className="flex h-[260px] items-center justify-center rounded-[24px] border border-rose-100 bg-rose-50/70 px-6 text-center text-sm font-medium text-rose-700"
+        role="alert"
+      >
+        {error.response?.data?.message || "Unable to load recent tasks."}
+      </div>
+    ) : tasks.length ? (
+      <div className="space-y-3">
+        {tasks.slice(0, 5).map((task) => {
+          const assignedAt = task.createdAt || task.updatedAt || "";
+
+          return (
+            <button
+              className="group w-full rounded-[20px] border border-slate-200/80 bg-white/74 p-4 text-left shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/46 hover:shadow-[0_18px_44px_-32px_rgba(37,99,235,0.42)] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              key={task._id}
+              onClick={() => onOpenTask(task._id)}
+              type="button"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <TableBadge variant={getIssuePriorityVariant(task.priority)}>
+                      {task.priority ? String(task.priority).toUpperCase() : "MEDIUM"}
+                    </TableBadge>
+                    <TableBadge variant={getIssueStatusVariant(task.status)}>
+                      {getIssueStatusLabel(task.status)}
+                    </TableBadge>
+                  </div>
+
+                  <h3 className="mt-3 line-clamp-2 text-sm font-semibold leading-5 text-slate-950 transition group-hover:text-blue-700">
+                    {task.title || "Untitled task"}
+                  </h3>
+                </div>
+
+                <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white/82 text-slate-400 transition group-hover:border-blue-200 group-hover:text-blue-600">
+                  <ChevronRight className="h-4 w-4" />
+                </span>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-medium text-slate-500">
+                <span className="min-w-0 max-w-full truncate text-slate-700">
+                  {getProjectName(task)}
+                </span>
+                <span className="hidden h-1 w-1 rounded-full bg-slate-300 sm:inline-flex" />
+                <span className="inline-flex items-center gap-1.5">
+                  <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
+                  {assignedAt
+                    ? formatDate(assignedAt, {
+                        month: "short",
+                        day: "numeric",
+                      })
+                    : "Unknown date"}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    ) : (
+      <EmptyChartState>No recent tasks available</EmptyChartState>
+    )}
+  </ChartCard>
+);
+
 const TesterDashboardPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const testerId = String(user?._id || user?.id || "");
+  const isTester = user?.role === ROLE_TESTER;
   const [searchTerm, setSearchTerm] = useState("");
   const [projectFilter, setProjectFilter] = useState("all");
   const [selectedBugIds, setSelectedBugIds] = useState([]);
@@ -346,6 +393,18 @@ const TesterDashboardPage = () => {
     queryKey: ["issues", "tester-dashboard", testerId],
     queryFn: () => fetchIssues({ type: "Bug" }),
     enabled: Boolean(testerId),
+  });
+
+  const {
+    data: recentTasks = [],
+    isLoading: isRecentTasksLoading,
+    error: recentTasksError,
+    refetch: refetchRecentTasks,
+    isFetching: isRecentTasksFetching,
+  } = useQuery({
+    queryKey: ["tasks", "recent", "tester-dashboard", testerId],
+    queryFn: fetchRecentTasks,
+    enabled: Boolean(testerId && isTester),
   });
 
   const assignedProjects = useMemo(
@@ -409,14 +468,12 @@ const TesterDashboardPage = () => {
     [statusChartData]
   );
 
-  const timeSeries = useMemo(() => buildTimeSeries(visibleIssues), [visibleIssues]);
-
   const allRecentRowsSelected =
     recentlyUpdatedBugs.length > 0 &&
     recentlyUpdatedBugs.every((issue) => selectedBugIds.includes(issue._id));
 
   const handleRefresh = async () => {
-    await Promise.all([refetchProjects(), refetchIssues()]);
+    await Promise.all([refetchProjects(), refetchIssues(), refetchRecentTasks()]);
     setLastRefreshedAt(new Date());
   };
 
@@ -619,99 +676,12 @@ const TesterDashboardPage = () => {
           )}
         </ChartCard>
 
-        <ChartCard title="Bugs Over Time (Last 7 Days)">
-          {dashboardMetrics.total ? (
-            <div>
-              <div className="mb-3 flex flex-wrap items-center gap-3">
-                {[
-                  { label: "Created", color: "bg-blue-500" },
-                  { label: "Resolved", color: "bg-emerald-500" },
-                  { label: "Closed", color: "bg-slate-600" },
-                ].map((item) => (
-                  <div
-                    className="flex items-center gap-2 rounded-full border border-slate-200/80 bg-slate-50/80 px-3 py-1.5"
-                    key={item.label}
-                  >
-                    <span className={cn("h-2.5 w-2.5 rounded-full", item.color)} />
-                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      {item.label}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="h-[260px]">
-              <ResponsiveContainer height="100%" width="100%">
-                <LineChart
-                  data={timeSeries}
-                  margin={{ bottom: 8, left: -20, right: 18, top: 10 }}
-                >
-                  <defs>
-                    <linearGradient id="tester-bugs-created" x1="0" x2="1" y1="0" y2="0">
-                      <stop offset="0%" stopColor="#2563eb" />
-                      <stop offset="100%" stopColor="#38bdf8" />
-                    </linearGradient>
-                    <linearGradient id="tester-bugs-resolved" x1="0" x2="1" y1="0" y2="0">
-                      <stop offset="0%" stopColor="#10b981" />
-                      <stop offset="100%" stopColor="#34d399" />
-                    </linearGradient>
-                    <linearGradient id="tester-bugs-closed" x1="0" x2="1" y1="0" y2="0">
-                      <stop offset="0%" stopColor="#64748b" />
-                      <stop offset="100%" stopColor="#475569" />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 6" vertical={false} />
-                  <XAxis
-                    axisLine={false}
-                    dataKey="date"
-                    tick={{ fill: "#64748b", fontSize: 12 }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    axisLine={false}
-                    tick={{ fill: "#64748b", fontSize: 12 }}
-                    tickLine={false}
-                  />
-                  <Tooltip />
-                  <Line
-                    activeDot={{ r: 5, stroke: "#ffffff", strokeWidth: 3 }}
-                    dataKey="created"
-                    dot={{ r: 3.5, stroke: "#ffffff", strokeWidth: 2 }}
-                    name="Created"
-                    stroke="url(#tester-bugs-created)"
-                    strokeLinecap="round"
-                    strokeWidth={3.5}
-                    type="monotone"
-                  />
-                  <Line
-                    activeDot={{ r: 5, stroke: "#ffffff", strokeWidth: 3 }}
-                    dataKey="resolved"
-                    dot={{ r: 3.5, stroke: "#ffffff", strokeWidth: 2 }}
-                    name="Resolved"
-                    stroke="url(#tester-bugs-resolved)"
-                    strokeLinecap="round"
-                    strokeWidth={3.5}
-                    type="monotone"
-                  />
-                  <Line
-                    activeDot={{ r: 5, stroke: "#ffffff", strokeWidth: 3 }}
-                    dataKey="closed"
-                    dot={{ r: 3.5, stroke: "#ffffff", strokeWidth: 2 }}
-                    name="Closed"
-                    stroke="url(#tester-bugs-closed)"
-                    strokeLinecap="round"
-                    strokeWidth={3.5}
-                    type="monotone"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            </div>
-          ) : (
-            <EmptyChartState>No bug trend data yet.</EmptyChartState>
-          )}
-        </ChartCard>
+        <RecentTasksPanel
+          error={recentTasksError}
+          isLoading={isRecentTasksLoading}
+          onOpenTask={(taskId) => navigate(`/issues/${taskId}`)}
+          tasks={recentTasks}
+        />
       </section>
 
       <Card className="overflow-hidden border-white/70 bg-white/90 shadow-[0_20px_56px_-36px_rgba(15,23,42,0.38)] backdrop-blur-xl">
@@ -929,10 +899,15 @@ const TesterDashboardPage = () => {
           </p>
           <DashboardIconButton
             aria-label="Refresh dashboard"
-            className={isIssuesFetching ? "animate-pulse" : ""}
+            className={isIssuesFetching || isRecentTasksFetching ? "animate-pulse" : ""}
             onClick={handleRefresh}
           >
-            <RefreshCcw className={cn("h-4 w-4", isIssuesFetching && "animate-spin")} />
+            <RefreshCcw
+              className={cn(
+                "h-4 w-4",
+                (isIssuesFetching || isRecentTasksFetching) && "animate-spin"
+              )}
+            />
           </DashboardIconButton>
         </div>
       </section>

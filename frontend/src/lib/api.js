@@ -406,6 +406,22 @@ export const updateTaskStatus = async ({ id, status }) => {
   return response.data;
 };
 
+export const fetchRecentTasks = async () => {
+  const response = await api.get("/tasks/recent");
+  const data = response.data;
+
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (Array.isArray(data?.tasks)) {
+    return data.tasks;
+  }
+
+  console.warn("[api] Unexpected recent tasks response shape:", data);
+  return [];
+};
+
 export const deleteIssue = async (id) => {
   const response = await api.delete(`/issues/${id}`);
   return response.data;

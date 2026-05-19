@@ -1916,6 +1916,10 @@ const createIssue = asyncHandler(async (req, res) => {
   let bugAssignmentDeveloperUser = null;
 
   if (isBug) {
+    if (req.user.role === ROLE_TESTER) {
+      bugDetails.testerOwner = req.user._id;
+    }
+
     const bugDetailsError = validateBugDetails({
       bugDetails,
       priority: normalizedPriority,
@@ -2326,15 +2330,7 @@ const updateIssue = asyncHandler(async (req, res) => {
   if (nextIsBug) {
     nextBugDetails = buildBugDetailsDraft(req.body, issue.bugDetails || {}, {});
 
-    if (
-      !nextBugDetails.testerOwner &&
-      !hasBugPayloadField(req.body, "testerOwnerId", [
-        "testerOwner",
-        "qaOwnerId",
-        "qaOwner",
-      ]) &&
-      req.user.role === ROLE_TESTER
-    ) {
+    if (req.user.role === ROLE_TESTER) {
       nextBugDetails.testerOwner = req.user._id;
     }
 
