@@ -15,6 +15,7 @@ const { hasAdminAccess } = require("../utils/roles");
 const {
   buildProjectAccessQuery,
   loadSerializedProjectById,
+  mergeProjectTeamIds,
   serializeProjectsWithRelations,
 } = require("../utils/projectRelations");
 const {
@@ -298,14 +299,17 @@ const loadAccessibleProject = async (user, projectId) =>
     .lean();
 
 const getAttachedTeamParticipants = async ({ projectId, workspaceId }) => {
-  const projectTeams = await ProjectTeam.find({
-    projectId,
-  })
-    .select("teamId")
-    .lean();
-  const attachedTeamIds = Array.from(
-    new Set(projectTeams.map((item) => String(item.teamId)).filter(Boolean))
-  );
+  const [project, projectTeams] = await Promise.all([
+    Project.findById(projectId)
+      .select("_id attachedTeams teamIds")
+      .lean(),
+    ProjectTeam.find({
+      projectId,
+    })
+      .select("teamId")
+      .lean(),
+  ]);
+  const attachedTeamIds = mergeProjectTeamIds(project || { _id: projectId }, projectTeams);
 
   if (!attachedTeamIds.length) {
     return [];
@@ -575,7 +579,7 @@ const attachProjectTeam = asyncHandler(async (req, res) => {
       _id: req.params.id,
       workspaceId,
     })
-      .select("_id workspaceId")
+      .select("_id workspaceId attachedTeams teamIds")
       .lean(),
     Team.findOne({
       _id: req.body.teamId,
@@ -602,14 +606,44 @@ const attachProjectTeam = asyncHandler(async (req, res) => {
   }
 
   if (existingProjectTeam) {
-    res.status(409);
-    throw new Error("This team is already attached to the project");
+    await Project.updateOne(
+      {
+        _id: project._id,
+        workspaceId,
+      },
+      {
+        $addToSet: {
+          attachedTeams: team._id,
+          teamIds: team._id,
+        },
+      }
+    );
+
+    res.status(200).json({
+      message: `${team.name} is already attached to the project`,
+      ...(await buildProjectResponse(project._id)),
+    });
+    return;
   }
 
-  await ProjectTeam.create({
-    projectId: project._id,
-    teamId: team._id,
-  });
+  await Promise.all([
+    ProjectTeam.create({
+      projectId: project._id,
+      teamId: team._id,
+    }),
+    Project.updateOne(
+      {
+        _id: project._id,
+        workspaceId,
+      },
+      {
+        $addToSet: {
+          attachedTeams: team._id,
+          teamIds: team._id,
+        },
+      }
+    ),
+  ]);
 
   res.status(200).json({
     message: `${team.name} attached to the project`,
@@ -632,7 +666,6 @@ const getProjectTeams = asyncHandler(async (req, res) => {
     _id: req.params.id,
     ...(await buildProjectQuery(req.user)),
   })
-    .select("_id name workspaceId")
     .lean();
 
   if (!project) {
@@ -654,15 +687,14 @@ const getProjectTeams = asyncHandler(async (req, res) => {
     .sort({ createdAt: 1 })
     .select("teamId")
     .lean();
-  const teamIds = Array.from(
-    new Set(projectTeams.map((projectTeam) => String(projectTeam.teamId)).filter(Boolean))
-  );
+  const teamIds = mergeProjectTeamIds(project, projectTeams);
 
   if (!teamIds.length) {
     logProjectTeamsDebug("Project teams API response", {
       projectId: String(project._id),
       responseShape: "array",
-      linkedTeamCount: 0,
+      projectTeamLinkCount: projectTeams.length,
+      attachedTeamCount: 0,
       returnedTeamsCount: 0,
       currentUserRole: req.user.role || "",
       teams: [],
@@ -690,7 +722,8 @@ const getProjectTeams = asyncHandler(async (req, res) => {
       projectId: String(project._id),
       workspaceId,
       currentUserRole: req.user.role || "",
-      linkedTeamCount: teamIds.length,
+      projectTeamLinkCount: projectTeams.length,
+      attachedTeamCount: teamIds.length,
       returnedTeamsCount: orderedTeams.length,
       missingTeamIds,
     });
@@ -699,7 +732,8 @@ const getProjectTeams = asyncHandler(async (req, res) => {
   logProjectTeamsDebug("Project teams API response", {
     projectId: String(project._id),
     responseShape: "array",
-    linkedTeamCount: teamIds.length,
+    projectTeamLinkCount: projectTeams.length,
+    attachedTeamCount: teamIds.length,
     returnedTeamsCount: orderedTeams.length,
     currentUserRole: req.user.role || "",
     teams: summarizeTeams(orderedTeams),
@@ -735,7 +769,7 @@ const detachProjectTeam = asyncHandler(async (req, res) => {
       _id: req.params.id,
       workspaceId,
     })
-      .select("_id workspaceId")
+      .select("_id workspaceId attachedTeams teamIds")
       .lean(),
     Team.findOne({
       _id: req.params.teamId,
@@ -761,14 +795,34 @@ const detachProjectTeam = asyncHandler(async (req, res) => {
     throw new Error("Selected team could not be found in this workspace");
   }
 
-  if (!projectTeam) {
+  const hasInlineProjectTeam = mergeProjectTeamIds(project, []).some(
+    (teamId) => String(teamId) === String(req.params.teamId)
+  );
+
+  if (!projectTeam && !hasInlineProjectTeam) {
     res.status(404);
     throw new Error("This team is not attached to the project");
   }
 
-  await ProjectTeam.deleteOne({
-    _id: projectTeam._id,
-  });
+  await Promise.all([
+    projectTeam
+      ? ProjectTeam.deleteOne({
+          _id: projectTeam._id,
+        })
+      : Promise.resolve(),
+    Project.updateOne(
+      {
+        _id: project._id,
+        workspaceId,
+      },
+      {
+        $pull: {
+          attachedTeams: team._id,
+          teamIds: team._id,
+        },
+      }
+    ),
+  ]);
 
   res.status(200).json({
     message: `${team.name} detached from the project`,

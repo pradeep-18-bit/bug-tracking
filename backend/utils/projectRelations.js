@@ -1,4 +1,5 @@
 const ProjectTeam = require("../models/ProjectTeam");
+const Project = require("../models/Project");
 const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const { hasAdminAccess } = require("./roles");
@@ -14,6 +15,69 @@ const toPlainObject = (value) =>
   typeof value?.toObject === "function" ? value.toObject() : value;
 
 const sanitizeProjectUser = (value) => sanitizeUser(value) || null;
+
+const resolveTeamReferenceId = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "object") {
+    if (value._id) {
+      return resolveTeamReferenceId(value._id);
+    }
+
+    if (value.teamId) {
+      return resolveTeamReferenceId(value.teamId);
+    }
+
+    if (value.$oid) {
+      return String(value.$oid);
+    }
+
+    if (typeof value.toHexString === "function") {
+      return value.toHexString();
+    }
+  }
+
+  return String(value);
+};
+
+const addUniqueTeamId = (teamIds, seenTeamIds, value) => {
+  const teamId = resolveTeamReferenceId(value);
+
+  if (!teamId || seenTeamIds.has(teamId)) {
+    return;
+  }
+
+  seenTeamIds.add(teamId);
+  teamIds.push(teamId);
+};
+
+const getInlineProjectTeamIds = (project = {}) => {
+  const teamIds = [];
+  const seenTeamIds = new Set();
+
+  ["attachedTeams", "teamIds", "teams"].forEach((field) => {
+    const values = Array.isArray(project?.[field]) ? project[field] : [];
+    values.forEach((value) => addUniqueTeamId(teamIds, seenTeamIds, value));
+  });
+
+  return teamIds;
+};
+
+const mergeProjectTeamIds = (project = {}, projectTeams = []) => {
+  const teamIds = [];
+  const seenTeamIds = new Set();
+
+  projectTeams.forEach((projectTeam) =>
+    addUniqueTeamId(teamIds, seenTeamIds, projectTeam?.teamId)
+  );
+  getInlineProjectTeamIds(project).forEach((teamId) =>
+    addUniqueTeamId(teamIds, seenTeamIds, teamId)
+  );
+
+  return teamIds;
+};
 
 const buildEffectiveMembers = (teams = []) => {
   const members = [];
@@ -55,16 +119,36 @@ const attachTeamsToProjects = async (projects = []) => {
     .sort({ createdAt: 1 })
     .lean();
 
-  if (!projectTeams.length) {
+  const projectTeamsByProjectId = new Map(
+    projectIds.map((projectId) => [String(projectId), []])
+  );
+
+  projectTeams.forEach((projectTeam) => {
+    projectTeamsByProjectId
+      .get(String(projectTeam.projectId))
+      ?.push(projectTeam);
+  });
+
+  const teamIdsByProjectId = new Map(
+    normalizedProjects.map((project) => [
+      String(project._id),
+      mergeProjectTeamIds(
+        project,
+        projectTeamsByProjectId.get(String(project._id)) || []
+      ),
+    ])
+  );
+  const attachedTeamIds = Array.from(
+    new Set(Array.from(teamIdsByProjectId.values()).flat())
+  );
+
+  if (!attachedTeamIds.length) {
     return normalizedProjects.map((project) => ({
       ...project,
       teams: [],
     }));
   }
 
-  const attachedTeamIds = Array.from(
-    new Set(projectTeams.map((projectTeam) => String(projectTeam.teamId)))
-  );
   const teams = await Team.find({
     _id: {
       $in: attachedTeamIds,
@@ -101,14 +185,16 @@ const attachTeamsToProjects = async (projects = []) => {
     projectIds.map((projectId) => [String(projectId), []])
   );
 
-  projectTeams.forEach((projectTeam) => {
-    const team = teamsById.get(String(projectTeam.teamId));
+  teamIdsByProjectId.forEach((projectTeamIds, projectId) => {
+    projectTeamIds.forEach((teamId) => {
+      const team = teamsById.get(String(teamId));
 
-    if (!team) {
-      return;
-    }
+      if (!team) {
+        return;
+      }
 
-    teamsByProjectId.get(String(projectTeam.projectId))?.push(team);
+      teamsByProjectId.get(String(projectId))?.push(team);
+    });
   });
 
   return normalizedProjects.map((project) => ({
@@ -123,6 +209,10 @@ const serializeProjectsWithRelations = async (projects = []) => {
   return projectsWithTeams.map((project) => {
     const { members: _legacyMembers, ...projectWithoutLegacyMembers } = project;
     const effectiveMembers = buildEffectiveMembers(project.teams || []);
+    const serializedTeams = (project.teams || []).map((team) => ({
+      ...team,
+      workspaceId: normalizeWorkspaceId(team.workspaceId),
+    }));
 
     return {
       ...projectWithoutLegacyMembers,
@@ -135,10 +225,9 @@ const serializeProjectsWithRelations = async (projects = []) => {
             .map((epic) => (typeof epic === "string" ? epic.trim() : ""))
             .filter(Boolean)
         : [],
-      teams: (project.teams || []).map((team) => ({
-        ...team,
-        workspaceId: normalizeWorkspaceId(team.workspaceId),
-      })),
+      teams: serializedTeams,
+      attachedTeams: serializedTeams,
+      teamIds: serializedTeams.map((team) => team._id).filter(Boolean),
       teamCount: project.teams?.length || 0,
       members: effectiveMembers,
       memberCount: effectiveMembers.length,
@@ -163,20 +252,49 @@ const getWorkspaceTeamIdsForUser = async (userId, workspaceId) => {
   }).distinct("_id");
 };
 
-const getProjectIdsForTeamIds = async (teamIds = []) => {
+const getProjectIdsForTeamIds = async (teamIds = [], workspaceId = "") => {
   if (!teamIds.length) {
     return [];
   }
 
-  return ProjectTeam.find({
-    teamId: {
-      $in: teamIds,
-    },
-  }).distinct("projectId");
+  const [projectTeamIds, inlineProjectIds] = await Promise.all([
+    ProjectTeam.find({
+      teamId: {
+        $in: teamIds,
+      },
+    }).distinct("projectId"),
+    Project.find({
+      ...(workspaceId ? { workspaceId: normalizeWorkspaceId(workspaceId) } : {}),
+      $or: [
+        {
+          attachedTeams: {
+            $in: teamIds,
+          },
+        },
+        {
+          teamIds: {
+            $in: teamIds,
+          },
+        },
+      ],
+    }).distinct("_id"),
+  ]);
+  const uniqueProjectIds = new Map();
+
+  [...projectTeamIds, ...inlineProjectIds].forEach((projectId) => {
+    if (projectId) {
+      uniqueProjectIds.set(String(projectId), projectId);
+    }
+  });
+
+  return Array.from(uniqueProjectIds.values());
 };
 
 const getProjectIdsForUserThroughTeams = async (userId, workspaceId) =>
-  getProjectIdsForTeamIds(await getWorkspaceTeamIdsForUser(userId, workspaceId));
+  getProjectIdsForTeamIds(
+    await getWorkspaceTeamIdsForUser(userId, workspaceId),
+    workspaceId
+  );
 
 const buildProjectAccessQuery = async (user) => {
   const workspaceId = normalizeWorkspaceId(user.workspaceId);
@@ -226,4 +344,5 @@ module.exports = {
   buildProjectAccessQuery,
   getProjectIdsForUserThroughTeams,
   loadSerializedProjectById,
+  mergeProjectTeamIds,
 };

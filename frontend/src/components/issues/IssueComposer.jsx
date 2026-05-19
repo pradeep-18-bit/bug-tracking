@@ -169,17 +169,23 @@ const IssueComposer = ({
     enabled: Boolean(selectedProjectId),
     refetchOnMount: "always",
   });
-  const projectTeamsSource = Array.isArray(projectTeamsData)
+  const selectedProjectTeams = useMemo(
+    () => getProjectTeams(selectedProject),
+    [selectedProject]
+  );
+  const useProjectTeamsApi =
+    Array.isArray(projectTeamsData) && projectTeamsData.length > 0;
+  const projectTeamsSource = useProjectTeamsApi
     ? "project-teams-api"
-    : "projects-api";
+    : Array.isArray(projectTeamsData)
+      ? "projects-api-fallback-empty-project-teams"
+      : "projects-api";
   const availableTeams = useMemo(
     () =>
-      getProjectTeams({
-        teams: Array.isArray(projectTeamsData)
-          ? projectTeamsData
-          : selectedProject?.teams || [],
-      }),
-    [projectTeamsData, selectedProject]
+      useProjectTeamsApi
+        ? getProjectTeams({ teams: projectTeamsData })
+        : selectedProjectTeams,
+    [projectTeamsData, selectedProjectTeams, useProjectTeamsApi]
   );
   const selectedProjectWithTeams = useMemo(
     () =>

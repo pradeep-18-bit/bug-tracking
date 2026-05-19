@@ -98,9 +98,26 @@ const summarizeProjectsForTeamDebug = (projects = []) =>
     id: String(project?._id || project?.id || ""),
     name: project?.name || "",
     workspaceId: project?.workspaceId || "",
-    teamCount: project?.teamCount ?? project?.teams?.length ?? 0,
+    teamCount:
+      project?.teamCount ??
+      project?.teams?.length ??
+      project?.attachedTeams?.length ??
+      project?.teamIds?.length ??
+      0,
     teams: summarizeTeamsForDebug(project?.teams || []),
+    attachedTeams: summarizeTeamsForDebug(project?.attachedTeams || []),
+    teamIdsCount: Array.isArray(project?.teamIds) ? project.teamIds.length : 0,
   }));
+
+const getTeamSelectionDebugContext = () => {
+  const session = readStoredSession();
+
+  return {
+    currentUserRole: session?.user?.role || session?.role || "",
+    productionEnv: import.meta.env.PROD,
+    apiBaseUrl: api.defaults.baseURL || "",
+  };
+};
 
 export const loginRequest = async (payload) => {
   const response = await api.post("/auth/login", payload);
@@ -186,6 +203,7 @@ export const fetchProjects = async () => {
       : [];
 
   logTeamSelectionDebug("Projects API response", {
+    ...getTeamSelectionDebugContext(),
     responseShape: Array.isArray(data)
       ? "array"
       : Array.isArray(data?.projects)
@@ -221,6 +239,7 @@ export const fetchProjectTeams = async (projectId) => {
       : [];
 
   logTeamSelectionDebug("Project teams API response", {
+    ...getTeamSelectionDebugContext(),
     projectId,
     responseShape: Array.isArray(data)
       ? "array"

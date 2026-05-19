@@ -40,7 +40,10 @@ const {
 } = require("../utils/issueTypes");
 const { getNextPlanningOrder } = require("../utils/planningOrder");
 const { canManageProjectPlanning } = require("../utils/backlogAccess");
-const { buildProjectAccessQuery } = require("../utils/projectRelations");
+const {
+  buildProjectAccessQuery,
+  mergeProjectTeamIds,
+} = require("../utils/projectRelations");
 const {
   ROLE_ADMIN,
   ROLE_MANAGER,
@@ -756,7 +759,7 @@ const ensureIssueTeamForProject = async ({
     };
   }
 
-  const [team, projectTeamLink] = await Promise.all([
+  const [team, projectTeamLink, project] = await Promise.all([
     Team.findOne({
       _id: teamId,
       workspaceId: normalizeWorkspaceId(workspaceId),
@@ -767,7 +770,10 @@ const ensureIssueTeamForProject = async ({
       projectId,
       teamId,
     })
-      .select("_id")
+      .select("_id teamId")
+      .lean(),
+    Project.findById(projectId)
+      .select("_id attachedTeams teamIds")
       .lean(),
   ]);
 
@@ -780,7 +786,12 @@ const ensureIssueTeamForProject = async ({
     };
   }
 
-  if (!projectTeamLink) {
+  const attachedTeamIds = mergeProjectTeamIds(
+    project || { _id: projectId },
+    projectTeamLink ? [projectTeamLink] : []
+  );
+
+  if (!attachedTeamIds.some((attachedTeamId) => String(attachedTeamId) === String(teamId))) {
     return {
       error: {
         status: 400,

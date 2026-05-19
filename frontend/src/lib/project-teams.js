@@ -15,7 +15,17 @@ export const sortByName = (items = []) =>
 export const findProjectById = (projects = [], projectId = "") =>
   projects.find((project) => resolveProjectId(project) === String(projectId)) || null;
 
-export const getProjectTeams = (project) => sortByName(project?.teams || []);
+export const getProjectTeams = (project) => {
+  if (Array.isArray(project?.teams) && project.teams.length) {
+    return sortByName(project.teams);
+  }
+
+  if (Array.isArray(project?.attachedTeams) && project.attachedTeams.length) {
+    return sortByName(project.attachedTeams);
+  }
+
+  return sortByName(project?.teamIds || []);
+};
 
 export const getProjectMembers = (project) => {
   const uniqueMembers = new Map();

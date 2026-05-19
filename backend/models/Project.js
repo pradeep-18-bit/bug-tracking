@@ -37,6 +37,26 @@ const projectSchema = new Schema(
       default: null,
       index: true,
     },
+    attachedTeams: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Team",
+        },
+      ],
+      default: [],
+      index: true,
+    },
+    teamIds: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Team",
+        },
+      ],
+      default: [],
+      index: true,
+    },
     workspaceId: {
       type: String,
       required: true,
