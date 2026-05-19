@@ -252,6 +252,7 @@ const buildBugAssignmentEmailPayload = (issue, actorUser) => {
     assignedByName:
       actorUser?.name || actorUser?.email || "Tester",
     assignedByEmail: actorUser?.email || "",
+    createdAt: issue.createdAt,
   };
 };
 

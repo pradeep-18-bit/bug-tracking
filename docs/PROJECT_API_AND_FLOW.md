@@ -290,7 +290,7 @@ Required backend env values:
 - `EMAIL_PASS`
 - `EMAIL_SECURE`
 - `EMAIL_FROM`
-- `APP_URL`
+- `FRONTEND_URL`
 
 ## 9. Important Environment Variables
 
@@ -306,7 +306,7 @@ Required backend env values:
 - `EMAIL_PASS`
 - `EMAIL_SECURE`
 - `EMAIL_FROM`
-- `APP_URL`
+- `FRONTEND_URL`
 
 ### Frontend
 
@@ -328,7 +328,7 @@ Required backend env values:
 - `EMAIL_PASS`
 - `EMAIL_SECURE`
 - `EMAIL_FROM`
-- `APP_URL`
+- `FRONTEND_URL`
 - `VITE_API_BASE_URL`
 
 ## 10. Docker Flow

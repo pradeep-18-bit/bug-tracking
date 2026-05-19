@@ -69,7 +69,7 @@ Full-stack Jira-like bug tracking and project management app with:
 Root compose env:
 
 ```env
-FRONTEND_PORT=80
+FRONTEND_PORT=3000
 BACKEND_PORT=5000
 MONGO_PORT=27017
 MONGO_ROOT_USERNAME=bugtracker
@@ -83,7 +83,7 @@ EMAIL_USER=your-email@example.com
 EMAIL_PASS=your-smtp-password
 EMAIL_SECURE=true
 EMAIL_FROM=Pirnav Support <your-email@example.com>
-APP_URL=http://localhost
+FRONTEND_URL=http://localhost:3000
 VITE_API_BASE_URL=/api
 ```
 
@@ -117,7 +117,7 @@ docker compose up --build
 
 3. Open the app:
 
-- Frontend: `http://localhost`
+- Frontend: `http://localhost:3000`
 - Backend API: `http://localhost:5000`
 - Test email route: `http://localhost:5000/test-email`
 - Optional override recipient: `http://localhost:5000/test-email?to=someone@example.com`
@@ -207,7 +207,7 @@ npm run dev
 - The frontend container serves static files through Nginx and proxies `/api` to the backend container.
 - The frontend Nginx config also proxies `/test-email` to the backend for quick mail verification in Dockerized runs.
 - The backend container connects to Mongo using compose network DNS (`mongo`).
-- Mail notifications in Docker require `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USER`, `EMAIL_PASS`, `EMAIL_SECURE`, `EMAIL_FROM`, and `APP_URL` in the root compose `.env`.
+- Mail notifications in Docker require `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USER`, `EMAIL_PASS`, `EMAIL_SECURE`, `EMAIL_FROM`, and `FRONTEND_URL` in the root compose `.env`.
 - The backend still seeds the default admin user on startup.
 - Workspace isolation remains intact because the existing app logic and Mongo data are unchanged.
 
