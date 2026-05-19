@@ -4,7 +4,7 @@ const Sprint = require("../models/Sprint");
 const SprintNotification = require("../models/SprintNotification");
 const User = require("../models/User");
 const WorkspaceSetting = require("../models/WorkspaceSetting");
-const { buildFrontendUrl } = require("../config/env");
+const { buildAppUrl } = require("../config/env");
 const { populateIssueDocument, populateIssueQuery, serializeIssue, serializeIssues } = require("../utils/issuePresentation");
 const { getCanonicalIssueStatus, ISSUE_STATUS } = require("../utils/issueStatus");
 const { enqueueSprintNotification } = require("./sprintNotificationQueue");
@@ -73,7 +73,7 @@ const buildIssuesBoardUrl = ({ projectId, issueKey = "" }) => {
   }
 
   const query = params.toString();
-  return buildFrontendUrl(`/issues${query ? `?${query}` : ""}`);
+  return buildAppUrl(`/issues${query ? `?${query}` : ""}`);
 };
 
 const buildBacklogBoardUrl = ({ projectId }) => {
@@ -84,7 +84,7 @@ const buildBacklogBoardUrl = ({ projectId }) => {
   }
 
   const query = params.toString();
-  return buildFrontendUrl(`/backlog${query ? `?${query}` : ""}`);
+  return buildAppUrl(`/backlog${query ? `?${query}` : ""}`);
 };
 
 const serializeIssueForNotification = (issue) => {

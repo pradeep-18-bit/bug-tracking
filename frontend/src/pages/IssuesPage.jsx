@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   createIssue,
   deleteIssue,
@@ -171,6 +171,8 @@ const IssueBoardSkeleton = () => (
 const IssuesPage = () => {
   const queryClient = useQueryClient();
   const { role } = useAuth();
+  const navigate = useNavigate();
+  const { issueId: routeIssueId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState({
     projectId: normalizeProjectFilterValue(searchParams.get("projectId")),
@@ -366,9 +368,23 @@ const IssuesPage = () => {
       return;
     }
 
-    const nextIssue = filteredIssues.find((issue) => issue._id === selectedIssue._id);
+    const nextIssue = issues.find((issue) => issue._id === selectedIssue._id);
     setSelectedIssue(nextIssue || null);
-  }, [filteredIssues, selectedIssue]);
+  }, [issues, selectedIssue]);
+
+  useEffect(() => {
+    if (!routeIssueId || isIssuesLoading) {
+      return;
+    }
+
+    const routedIssue = issues.find(
+      (issue) => String(issue._id) === String(routeIssueId)
+    );
+
+    if (routedIssue && String(selectedIssue?._id || "") !== String(routedIssue._id)) {
+      setSelectedIssue(routedIssue);
+    }
+  }, [isIssuesLoading, issues, routeIssueId, selectedIssue?._id]);
 
   const syncIssueDependencyOptions = (issue, mode = "upsert") => {
     queryClient.setQueryData(["issues", "issues-page", "dependency-options", role], (current) => {
@@ -637,6 +653,10 @@ const IssuesPage = () => {
         onOpenChange={(open) => {
           if (!open) {
             setSelectedIssue(null);
+
+            if (routeIssueId) {
+              navigate("/issues", { replace: true });
+            }
           }
         }}
         projects={projects}

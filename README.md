@@ -83,7 +83,7 @@ EMAIL_USER=your-email@example.com
 EMAIL_PASS=your-smtp-password
 EMAIL_SECURE=true
 EMAIL_FROM=Pirnav Support <your-email@example.com>
-FRONTEND_URL=http://localhost:3000
+APP_URL=http://16.112.106.188
 VITE_API_BASE_URL=/api
 ```
 
@@ -91,7 +91,7 @@ Backend env example:
 
 ```env
 PORT=5000
-MONGO_URI=mongodb://127.0.0.1:27017/bugtracker
+MONGO_URI=mongodb://localhost:27017/bugtracker
 JWT_SECRET=change-me
 ```
 
@@ -117,11 +117,11 @@ docker compose up --build
 
 3. Open the app:
 
-- Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:5000`
-- Test email route: `http://localhost:5000/test-email`
-- Optional override recipient: `http://localhost:5000/test-email?to=someone@example.com`
-- MongoDB: `mongodb://localhost:27017`
+- Frontend: local frontend origin on port `3000`
+- Backend API: local backend origin on port `5000`
+- Test email route: local backend `/test-email`
+- Optional override recipient: local backend `/test-email?to=someone@example.com`
+- MongoDB: local MongoDB on port `27017`
 
 ## Frontend Setup (Ubuntu/macOS)
 
@@ -207,7 +207,8 @@ npm run dev
 - The frontend container serves static files through Nginx and proxies `/api` to the backend container.
 - The frontend Nginx config also proxies `/test-email` to the backend for quick mail verification in Dockerized runs.
 - The backend container connects to Mongo using compose network DNS (`mongo`).
-- Mail notifications in Docker require `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USER`, `EMAIL_PASS`, `EMAIL_SECURE`, `EMAIL_FROM`, and `FRONTEND_URL` in the root compose `.env`.
+- Mail notifications in Docker require `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USER`, `EMAIL_PASS`, `EMAIL_SECURE`, `EMAIL_FROM`, and `APP_URL` in the root compose `.env`.
+- `APP_URL` should be the public frontend origin, such as an EC2 IP origin or an HTTPS custom domain.
 - The backend still seeds the default admin user on startup.
 - Workspace isolation remains intact because the existing app logic and Mongo data are unchanged.
 

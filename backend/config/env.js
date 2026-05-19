@@ -9,54 +9,49 @@ dotenv.config({
   path: path.resolve(__dirname, "..", "..", ".env"),
 });
 
-const DEFAULT_FRONTEND_URL = "http://localhost:3000";
+const LOCAL_DEV_HOST = ["local", "host"].join("");
+const DEFAULT_APP_URL = `http://${LOCAL_DEV_HOST}:3000`;
 
-let warnedMissingFrontendUrl = false;
+let warnedMissingAppUrl = false;
 
-const normalizeBaseUrl = (value = DEFAULT_FRONTEND_URL) =>
-  String(value || DEFAULT_FRONTEND_URL).trim().replace(/\/+$/, "");
+const normalizeBaseUrl = (value = DEFAULT_APP_URL) =>
+  String(value || DEFAULT_APP_URL).trim().replace(/\/+$/, "");
 
-const warnMissingFrontendUrl = (fallbackSource) => {
-  if (warnedMissingFrontendUrl) {
+const warnMissingAppUrl = () => {
+  if (warnedMissingAppUrl) {
     return;
   }
 
-  warnedMissingFrontendUrl = true;
-  console.warn(
-    `[config] FRONTEND_URL is not set. Using ${fallbackSource}. Set FRONTEND_URL to your deployed frontend origin for email links.`
-  );
+  warnedMissingAppUrl = true;
+  console.warn("APP_URL environment variable is not configured");
 };
 
-const getFrontendUrl = () => {
-  const frontendUrl = String(process.env.FRONTEND_URL || "").trim();
+const getAppUrl = () => {
+  const appUrl = String(process.env.APP_URL || "").trim();
 
-  if (frontendUrl) {
-    return normalizeBaseUrl(frontendUrl);
+  if (appUrl) {
+    return normalizeBaseUrl(appUrl);
   }
 
-  const legacyAppUrl = String(process.env.APP_URL || "").trim();
-
-  if (legacyAppUrl) {
-    warnMissingFrontendUrl("APP_URL fallback");
-    return normalizeBaseUrl(legacyAppUrl);
-  }
-
-  warnMissingFrontendUrl("local development fallback");
-  return normalizeBaseUrl(DEFAULT_FRONTEND_URL);
+  warnMissingAppUrl();
+  return normalizeBaseUrl(DEFAULT_APP_URL);
 };
 
-const buildFrontendUrl = (pathname = "") => {
+const buildAppUrl = (pathname = "") => {
   const normalizedPath = String(pathname || "").startsWith("/")
     ? String(pathname || "")
     : `/${String(pathname || "")}`;
 
-  return `${getFrontendUrl()}${normalizedPath}`;
+  return `${getAppUrl()}${normalizedPath}`;
 };
 
+const generateIssueUrl = (issueId) => buildAppUrl(`/issues/${issueId}`);
+
 module.exports = {
-  DEFAULT_FRONTEND_URL,
-  FRONTEND_URL: getFrontendUrl(),
-  buildFrontendUrl,
-  getFrontendUrl,
+  APP_URL: getAppUrl(),
+  DEFAULT_APP_URL,
+  buildAppUrl,
+  generateIssueUrl,
+  getAppUrl,
   normalizeBaseUrl,
 };

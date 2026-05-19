@@ -88,7 +88,7 @@ Main frontend API helpers:
 
 Base backend URL:
 
-- local backend: `http://localhost:5000`
+- local backend: backend origin on port `5000`
 - frontend API base: `/api`
 
 General conventions:
@@ -290,7 +290,7 @@ Required backend env values:
 - `EMAIL_PASS`
 - `EMAIL_SECURE`
 - `EMAIL_FROM`
-- `FRONTEND_URL`
+- `APP_URL`
 
 ## 9. Important Environment Variables
 
@@ -306,7 +306,7 @@ Required backend env values:
 - `EMAIL_PASS`
 - `EMAIL_SECURE`
 - `EMAIL_FROM`
-- `FRONTEND_URL`
+- `APP_URL`
 
 ### Frontend
 
@@ -328,7 +328,7 @@ Required backend env values:
 - `EMAIL_PASS`
 - `EMAIL_SECURE`
 - `EMAIL_FROM`
-- `FRONTEND_URL`
+- `APP_URL`
 - `VITE_API_BASE_URL`
 
 ## 10. Docker Flow

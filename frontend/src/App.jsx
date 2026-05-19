@@ -210,6 +210,7 @@ const App = () => (
         }
       />
       <Route path="/issues" element={<IssuesPage />} />
+      <Route path="/issues/:issueId" element={<IssuesPage />} />
       <Route
         path="/tasks"
         element={

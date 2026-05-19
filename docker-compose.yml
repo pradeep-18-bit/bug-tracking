@@ -31,7 +31,7 @@ services:
       EMAIL_PASS: ${EMAIL_PASS:-}
       EMAIL_SECURE: ${EMAIL_SECURE:-true}
       EMAIL_FROM: ${EMAIL_FROM:-Pirnav Support <no-reply@example.com>}
-      FRONTEND_URL: ${FRONTEND_URL:-}
+      APP_URL: ${APP_URL:-}
     depends_on:
       - mongo
     ports:
