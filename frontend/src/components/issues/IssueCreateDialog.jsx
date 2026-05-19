@@ -22,6 +22,7 @@ import {
 import { fetchProjectTeams, logTeamSelectionDebug } from "@/lib/api";
 import {
   findProjectById,
+  getProjectMembers,
   getProjectTeamMembers,
   getProjectTeams,
   resolveProjectId,
@@ -366,9 +367,17 @@ const IssueCreateDialog = ({
           },
     [availableTeams, selectedProject]
   );
+  const projectMembers = useMemo(
+    () => getProjectMembers(selectedProjectWithTeams),
+    [selectedProjectWithTeams]
+  );
   const teamOptions = useMemo(
     () => availableTeams.map(buildTeamOption),
     [availableTeams]
+  );
+  const projectMemberOptions = useMemo(
+    () => projectMembers.map(buildAssigneeOption),
+    [projectMembers]
   );
   const selectedTeamOption = useMemo(
     () => teamOptions.find((team) => team.value === String(formData.teamId)) || null,
@@ -414,10 +423,10 @@ const IssueCreateDialog = ({
   const isBugType = formData.type === "Bug";
   const qaOwnerOptions = useMemo(
     () =>
-      assigneeOptions.filter((option) => option.role === "Tester").length
-        ? assigneeOptions.filter((option) => option.role === "Tester")
-        : assigneeOptions,
-    [assigneeOptions]
+      projectMemberOptions.filter((option) => option.role === "Tester").length
+        ? projectMemberOptions.filter((option) => option.role === "Tester")
+        : projectMemberOptions,
+    [projectMemberOptions]
   );
   const developerLeadOptions = useMemo(
     () =>
@@ -515,9 +524,12 @@ const IssueCreateDialog = ({
 
   useEffect(() => {
     const assigneeIds = new Set(assigneeOptions.map((assignee) => assignee.value));
+    const projectMemberIds = new Set(
+      projectMemberOptions.map((member) => member.value)
+    );
     const testerOwnerValid =
       !formData.bugDetails.testerOwnerId ||
-      assigneeIds.has(String(formData.bugDetails.testerOwnerId));
+      projectMemberIds.has(String(formData.bugDetails.testerOwnerId));
     const developerLeadValid =
       !formData.bugDetails.developerLeadId ||
       assigneeIds.has(String(formData.bugDetails.developerLeadId));
@@ -538,6 +550,7 @@ const IssueCreateDialog = ({
     assigneeOptions,
     formData.bugDetails.developerLeadId,
     formData.bugDetails.testerOwnerId,
+    projectMemberOptions,
   ]);
 
   useEffect(() => {
@@ -577,7 +590,7 @@ const IssueCreateDialog = ({
     }
 
     if (!availableTeams.length) {
-      return "Attach a team to this project before creating work items.";
+      return "No teams were returned for this project. Attach a team or ask an admin to verify the project-team links.";
     }
 
     return "";

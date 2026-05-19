@@ -4,6 +4,11 @@ const TeamMember = require("../models/TeamMember");
 const { hasAdminAccess } = require("./roles");
 const { attachMembersToTeams, sanitizeUser } = require("./teamRelations");
 const { normalizeWorkspaceId } = require("./workspace");
+const {
+  logProjectTeamsDebug,
+  logProjectTeamsWarning,
+  summarizeTeams,
+} = require("./projectTeamDiagnostics");
 
 const toPlainObject = (value) =>
   typeof value?.toObject === "function" ? value.toObject() : value;
@@ -72,6 +77,26 @@ const attachTeamsToProjects = async (projects = []) => {
   const teamsById = new Map(
     serializedTeams.map((team) => [String(team._id), team])
   );
+  const missingTeamIds = attachedTeamIds.filter((teamId) => !teamsById.has(teamId));
+
+  if (missingTeamIds.length) {
+    logProjectTeamsWarning("Attached team references were not returned for projects", {
+      projectIds: projectIds.map(String),
+      workspaceIds,
+      linkedTeamCount: attachedTeamIds.length,
+      returnedTeamCount: serializedTeams.length,
+      missingTeamIds,
+    });
+  }
+
+  logProjectTeamsDebug("Projects API team summary", {
+    projectCount: normalizedProjects.length,
+    workspaceIds,
+    linkedTeamCount: projectTeams.length,
+    returnedUniqueTeamCount: serializedTeams.length,
+    teams: summarizeTeams(serializedTeams),
+  });
+
   const teamsByProjectId = new Map(
     projectIds.map((projectId) => [String(projectId), []])
   );

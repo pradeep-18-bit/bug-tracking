@@ -17,6 +17,11 @@ const {
   loadSerializedProjectById,
   serializeProjectsWithRelations,
 } = require("../utils/projectRelations");
+const {
+  logProjectTeamsDebug,
+  logProjectTeamsWarning,
+  summarizeTeams,
+} = require("../utils/projectTeamDiagnostics");
 const { attachMembersToTeams } = require("../utils/teamRelations");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 const { PLANNING_ORDER_INCREMENT } = require("../utils/planningOrder");
@@ -636,6 +641,13 @@ const getProjectTeams = asyncHandler(async (req, res) => {
   }
 
   const workspaceId = normalizeWorkspaceId(project.workspaceId || req.user.workspaceId);
+  logProjectTeamsDebug("Selected project teams request", {
+    projectId: String(project._id),
+    projectName: project.name || "",
+    workspaceId,
+    currentUserRole: req.user.role || "",
+  });
+
   const projectTeams = await ProjectTeam.find({
     projectId: project._id,
   })
@@ -647,6 +659,15 @@ const getProjectTeams = asyncHandler(async (req, res) => {
   );
 
   if (!teamIds.length) {
+    logProjectTeamsDebug("Project teams API response", {
+      projectId: String(project._id),
+      responseShape: "array",
+      linkedTeamCount: 0,
+      returnedTeamsCount: 0,
+      currentUserRole: req.user.role || "",
+      teams: [],
+    });
+
     res.status(200).json([]);
     return;
   }
@@ -662,6 +683,27 @@ const getProjectTeams = asyncHandler(async (req, res) => {
   const orderedTeams = teamIds
     .map((teamId) => teamsById.get(teamId))
     .filter(Boolean);
+  const missingTeamIds = teamIds.filter((teamId) => !teamsById.has(teamId));
+
+  if (missingTeamIds.length) {
+    logProjectTeamsWarning("Project team links exist but some teams were not returned", {
+      projectId: String(project._id),
+      workspaceId,
+      currentUserRole: req.user.role || "",
+      linkedTeamCount: teamIds.length,
+      returnedTeamsCount: orderedTeams.length,
+      missingTeamIds,
+    });
+  }
+
+  logProjectTeamsDebug("Project teams API response", {
+    projectId: String(project._id),
+    responseShape: "array",
+    linkedTeamCount: teamIds.length,
+    returnedTeamsCount: orderedTeams.length,
+    currentUserRole: req.user.role || "",
+    teams: summarizeTeams(orderedTeams),
+  });
 
   res.status(200).json(orderedTeams);
 });

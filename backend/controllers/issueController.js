@@ -49,6 +49,7 @@ const {
   hasAdminAccess,
 } = require("../utils/roles");
 const { normalizeWorkspaceId } = require("../utils/workspace");
+const { logProjectTeamsDebug } = require("../utils/projectTeamDiagnostics");
 const {
   BUG_ALLOWED_TRANSITIONS,
   BUG_PRIORITY_VALUES,
@@ -886,6 +887,41 @@ const ensureBugOwnerBelongsToTeam = async ({
 
   return {
     user: result.assignee,
+  };
+};
+
+const ensureBugOwnerInWorkspace = async ({ userId, workspaceId, label }) => {
+  if (!userId) {
+    return {
+      user: null,
+    };
+  }
+
+  if (!mongoose.isValidObjectId(userId)) {
+    return {
+      error: {
+        status: 400,
+        message: `Invalid ${label} id`,
+      },
+    };
+  }
+
+  const user = await ensureAssigneeExists(
+    userId,
+    normalizeWorkspaceId(workspaceId)
+  );
+
+  if (!user) {
+    return {
+      error: {
+        status: 400,
+        message: `${label} could not be found in this workspace`,
+      },
+    };
+  }
+
+  return {
+    user,
   };
 };
 
@@ -1799,6 +1835,22 @@ const createIssue = asyncHandler(async (req, res) => {
     throw new Error(teamResult.error.message);
   }
 
+  logProjectTeamsDebug("Create issue selected team", {
+    projectId: String(project._id),
+    teamId: String(teamId),
+    teamName: teamResult.team?.name || "",
+    currentUserRole: req.user.role || "",
+    issueType: normalizedType,
+    hasAssignee: Boolean(assigneeId),
+    hasDeveloperLead: Boolean(
+      getBugPayloadValue(req.body, "developerLeadId", [
+        "developerLead",
+        "devLeadId",
+        "devLead",
+      ])
+    ),
+  });
+
   if (assigneeId) {
     const canTesterAssignBugDeveloper =
       req.user.role === ROLE_TESTER && isBug;
@@ -1864,9 +1916,8 @@ const createIssue = asyncHandler(async (req, res) => {
     }
 
     const [testerOwnerResult, developerLeadResult] = await Promise.all([
-      ensureBugOwnerBelongsToTeam({
+      ensureBugOwnerInWorkspace({
         userId: bugDetails.testerOwner,
-        teamId,
         workspaceId,
         label: "QA owner",
       }),
@@ -2338,9 +2389,8 @@ const updateIssue = asyncHandler(async (req, res) => {
 
   if (nextIsBug && nextBugDetails) {
     const [testerOwnerResult, developerLeadResult] = await Promise.all([
-      ensureBugOwnerBelongsToTeam({
+      ensureBugOwnerInWorkspace({
         userId: nextBugDetails.testerOwner,
-        teamId: nextTeamId,
         workspaceId,
         label: "QA owner",
       }),

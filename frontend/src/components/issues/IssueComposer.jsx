@@ -29,6 +29,7 @@ import {
 import { fetchProjectTeams, logTeamSelectionDebug } from "@/lib/api";
 import {
   findProjectById,
+  getProjectMembers,
   getProjectTeamMembers,
   getProjectTeams,
   resolveProjectId,
@@ -192,6 +193,10 @@ const IssueComposer = ({
           },
     [availableTeams, selectedProject]
   );
+  const projectMembers = useMemo(
+    () => getProjectMembers(selectedProjectWithTeams),
+    [selectedProjectWithTeams]
+  );
   const availableAssignees = useMemo(
     () => getProjectTeamMembers(selectedProjectWithTeams, formData.teamId),
     [formData.teamId, selectedProjectWithTeams]
@@ -199,10 +204,10 @@ const IssueComposer = ({
   const isBugType = formData.type === "Bug";
   const testerOptions = useMemo(
     () =>
-      availableAssignees.filter((assignee) => assignee.role === "Tester").length
-        ? availableAssignees.filter((assignee) => assignee.role === "Tester")
-        : availableAssignees,
-    [availableAssignees]
+      projectMembers.filter((assignee) => assignee.role === "Tester").length
+        ? projectMembers.filter((assignee) => assignee.role === "Tester")
+        : projectMembers,
+    [projectMembers]
   );
   const developerOptions = useMemo(
     () =>
@@ -219,6 +224,14 @@ const IssueComposer = ({
         (assignee) => resolveUserId(assignee) === defaultAssigneeKey
       ),
     [availableAssignees, defaultAssigneeKey]
+  );
+  const defaultAssigneeInProject = useMemo(
+    () =>
+      !defaultAssigneeKey ||
+      projectMembers.some(
+        (member) => resolveUserId(member) === defaultAssigneeKey
+      ),
+    [defaultAssigneeKey, projectMembers]
   );
 
   useEffect(() => {
@@ -304,11 +317,14 @@ const IssueComposer = ({
     const availableAssigneeIds = new Set(
       availableAssignees.map((assignee) => resolveUserId(assignee))
     );
+    const projectMemberIds = new Set(
+      projectMembers.map((member) => resolveUserId(member))
+    );
     const testerOwnerId =
       formData.bugDetails.testerOwnerId &&
-      availableAssigneeIds.has(String(formData.bugDetails.testerOwnerId))
+      projectMemberIds.has(String(formData.bugDetails.testerOwnerId))
         ? formData.bugDetails.testerOwnerId
-        : defaultAssigneeInTeam
+        : defaultAssigneeInProject
           ? defaultAssigneeKey
           : "";
     const developerLeadId =
@@ -334,10 +350,11 @@ const IssueComposer = ({
     }));
   }, [
     availableAssignees,
-    defaultAssigneeInTeam,
+    defaultAssigneeInProject,
     defaultAssigneeKey,
     formData.bugDetails.developerLeadId,
     formData.bugDetails.testerOwnerId,
+    projectMembers,
   ]);
 
   const handleChange = (event) => {
@@ -403,7 +420,7 @@ const IssueComposer = ({
     }
 
     if (!availableTeams.length) {
-      return "Attach a team to this project before creating work items.";
+      return "No teams were returned for this project. Attach a team or ask an admin to verify the project-team links.";
     }
 
     return "";

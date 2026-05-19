@@ -85,6 +85,23 @@ export const logTeamSelectionDebug = (label, payload) => {
   console.log(`[team-selection] ${label}:`, payload);
 };
 
+const summarizeTeamsForDebug = (teams = []) =>
+  teams.map((team) => ({
+    id: String(team?._id || team?.id || ""),
+    name: team?.name || "",
+    workspaceId: team?.workspaceId || "",
+    memberCount: team?.memberCount || team?.members?.length || 0,
+  }));
+
+const summarizeProjectsForTeamDebug = (projects = []) =>
+  projects.map((project) => ({
+    id: String(project?._id || project?.id || ""),
+    name: project?.name || "",
+    workspaceId: project?.workspaceId || "",
+    teamCount: project?.teamCount ?? project?.teams?.length ?? 0,
+    teams: summarizeTeamsForDebug(project?.teams || []),
+  }));
+
 export const loginRequest = async (payload) => {
   const response = await api.post("/auth/login", payload);
   return response.data;
@@ -162,8 +179,21 @@ export const fetchManagedUsers = async () => {
 export const fetchProjects = async () => {
   const response = await api.get("/projects");
   const data = response.data;
+  const projects = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.projects)
+      ? data.projects
+      : [];
 
-  logTeamSelectionDebug("Projects API response", data);
+  logTeamSelectionDebug("Projects API response", {
+    responseShape: Array.isArray(data)
+      ? "array"
+      : Array.isArray(data?.projects)
+        ? "object.projects"
+        : typeof data,
+    projectCount: projects.length,
+    projects: summarizeProjectsForTeamDebug(projects),
+  });
 
   if (Array.isArray(data)) {
     return data;
@@ -184,10 +214,22 @@ export const fetchProjectTeams = async (projectId) => {
 
   const response = await api.get(`/projects/${projectId}/teams`);
   const data = response.data;
+  const teams = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.teams)
+      ? data.teams
+      : [];
 
   logTeamSelectionDebug("Project teams API response", {
     projectId,
-    response: data,
+    responseShape: Array.isArray(data)
+      ? "array"
+      : Array.isArray(data?.teams)
+        ? "object.teams"
+        : typeof data,
+    returnedTeamsCount: teams.length,
+    teamNames: teams.map((team) => team?.name || ""),
+    teams: summarizeTeamsForDebug(teams),
   });
 
   if (Array.isArray(data)) {
