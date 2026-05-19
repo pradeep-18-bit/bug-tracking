@@ -22,20 +22,20 @@ const resolveTeamReferenceId = (value) => {
   }
 
   if (typeof value === "object") {
-    if (value._id) {
-      return resolveTeamReferenceId(value._id);
-    }
-
-    if (value.teamId) {
-      return resolveTeamReferenceId(value.teamId);
+    if (typeof value.toHexString === "function") {
+      return value.toHexString();
     }
 
     if (value.$oid) {
       return String(value.$oid);
     }
 
-    if (typeof value.toHexString === "function") {
-      return value.toHexString();
+    if (value._id && value._id !== value) {
+      return resolveTeamReferenceId(value._id);
+    }
+
+    if (value.teamId && value.teamId !== value) {
+      return resolveTeamReferenceId(value.teamId);
     }
   }
 

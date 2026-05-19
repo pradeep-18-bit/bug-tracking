@@ -25,6 +25,16 @@ const errorHandler = (err, req, res, next) => {
     message = "CSV file is too large";
   }
 
+  if (statusCode >= 500) {
+    console.error("[api-error]", {
+      method: req.method,
+      path: req.originalUrl,
+      message,
+      name: err.name || "Error",
+      stack: err.stack ? String(err.stack).split("\n").slice(0, 4).join("\n") : "",
+    });
+  }
+
   res.status(statusCode).json({
     message,
     code:

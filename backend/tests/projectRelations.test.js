@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const mongoose = require("mongoose");
 
 const { mergeProjectTeamIds } = require("../utils/projectRelations");
 
@@ -21,4 +22,22 @@ test("mergeProjectTeamIds returns all project-attached teams from join and proje
     "dev-team",
     "support-team",
   ]);
+});
+
+test("mergeProjectTeamIds handles Mongo ObjectIds without recursive _id lookup", () => {
+  const devTeamId = new mongoose.Types.ObjectId();
+  const qaTeamId = new mongoose.Types.ObjectId();
+
+  const teamIds = mergeProjectTeamIds(
+    {
+      attachedTeams: [devTeamId],
+    },
+    [
+      {
+        teamId: qaTeamId,
+      },
+    ]
+  );
+
+  assert.deepEqual(teamIds, [String(qaTeamId), String(devTeamId)]);
 });
