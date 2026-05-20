@@ -11,8 +11,9 @@ import {
 } from "@/lib/api";
 import {
   ISSUE_TYPE_OPTIONS,
+  ISSUE_STATUS,
   filterIssues,
-  isIssueClosed,
+  getIssueStatusLabel,
   sortIssues,
 } from "@/lib/issues";
 import {
@@ -35,8 +36,7 @@ import { canCreateIssues, canDeleteIssues, hasAdminPanelAccess } from "@/lib/rol
 
 const isValidIssueType = (value) => ISSUE_TYPE_OPTIONS.includes(value);
 const ALL_PROJECTS_VALUE = "ALL";
-const OPEN_ISSUES_QUERY_VALUE = "OPEN";
-const CLOSED_ISSUES_QUERY_VALUE = "CLOSED";
+const HIGH_PRIORITY_QUERY_VALUE = "high";
 
 const normalizeStatusFilterValue = (value) => {
   if (!value) {
@@ -45,15 +45,31 @@ const normalizeStatusFilterValue = (value) => {
 
   const normalizedValue = String(value).trim().toUpperCase();
 
-  if (normalizedValue === OPEN_ISSUES_QUERY_VALUE) {
-    return OPEN_ISSUES_QUERY_VALUE;
-  }
-
-  if (normalizedValue === CLOSED_ISSUES_QUERY_VALUE) {
-    return CLOSED_ISSUES_QUERY_VALUE;
+  if (Object.values(ISSUE_STATUS).includes(normalizedValue)) {
+    return normalizedValue;
   }
 
   return "";
+};
+
+const normalizeStatusGroupFilterValue = (value) => {
+  const normalizedValue = String(value || "").trim().toLowerCase();
+
+  return ["open", "closed"].includes(normalizedValue) ? normalizedValue : "";
+};
+
+const normalizePriorityFilterValue = (value) => {
+  const normalizedValue = String(value || "").trim();
+
+  return ["Critical", "High", "Medium", "Low"].includes(normalizedValue)
+    ? normalizedValue
+    : "all";
+};
+
+const normalizePriorityGroupFilterValue = (value) => {
+  const normalizedValue = String(value || "").trim().toLowerCase();
+
+  return normalizedValue === HIGH_PRIORITY_QUERY_VALUE ? HIGH_PRIORITY_QUERY_VALUE : "";
 };
 
 const normalizeProjectFilterValue = (value) => {
@@ -141,12 +157,16 @@ const getAvailableAssignees = (
 
 const buildIssueListCacheFilters = (queryKey = []) => ({
   search: queryKey[8] || "",
-  status: "all",
-  priority: "all",
+  status: queryKey[9] || "all",
+  statusGroup: queryKey[10] || "all",
+  priority: queryKey[11] || "all",
+  priorityGroup: queryKey[12] || "all",
   projectId: queryKey[4] || ALL_PROJECTS_VALUE,
   teamId: queryKey[5] || "all",
   assigneeId: queryKey[6] || "all",
   type: queryKey[7] || "all",
+  dateFrom: queryKey[13] || "",
+  dateTo: queryKey[14] || "",
 });
 
 const IssueBoardSkeleton = () => (
@@ -177,17 +197,21 @@ const IssuesPage = () => {
   const [filters, setFilters] = useState({
     projectId: normalizeProjectFilterValue(searchParams.get("projectId")),
     teamId: searchParams.get("teamId") || "all",
-    assigneeId: "all",
+    assigneeId: searchParams.get("assigneeId") || "all",
     type: "all",
+    status: normalizeStatusFilterValue(searchParams.get("status")) || "all",
+    statusGroup:
+      normalizeStatusGroupFilterValue(searchParams.get("statusGroup")) || "all",
+    priority: normalizePriorityFilterValue(searchParams.get("priority")),
+    priorityGroup:
+      normalizePriorityGroupFilterValue(searchParams.get("priorityGroup")) || "all",
+    dateFrom: searchParams.get("dateFrom") || "",
+    dateTo: searchParams.get("dateTo") || "",
     search: searchParams.get("search") || "",
   });
   const [selectedIssue, setSelectedIssue] = useState(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const deferredSearch = useDeferredValue(filters.search);
-  const activeStatusFilter = useMemo(
-    () => normalizeStatusFilterValue(searchParams.get("status")),
-    [searchParams]
-  );
   const isAdminView = hasAdminPanelAccess(role);
   const canCreateIssue = canCreateIssues(role);
   const canDeleteIssue = canDeleteIssues(role);
@@ -227,10 +251,26 @@ const IssuesPage = () => {
         ? String(requestedTeamId)
         : "all";
       const nextSearch = searchParams.get("search") || current.search;
+      const requestedAssigneeId = searchParams.get("assigneeId") || current.assigneeId;
+      const nextStatus = normalizeStatusFilterValue(searchParams.get("status")) || "all";
+      const nextStatusGroup =
+        normalizeStatusGroupFilterValue(searchParams.get("statusGroup")) || "all";
+      const nextPriority = normalizePriorityFilterValue(searchParams.get("priority"));
+      const nextPriorityGroup =
+        normalizePriorityGroupFilterValue(searchParams.get("priorityGroup")) || "all";
+      const nextDateFrom = searchParams.get("dateFrom") || "";
+      const nextDateTo = searchParams.get("dateTo") || "";
 
       if (
         current.projectId === nextProjectId &&
         current.teamId === nextTeamId &&
+        current.assigneeId === requestedAssigneeId &&
+        current.status === nextStatus &&
+        current.statusGroup === nextStatusGroup &&
+        current.priority === nextPriority &&
+        current.priorityGroup === nextPriorityGroup &&
+        current.dateFrom === nextDateFrom &&
+        current.dateTo === nextDateTo &&
         current.search === nextSearch
       ) {
         return current;
@@ -239,8 +279,14 @@ const IssuesPage = () => {
       return {
         projectId: nextProjectId,
         teamId: nextTeamId,
-        assigneeId: current.assigneeId,
+        assigneeId: requestedAssigneeId,
         type: current.type,
+        status: nextStatus,
+        statusGroup: nextStatusGroup,
+        priority: nextPriority,
+        priorityGroup: nextPriorityGroup,
+        dateFrom: nextDateFrom,
+        dateTo: nextDateTo,
         search: nextSearch,
       };
     });
@@ -306,6 +352,12 @@ const IssuesPage = () => {
       filters.assigneeId,
       filters.type,
       deferredSearch,
+      filters.status,
+      filters.statusGroup,
+      filters.priority,
+      filters.priorityGroup,
+      filters.dateFrom,
+      filters.dateTo,
     ],
     queryFn: () =>
       fetchIssues({
@@ -314,6 +366,12 @@ const IssuesPage = () => {
         teamId: filters.teamId,
         assigneeId: filters.assigneeId,
         type: filters.type,
+        status: filters.status,
+        statusGroup: filters.statusGroup,
+        priority: filters.priority,
+        priorityGroup: filters.priorityGroup,
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
         search: deferredSearch,
       }),
     enabled: Boolean(projects.length),
@@ -323,33 +381,31 @@ const IssuesPage = () => {
     [issuesData]
   );
 
-  const filteredIssues = useMemo(() => {
-    if (!activeStatusFilter) {
-      return issues;
-    }
-
-    if (activeStatusFilter === OPEN_ISSUES_QUERY_VALUE) {
-      return issues.filter((issue) => !isIssueClosed(issue));
-    }
-
-    if (activeStatusFilter === CLOSED_ISSUES_QUERY_VALUE) {
-      return issues.filter((issue) => isIssueClosed(issue));
-    }
-
-    return issues;
-  }, [activeStatusFilter, issues]);
+  const filteredIssues = issues;
 
   const activeStatusLabel = useMemo(() => {
-    if (activeStatusFilter === OPEN_ISSUES_QUERY_VALUE) {
-      return "Showing: Open Work";
+    if (filters.statusGroup === "open") {
+      return "Showing: Open / In Progress / Reopened";
     }
 
-    if (activeStatusFilter === CLOSED_ISSUES_QUERY_VALUE) {
-      return "Showing: Completed Work";
+    if (filters.statusGroup === "closed") {
+      return "Showing: Closed / Resolved / Done";
+    }
+
+    if (filters.status && filters.status !== "all") {
+      return `Showing: ${getIssueStatusLabel(filters.status)}`;
+    }
+
+    if (filters.priorityGroup === HIGH_PRIORITY_QUERY_VALUE) {
+      return "Showing: High / Critical priority";
+    }
+
+    if (filters.priority && filters.priority !== "all") {
+      return `Showing: ${filters.priority} priority`;
     }
 
     return "";
-  }, [activeStatusFilter]);
+  }, [filters.priority, filters.priorityGroup, filters.status, filters.statusGroup]);
 
   const { data: dependencyIssuesData = [] } = useQuery({
     queryKey: ["issues", "issues-page", "dependency-options", role],
@@ -440,6 +496,7 @@ const IssuesPage = () => {
       queryClient.invalidateQueries({ queryKey: ["backlog"] }),
       queryClient.invalidateQueries({ queryKey: ["projects"] }),
       queryClient.invalidateQueries({ queryKey: ["reports"] }),
+      queryClient.invalidateQueries({ queryKey: ["analytics"] }),
     ]);
   };
 
@@ -547,7 +604,12 @@ const IssuesPage = () => {
     : "Task";
   const lockComposeType = isValidIssueType(searchParams.get("type"));
   const hasVisibleFilters = Boolean(
-    activeStatusFilter ||
+    filters.status !== "all" ||
+      filters.statusGroup !== "all" ||
+      filters.priority !== "all" ||
+      filters.priorityGroup !== "all" ||
+      filters.dateFrom ||
+      filters.dateTo ||
       filters.projectId !== ALL_PROJECTS_VALUE ||
       filters.teamId !== "all" ||
       filters.assigneeId !== "all" ||

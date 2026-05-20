@@ -27,7 +27,7 @@ export const ISSUE_ACTIVE_STATUS_VALUES = Object.freeze([
 ]);
 
 export const BUG_SEVERITY_OPTIONS = ["Blocker", "Critical", "Major", "Minor"];
-export const BUG_PRIORITY_OPTIONS = ["High", "Medium", "Low"];
+export const BUG_PRIORITY_OPTIONS = ["Critical", "High", "Medium", "Low"];
 export const BUG_STATUS_OPTIONS = [
   { value: ISSUE_STATUS.NEW, label: "New" },
   { value: ISSUE_STATUS.OPEN, label: "Open" },
@@ -106,9 +106,10 @@ export const ISSUE_SORT_OPTIONS = [
 ];
 
 const priorityRank = {
-  High: 0,
-  Medium: 1,
-  Low: 2,
+  Critical: 0,
+  High: 1,
+  Medium: 2,
+  Low: 3,
 };
 
 const workflowRank = {
@@ -346,6 +347,10 @@ export const getIssueStatusVariant = (status) => {
 };
 
 export const getIssuePriorityVariant = (priority) => {
+  if (priority === "Critical") {
+    return "danger";
+  }
+
   if (priority === "High") {
     return "danger";
   }
@@ -419,6 +424,8 @@ export const getIssueDisplayKey = (issue) => {
 export const filterIssues = (issues, filters) => {
   const searchTerm = filters.search?.trim().toLowerCase() || "";
   const assigneeFilter = filters.assigneeId ?? filters.assignee ?? "all";
+  const priorityGroup = filters.priorityGroup || "all";
+  const statusGroup = filters.statusGroup || "all";
   const normalizedStatusFilter =
     filters.status && filters.status !== "all"
       ? normalizeIssueStatus(filters.status)
@@ -429,9 +436,26 @@ export const filterIssues = (issues, filters) => {
       : "all";
 
   return issues.filter((issue) => {
+    const normalizedIssueStatus = normalizeIssueStatus(issue.status);
+
+    if (
+      statusGroup === "open" &&
+      ![
+        ISSUE_STATUS.OPEN,
+        ISSUE_STATUS.IN_PROGRESS,
+        ISSUE_STATUS.REOPEN,
+      ].includes(normalizedIssueStatus)
+    ) {
+      return false;
+    }
+
+    if (statusGroup === "closed" && !isIssueClosed(issue)) {
+      return false;
+    }
+
     if (
       normalizedStatusFilter !== "all" &&
-      normalizeIssueStatus(issue.status) !== normalizedStatusFilter
+      normalizedIssueStatus !== normalizedStatusFilter
     ) {
       return false;
     }
@@ -439,6 +463,14 @@ export const filterIssues = (issues, filters) => {
     if (
       normalizedTypeFilter !== "all" &&
       normalizeIssueType(issue.type, "") !== normalizedTypeFilter
+    ) {
+      return false;
+    }
+
+    if (
+      priorityGroup === "high" &&
+      !["Critical", "High"].includes(issue.priority) &&
+      !["Blocker", "Critical"].includes(issue.bugDetails?.severity)
     ) {
       return false;
     }

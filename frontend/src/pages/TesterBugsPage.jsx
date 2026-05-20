@@ -335,6 +335,7 @@ const TesterBugsPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
 
@@ -354,6 +355,7 @@ const TesterBugsPage = () => {
     mutationFn: updateIssue,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
 

@@ -3,11 +3,16 @@ import { twMerge } from "tailwind-merge";
 
 export const cn = (...inputs) => twMerge(clsx(inputs));
 
+const DATE_LOCALE = "en-GB";
+const SHORT_DATE_FORMAT = {
+  day: "2-digit",
+  month: "2-digit",
+  year: "2-digit",
+};
+
 export const formatDate = (value, options = {}) =>
-  new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
+  new Intl.DateTimeFormat(DATE_LOCALE, {
+    ...SHORT_DATE_FORMAT,
     ...options,
   }).format(new Date(value));
 
@@ -16,10 +21,8 @@ export const formatDateTime = (value, options = {}) => {
     return "Not started";
   }
 
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
+  return new Intl.DateTimeFormat(DATE_LOCALE, {
+    ...SHORT_DATE_FORMAT,
     hour: "numeric",
     minute: "2-digit",
     hour12: true,

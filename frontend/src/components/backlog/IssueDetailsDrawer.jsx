@@ -358,9 +358,10 @@ const IssueDetailsDrawer = ({
                           }))
                         }
                       >
-                        <option value="Low">Low</option>
-                        <option value="Medium">Medium</option>
+                        <option value="Critical">Critical</option>
                         <option value="High">High</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Low">Low</option>
                       </select>
                     </label>
 
@@ -491,9 +492,10 @@ const IssueDetailsDrawer = ({
                         }))
                       }
                     >
-                      <option value="Low">Low</option>
-                      <option value="Medium">Medium</option>
+                      <option value="Critical">Critical</option>
                       <option value="High">High</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Low">Low</option>
                     </select>
                     <Input
                       placeholder="Why should this priority change?"

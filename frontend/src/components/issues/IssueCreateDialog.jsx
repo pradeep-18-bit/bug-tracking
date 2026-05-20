@@ -32,7 +32,7 @@ import {
 import { getInitials } from "@/lib/utils";
 
 const ISSUE_TYPES = ISSUE_TYPE_OPTIONS;
-const ISSUE_PRIORITIES = ["Low", "Medium", "High"];
+const ISSUE_PRIORITIES = ["Low", "Medium", "High", "Critical"];
 const SELECT_MENU_MAX_HEIGHT = 220;
 const PROJECT_COLOR_PALETTE = [
   { accent: "#2563eb", soft: "#dbeafe", border: "#bfdbfe" },

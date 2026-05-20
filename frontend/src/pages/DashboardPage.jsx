@@ -4,10 +4,7 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
-  Bug,
-  CalendarClock,
   CheckCircle2,
-  Clock3,
   FolderKanban,
   Layers3,
   Plus,
@@ -111,6 +108,17 @@ const DashboardPage = () => {
   const mostActiveProject = analytics.overview?.mostActiveProject || projects[0] || null;
   const highestWorkloadTeam = teams[0] || null;
   const maxStatusCount = Math.max(...statusRows.map((row) => row.count), 0);
+  const navigateToIssues = (params = {}) => {
+    const searchParams = new URLSearchParams();
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value && value !== "all") {
+        searchParams.set(key, value);
+      }
+    });
+
+    navigate(`/issues${searchParams.toString() ? `?${searchParams}` : ""}`);
+  };
   const kpiCards = [
     {
       key: "total",
@@ -120,7 +128,7 @@ const DashboardPage = () => {
       icon: Layers3,
       tone: "blue",
       trend: trends.totalIssues,
-      route: "/issues",
+      onClick: () => navigateToIssues(),
     },
     {
       key: "open",
@@ -130,7 +138,7 @@ const DashboardPage = () => {
       icon: AlertTriangle,
       tone: "amber",
       trend: trends.openIssues,
-      route: "/issues?status=OPEN",
+      onClick: () => navigateToIssues({ statusGroup: "open" }),
     },
     {
       key: "closed",
@@ -140,17 +148,17 @@ const DashboardPage = () => {
       icon: CheckCircle2,
       tone: "emerald",
       trend: trends.closedIssues,
-      route: "/issues?status=CLOSED",
+      onClick: () => navigateToIssues({ statusGroup: "closed" }),
     },
     {
       key: "priority",
       title: "High Priority",
       value: formatCompactNumber(summary.highPriorityIssues),
-      helper: "Open risk items",
+      helper: "High / critical items",
       icon: ShieldCheck,
       tone: "rose",
       trend: trends.highPriorityIssues,
-      route: "/issues?priority=High",
+      onClick: () => navigateToIssues({ priorityGroup: "high" }),
     },
     {
       key: "teams",
@@ -163,7 +171,7 @@ const DashboardPage = () => {
         direction: "flat",
         label: `${teams.length} in reports`,
       },
-      route: "/projects",
+      onClick: () => navigate("/projects"),
     },
     {
       key: "rate",
@@ -176,7 +184,7 @@ const DashboardPage = () => {
         direction: "flat",
         label: `${formatDuration(summary.avgResolutionTimeMs)} avg`,
       },
-      route: "/reports",
+      onClick: () => navigate("/reports"),
     },
   ];
 
@@ -268,7 +276,7 @@ const DashboardPage = () => {
             tone={card.tone}
             helper={card.helper}
             trend={card.trend}
-            onClick={() => navigate(card.route)}
+            onClick={card.onClick}
           />
         ))}
       </section>
@@ -294,7 +302,7 @@ const DashboardPage = () => {
                   <button
                     key={row.key}
                     type="button"
-                    onClick={() => navigate(`/issues?status=${row.key}`)}
+                    onClick={() => navigateToIssues({ status: row.key })}
                     className={cn(
                       ANALYTICS_SUBPANEL_CLASS,
                       "grid w-full gap-3 px-4 py-3 text-left md:grid-cols-[180px_minmax(0,1fr)_90px] md:items-center"
@@ -347,7 +355,11 @@ const DashboardPage = () => {
           description="Highest issue volume with open workload and assigned teams."
         >
           {mostActiveProject ? (
-            <div className={cn(ANALYTICS_SUBPANEL_CLASS, "space-y-5 p-5")}>
+            <button
+              type="button"
+              className={cn(ANALYTICS_SUBPANEL_CLASS, "block w-full space-y-5 p-5 text-left")}
+              onClick={() => navigateToIssues({ projectId: mostActiveProject.projectId })}
+            >
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="truncate text-lg font-semibold text-slate-950 dark:text-slate-100">
@@ -407,7 +419,7 @@ const DashboardPage = () => {
                   </span>
                 ))}
               </div>
-            </div>
+            </button>
           ) : (
             <AnalyticsEmptyState
               icon={FolderKanban}
@@ -443,7 +455,7 @@ const DashboardPage = () => {
                   <button
                     key={`${item.activityType}-${item._id}`}
                     type="button"
-                    onClick={() => navigate(`/issues?search=${encodeURIComponent(item.issueId)}`)}
+                    onClick={() => navigateToIssues({ search: item.issueId })}
                     className={cn(
                       ANALYTICS_SUBPANEL_CLASS,
                       "flex w-full items-start gap-3 px-4 py-3 text-left"
@@ -532,47 +544,39 @@ const DashboardPage = () => {
               </div>
             ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                {
-                  icon: CalendarClock,
-                  title: "SLA Tracking",
-                  helper: "Reserved widget slot",
-                },
-                {
-                  icon: Rocket,
-                  title: "Sprint Metrics",
-                  helper: "Velocity and carryover",
-                },
-                {
-                  icon: Activity,
-                  title: "Deployment Health",
-                  helper: "Release signals",
-                },
-                {
-                  icon: Bug,
-                  title: "AI Insights",
-                  helper: "Risk summaries",
-                },
-              ].map((widget) => {
-                const Icon = widget.icon;
-
-                return (
-                  <div
-                    key={widget.title}
-                    className="rounded-[16px] border border-dashed border-white/65 bg-white/34 p-4 backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/48"
+            {teams.length ? (
+              <div className="space-y-3">
+                {teams.slice(0, 5).map((team) => (
+                  <button
+                    key={team.teamId}
+                    type="button"
+                    className={cn(
+                      ANALYTICS_SUBPANEL_CLASS,
+                      "flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                    )}
+                    onClick={() => navigateToIssues({ teamId: team.teamId })}
                   >
-                    <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/60 bg-white/72 text-slate-600 shadow-sm">
-                      <Icon className="h-4 w-4" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-slate-950">
+                        {team.name}
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        {team.assignedIssues || 0} assigned - {team.pendingWorkload || 0} pending
+                      </span>
                     </span>
-                    <p className="mt-3 text-sm font-semibold text-slate-950">
-                      {widget.title}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">{widget.helper}</p>
-                  </div>
-                );
-              })}
-            </div>
+                    <Badge className="border-cyan-200 bg-cyan-50 text-cyan-700">
+                      {team.efficiency ?? team.productivity}% efficiency
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <AnalyticsEmptyState
+                icon={Users2}
+                title="No team workload yet"
+                description="Team workload appears once issues are assigned to teams."
+              />
+            )}
           </div>
         </AnalyticsPanel>
       </section>

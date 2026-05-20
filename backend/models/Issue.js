@@ -105,8 +105,8 @@ const issueSchema = new Schema(
     priority: {
       type: String,
       enum: {
-        values: ["Low", "Medium", "High"],
-        message: "Priority must be Low, Medium, or High",
+        values: ["Low", "Medium", "High", "Critical"],
+        message: "Priority must be Low, Medium, High, or Critical",
       },
       default: "Medium",
     },

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -42,6 +43,12 @@ import {
 import useAnalytics from "@/hooks/use-analytics";
 import { fetchProjects } from "@/lib/api";
 import {
+  getProjectMembers,
+  getProjectTeams,
+  resolveTeamId,
+  resolveUserId,
+} from "@/lib/project-teams";
+import {
   ANALYTICS_FIELD_CLASS,
   ANALYTICS_PANEL_CLASS,
   ANALYTICS_SELECT_CLASS,
@@ -68,18 +75,48 @@ import {
 import { cn, formatDate, getInitials } from "@/lib/utils";
 
 const PAGE_SIZE = 9;
-const PRIORITY_ORDER = ["High", "Medium", "Low"];
+const PRIORITY_ORDER = ["Critical", "High", "Medium", "Low"];
 const PRIORITY_COLORS = {
+  Critical: "#be123c",
   High: "#ef4444",
   Medium: "#f59e0b",
   Low: "#3b82f6",
 };
 const STATUS_FILTERS = [
-  { value: "all", label: "All statuses" },
-  { value: "OPEN", label: "Open workload" },
-  { value: "CLOSED", label: "Closed workload" },
+  { value: "all", label: "All statuses", status: "all", statusGroup: "all" },
+  {
+    value: "group:open",
+    label: "Open / In Progress / Reopened",
+    status: "all",
+    statusGroup: "open",
+  },
+  {
+    value: "group:closed",
+    label: "Closed / Resolved / Done",
+    status: "all",
+    statusGroup: "closed",
+  },
   ...ISSUE_STATUS_OPTIONS.filter((option) => option.value !== "all"),
 ];
+
+const getStatusFilterValue = (filters) =>
+  filters.statusGroup && filters.statusGroup !== "all"
+    ? `group:${filters.statusGroup}`
+    : filters.status || "all";
+
+const getStatusFilterParts = (value) => {
+  if (String(value || "").startsWith("group:")) {
+    return {
+      status: "all",
+      statusGroup: String(value).replace("group:", "") || "all",
+    };
+  }
+
+  return {
+    status: value || "all",
+    statusGroup: "all",
+  };
+};
 
 const emptyOverview = {
   totalIssues: 0,
@@ -149,12 +186,17 @@ const ReportsLoading = () => (
 );
 
 const ReportsPage = () => {
+  const navigate = useNavigate();
   const [filters, setFilters] = useState({
     dateFrom: "",
     dateTo: "",
     projectId: "all",
+    teamId: "all",
+    assigneeId: "all",
     priority: "all",
+    priorityGroup: "all",
     status: "all",
+    statusGroup: "all",
     search: "",
   });
   const [sortConfig, setSortConfig] = useState({
@@ -170,6 +212,48 @@ const ReportsPage = () => {
     queryFn: fetchProjects,
     staleTime: 60_000,
   });
+  const teamOptions = useMemo(() => {
+    const uniqueTeams = new Map();
+
+    projectOptions.forEach((project) => {
+      if (filters.projectId !== "all" && String(project._id) !== String(filters.projectId)) {
+        return;
+      }
+
+      getProjectTeams(project).forEach((team) => {
+        const teamId = resolveTeamId(team);
+
+        if (teamId && !uniqueTeams.has(teamId)) {
+          uniqueTeams.set(teamId, team);
+        }
+      });
+    });
+
+    return Array.from(uniqueTeams.values()).sort((left, right) =>
+      (left.name || "").localeCompare(right.name || "")
+    );
+  }, [filters.projectId, projectOptions]);
+  const assigneeOptions = useMemo(() => {
+    const uniqueAssignees = new Map();
+
+    projectOptions.forEach((project) => {
+      if (filters.projectId !== "all" && String(project._id) !== String(filters.projectId)) {
+        return;
+      }
+
+      getProjectMembers(project).forEach((member) => {
+        const userId = resolveUserId(member);
+
+        if (userId && !uniqueAssignees.has(userId)) {
+          uniqueAssignees.set(userId, member);
+        }
+      });
+    });
+
+    return Array.from(uniqueAssignees.values()).sort((left, right) =>
+      (left.name || "").localeCompare(right.name || "")
+    );
+  }, [filters.projectId, projectOptions]);
   const summary = analytics.overview?.summary || emptyOverview;
   const trends = analytics.overview?.trends || {};
   const issueTrend = analytics.trends?.issueTrend || [];
@@ -190,6 +274,33 @@ const ReportsPage = () => {
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
+
+  useEffect(() => {
+    setFilters((current) => {
+      const nextTeamId =
+        current.teamId === "all" ||
+        teamOptions.some((team) => resolveTeamId(team) === String(current.teamId))
+          ? current.teamId
+          : "all";
+      const nextAssigneeId =
+        current.assigneeId === "all" ||
+        assigneeOptions.some(
+          (assignee) => resolveUserId(assignee) === String(current.assigneeId)
+        )
+          ? current.assigneeId
+          : "all";
+
+      if (current.teamId === nextTeamId && current.assigneeId === nextAssigneeId) {
+        return current;
+      }
+
+      return {
+        ...current,
+        teamId: nextTeamId,
+        assigneeId: nextAssigneeId,
+      };
+    });
+  }, [assigneeOptions, teamOptions]);
 
   const sortedIssues = useMemo(() => {
     const accessors = {
@@ -224,6 +335,11 @@ const ReportsPage = () => {
     currentPage * PAGE_SIZE
   );
   const hasAnalytics = summary.totalIssues > 0;
+  const hasIssueTrendData = issueTrend.some((row) => row.created || row.closed);
+  const hasWeeklyResolutionData = weeklyResolution.some(
+    (row) => row.opened || row.resolved
+  );
+  const hasMonthlyGrowthData = monthlyGrowth.some((row) => row.issues);
   const strongestTeam = useMemo(
     () =>
       [...teamRows].sort(
@@ -314,6 +430,7 @@ const ReportsPage = () => {
       icon: Layers3,
       tone: "blue",
       trend: trends.totalIssues,
+      onClick: () => openIssueList(),
     },
     {
       title: "Open",
@@ -322,6 +439,7 @@ const ReportsPage = () => {
       icon: AlertTriangle,
       tone: "amber",
       trend: trends.openIssues,
+      onClick: () => openIssueList({ status: "all", statusGroup: "open" }),
     },
     {
       title: "Closed",
@@ -330,6 +448,7 @@ const ReportsPage = () => {
       icon: CheckCircle2,
       tone: "emerald",
       trend: trends.closedIssues,
+      onClick: () => openIssueList({ status: "all", statusGroup: "closed" }),
     },
     {
       title: "High Priority",
@@ -338,6 +457,7 @@ const ReportsPage = () => {
       icon: ShieldAlert,
       tone: "rose",
       trend: trends.highPriorityIssues,
+      onClick: () => openIssueList({ priority: "all", priorityGroup: "high" }),
     },
     {
       title: "Avg Resolution Time",
@@ -349,6 +469,7 @@ const ReportsPage = () => {
         direction: "flat",
         label: `${summary.resolutionRate || 0}% closed`,
       },
+      onClick: () => openIssueList({ status: "all", statusGroup: "closed" }),
     },
     {
       title: "Team Productivity",
@@ -360,6 +481,7 @@ const ReportsPage = () => {
         direction: "flat",
         label: `${summary.activeTeams || 0} active teams`,
       },
+      onClick: () => openIssueList(),
     },
   ];
 
@@ -376,11 +498,49 @@ const ReportsPage = () => {
       dateFrom: "",
       dateTo: "",
       projectId: "all",
+      teamId: "all",
+      assigneeId: "all",
       priority: "all",
+      priorityGroup: "all",
       status: "all",
+      statusGroup: "all",
       search: "",
     });
   };
+
+  function openIssueList(overrides = {}) {
+    const params = new URLSearchParams();
+    const definedOverrides = Object.fromEntries(
+      Object.entries(overrides).filter(
+        ([, value]) => value !== undefined && value !== null && value !== ""
+      )
+    );
+    const mergedFilters = {
+      ...filters,
+      ...definedOverrides,
+    };
+
+    [
+      "dateFrom",
+      "dateTo",
+      "projectId",
+      "teamId",
+      "assigneeId",
+      "priority",
+      "priorityGroup",
+      "status",
+      "statusGroup",
+      "search",
+    ].forEach((key) => {
+      const value = mergedFilters[key];
+
+      if (value && value !== "all") {
+        params.set(key, value);
+      }
+    });
+
+    navigate(`/issues${params.toString() ? `?${params}` : ""}`);
+  }
 
   const exportCsv = () => {
     exportRowsToCsv([
@@ -405,6 +565,16 @@ const ReportsPage = () => {
         (issue.tags || []).join(", "),
       ]),
     ]);
+  };
+
+  const openDatePoint = (chartState) => {
+    const key = chartState?.activePayload?.[0]?.payload?.key;
+
+    if (key) {
+      openIssueList({ dateFrom: key, dateTo: key });
+    } else {
+      openIssueList();
+    }
   };
 
   if (analytics.isLoading) {
@@ -439,7 +609,7 @@ const ReportsPage = () => {
               </p>
             </div>
 
-            <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto_auto]">
+            <div className="grid gap-3 xl:grid-cols-[1fr_180px_180px_180px_auto_auto]">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input
                   type="date"
@@ -472,6 +642,8 @@ const ReportsPage = () => {
                   setFilters((current) => ({
                     ...current,
                     projectId: event.target.value,
+                    teamId: "all",
+                    assigneeId: "all",
                   }))
                 }
               >
@@ -479,6 +651,40 @@ const ReportsPage = () => {
                 {projectOptions.map((project) => (
                   <option key={project._id} value={project._id}>
                     {project.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className={ANALYTICS_SELECT_CLASS}
+                value={filters.teamId}
+                onChange={(event) =>
+                  setFilters((current) => ({
+                    ...current,
+                    teamId: event.target.value,
+                  }))
+                }
+              >
+                <option value="all">All teams</option>
+                {teamOptions.map((team) => (
+                  <option key={resolveTeamId(team)} value={resolveTeamId(team)}>
+                    {team.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className={ANALYTICS_SELECT_CLASS}
+                value={filters.assigneeId}
+                onChange={(event) =>
+                  setFilters((current) => ({
+                    ...current,
+                    assigneeId: event.target.value,
+                  }))
+                }
+              >
+                <option value="all">All assignees</option>
+                {assigneeOptions.map((assignee) => (
+                  <option key={resolveUserId(assignee)} value={resolveUserId(assignee)}>
+                    {assignee.name}
                   </option>
                 ))}
               </select>
@@ -524,10 +730,24 @@ const ReportsPage = () => {
           title="Issue Trend"
           description="Created and closed issue movement in the selected scope."
         >
-          {issueTrend.length ? (
-            <div className="h-[290px]">
+          {hasIssueTrendData ? (
+            <div
+              className="h-[290px] cursor-pointer"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openIssueList();
+                }
+              }}
+            >
               <ResponsiveContainer height="100%" width="100%">
-                <LineChart data={issueTrend} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
+                <LineChart
+                  data={issueTrend}
+                  margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
+                  onClick={openDatePoint}
+                >
                   <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" vertical={false} />
                   <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
                   <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
@@ -549,7 +769,7 @@ const ReportsPage = () => {
 
         <ChartCard
           title="Priority Distribution"
-          description="High, medium, and low priority workload split."
+          description="Critical, high, medium, and low priority workload split."
         >
           {priorityRows.some((row) => row.count > 0) ? (
             <div className="grid gap-5 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-center">
@@ -596,12 +816,7 @@ const ReportsPage = () => {
                         ? "border-blue-200 bg-blue-50/80"
                         : ""
                     )}
-                    onClick={() =>
-                      setFilters((current) => ({
-                        ...current,
-                        priority: current.priority === row.key ? "all" : row.key,
-                      }))
-                    }
+                    onClick={() => openIssueList({ priority: row.key })}
                   >
                     <span className="flex items-center gap-3">
                       <span
@@ -637,15 +852,41 @@ const ReportsPage = () => {
           description="Open and closed workload by team."
         >
           {teamRows.length ? (
-            <div className="h-[300px]">
+            <div
+              className="h-[300px] cursor-pointer"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openIssueList();
+                }
+              }}
+            >
               <ResponsiveContainer height="100%" width="100%">
-                <BarChart data={teamRows.slice(0, 8)} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
+                <BarChart
+                  data={teamRows.slice(0, 8)}
+                  margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
+                  onClick={(chartState) => {
+                    const teamId = chartState?.activePayload?.[0]?.payload?.teamId;
+
+                    openIssueList(teamId ? { teamId } : {});
+                  }}
+                >
                   <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" vertical={false} />
                   <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
                   <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={chartTooltipStyle} />
-                  <Bar dataKey="openIssues" fill="#f59e0b" radius={[10, 10, 0, 0]} />
-                  <Bar dataKey="closedIssues" fill="#10b981" radius={[10, 10, 0, 0]} />
+                  <Bar
+                    dataKey="openIssues"
+                    fill="#f59e0b"
+                    radius={[10, 10, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="closedIssues"
+                    fill="#10b981"
+                    radius={[10, 10, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -663,10 +904,24 @@ const ReportsPage = () => {
           title="Weekly Resolution Trend"
           description="Opened versus resolved work over the latest weeks."
         >
-          {weeklyResolution.length ? (
-            <div className="h-[300px]">
+          {hasWeeklyResolutionData ? (
+            <div
+              className="h-[300px] cursor-pointer"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openIssueList();
+                }
+              }}
+            >
               <ResponsiveContainer height="100%" width="100%">
-                <AreaChart data={weeklyResolution} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
+                <AreaChart
+                  data={weeklyResolution}
+                  margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
+                  onClick={openDatePoint}
+                >
                   <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" vertical={false} />
                   <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
                   <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
@@ -691,15 +946,42 @@ const ReportsPage = () => {
           description="Project-level issue volume and open workload."
         >
           {projectRows.length ? (
-            <div className="h-[300px]">
+            <div
+              className="h-[300px] cursor-pointer"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openIssueList();
+                }
+              }}
+            >
               <ResponsiveContainer height="100%" width="100%">
-                <BarChart data={projectRows.slice(0, 8)} layout="vertical" margin={{ top: 8, right: 18, left: 12, bottom: 0 }}>
+                <BarChart
+                  data={projectRows.slice(0, 8)}
+                  layout="vertical"
+                  margin={{ top: 8, right: 18, left: 12, bottom: 0 }}
+                  onClick={(chartState) => {
+                    const projectId = chartState?.activePayload?.[0]?.payload?.projectId;
+
+                    openIssueList(projectId ? { projectId } : {});
+                  }}
+                >
                   <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" horizontal={false} />
                   <XAxis allowDecimals={false} type="number" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
                   <YAxis dataKey="name" type="category" width={108} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={chartTooltipStyle} />
-                  <Bar dataKey="totalIssues" fill="#2563eb" radius={[0, 10, 10, 0]} />
-                  <Bar dataKey="openIssues" fill="#f59e0b" radius={[0, 10, 10, 0]} />
+                  <Bar
+                    dataKey="totalIssues"
+                    fill="#2563eb"
+                    radius={[0, 10, 10, 0]}
+                  />
+                  <Bar
+                    dataKey="openIssues"
+                    fill="#f59e0b"
+                    radius={[0, 10, 10, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -717,10 +999,39 @@ const ReportsPage = () => {
           title="Monthly Growth Metrics"
           description="Issue growth over the latest six months."
         >
-          {monthlyGrowth.length ? (
-            <div className="h-[300px]">
+          {hasMonthlyGrowthData ? (
+            <div
+              className="h-[300px] cursor-pointer"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openIssueList();
+                }
+              }}
+            >
               <ResponsiveContainer height="100%" width="100%">
-                <AreaChart data={monthlyGrowth} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
+                <AreaChart
+                  data={monthlyGrowth}
+                  margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
+                  onClick={(chartState) => {
+                    const key = chartState?.activePayload?.[0]?.payload?.key;
+
+                    if (key) {
+                      const [year, month] = key.split("-").map(Number);
+                      const monthEndDay = new Date(year, month, 0).getDate();
+                      const monthEnd = `${key}-${String(monthEndDay).padStart(2, "0")}`;
+
+                      openIssueList({
+                        dateFrom: `${key}-01`,
+                        dateTo: monthEnd,
+                      });
+                    } else {
+                      openIssueList();
+                    }
+                  }}
+                >
                   <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" vertical={false} />
                   <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
                   <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
@@ -789,7 +1100,12 @@ const ReportsPage = () => {
           {teamRows.length ? (
             <div className="grid gap-3 md:grid-cols-2">
               {teamRows.slice(0, 6).map((team) => (
-                <div key={team.teamId} className={cn(ANALYTICS_SUBPANEL_CLASS, "p-4")}>
+                <button
+                  key={team.teamId}
+                  type="button"
+                  className={cn(ANALYTICS_SUBPANEL_CLASS, "p-4 text-left")}
+                  onClick={() => openIssueList({ teamId: team.teamId })}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
@@ -827,7 +1143,7 @@ const ReportsPage = () => {
                       style={{ width: `${Math.max(team.productivity, team.totalIssues ? 5 : 0)}%` }}
                     />
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           ) : (
@@ -850,7 +1166,7 @@ const ReportsPage = () => {
         }
       >
         <div className="space-y-4">
-          <div className="grid gap-3 xl:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr_auto]">
+          <div className="grid gap-3 xl:grid-cols-[1.4fr_0.75fr_0.85fr_0.85fr_0.85fr_0.9fr_auto]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
@@ -884,13 +1200,15 @@ const ReportsPage = () => {
             </select>
             <select
               className={ANALYTICS_SELECT_CLASS}
-              value={filters.status}
-              onChange={(event) =>
+              value={getStatusFilterValue(filters)}
+              onChange={(event) => {
+                const statusParts = getStatusFilterParts(event.target.value);
+
                 setFilters((current) => ({
                   ...current,
-                  status: event.target.value,
-                }))
-              }
+                  ...statusParts,
+                }));
+              }}
             >
               {STATUS_FILTERS.map((status) => (
                 <option key={status.value} value={status.value}>
@@ -905,6 +1223,8 @@ const ReportsPage = () => {
                 setFilters((current) => ({
                   ...current,
                   projectId: event.target.value,
+                  teamId: "all",
+                  assigneeId: "all",
                 }))
               }
             >
@@ -912,6 +1232,40 @@ const ReportsPage = () => {
               {projectOptions.map((project) => (
                 <option key={project._id} value={project._id}>
                   {project.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className={ANALYTICS_SELECT_CLASS}
+              value={filters.teamId}
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  teamId: event.target.value,
+                }))
+              }
+            >
+              <option value="all">All teams</option>
+              {teamOptions.map((team) => (
+                <option key={resolveTeamId(team)} value={resolveTeamId(team)}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className={ANALYTICS_SELECT_CLASS}
+              value={filters.assigneeId}
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  assigneeId: event.target.value,
+                }))
+              }
+            >
+              <option value="all">All assignees</option>
+              {assigneeOptions.map((assignee) => (
+                <option key={resolveUserId(assignee)} value={resolveUserId(assignee)}>
+                  {assignee.name}
                 </option>
               ))}
             </select>
@@ -1092,7 +1446,12 @@ const ReportsPage = () => {
         {activityRows.length ? (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {activityRows.slice(0, 9).map((item) => (
-              <div key={`${item.activityType}-${item._id}`} className={cn(ANALYTICS_SUBPANEL_CLASS, "p-4")}>
+              <button
+                key={`${item.activityType}-${item._id}`}
+                type="button"
+                className={cn(ANALYTICS_SUBPANEL_CLASS, "p-4 text-left")}
+                onClick={() => openIssueList({ search: item.issueId })}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-950">
@@ -1107,10 +1466,10 @@ const ReportsPage = () => {
                   </Badge>
                 </div>
                 <p className="mt-3 text-sm text-slate-500">
-                  {item.project?.name || "Unknown project"} •{" "}
+                  {item.project?.name || "Unknown project"} -{" "}
                   {item.activityAt ? formatDate(item.activityAt) : "N/A"}
                 </p>
-              </div>
+              </button>
             ))}
           </div>
         ) : (

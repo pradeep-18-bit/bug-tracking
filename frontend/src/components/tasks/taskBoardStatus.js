@@ -80,9 +80,10 @@ export const getTaskBoardStatus = (issueOrStatus) => {
 };
 
 const priorityRank = {
-  High: 0,
-  Medium: 1,
-  Low: 2,
+  Critical: 0,
+  High: 1,
+  Medium: 2,
+  Low: 3,
 };
 
 export const sortTasksByPriority = (tasks = []) =>

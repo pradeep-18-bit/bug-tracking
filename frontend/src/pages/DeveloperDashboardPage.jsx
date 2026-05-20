@@ -1050,6 +1050,7 @@ const DeveloperDashboardPage = () => {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
 
@@ -1346,6 +1347,7 @@ const DeveloperDashboardPage = () => {
                     }
                   >
                     <option value="all">All priorities</option>
+                    <option value="Critical">Critical</option>
                     <option value="High">High</option>
                     <option value="Medium">Medium</option>
                     <option value="Low">Low</option>

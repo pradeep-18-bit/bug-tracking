@@ -769,9 +769,9 @@ const suggestIssuePriority = asyncHandler(async (req, res) => {
     .replace(/^./, (value) => value.toUpperCase())
     .replace(/\s+/g, "");
 
-  if (!["Low", "Medium", "High"].includes(suggestedPriority)) {
+  if (!["Low", "Medium", "High", "Critical"].includes(suggestedPriority)) {
     res.status(400);
-    throw new Error("Suggested priority must be Low, Medium, or High");
+    throw new Error("Suggested priority must be Low, Medium, High, or Critical");
   }
 
   const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";

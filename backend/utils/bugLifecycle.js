@@ -8,6 +8,7 @@ const BUG_SEVERITIES = Object.freeze({
 const BUG_SEVERITY_VALUES = Object.freeze(Object.values(BUG_SEVERITIES));
 
 const BUG_PRIORITIES = Object.freeze({
+  CRITICAL: "Critical",
   HIGH: "High",
   MEDIUM: "Medium",
   LOW: "Low",

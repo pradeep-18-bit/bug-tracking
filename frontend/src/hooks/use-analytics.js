@@ -17,7 +17,9 @@ const createAnalyticsFilters = (filters = {}) => ({
   teamId: filters.teamId || "all",
   assigneeId: filters.assigneeId || "all",
   status: filters.status || "all",
+  statusGroup: filters.statusGroup || "all",
   priority: filters.priority || "all",
+  priorityGroup: filters.priorityGroup || "all",
   type: filters.type || "all",
   search: filters.search || "",
 });

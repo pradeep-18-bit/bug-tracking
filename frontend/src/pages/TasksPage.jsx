@@ -54,6 +54,7 @@ const TasksPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
 
@@ -62,6 +63,7 @@ const TasksPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
 

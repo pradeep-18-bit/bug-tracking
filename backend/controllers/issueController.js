@@ -42,6 +42,7 @@ const { getNextPlanningOrder } = require("../utils/planningOrder");
 const { canManageProjectPlanning } = require("../utils/backlogAccess");
 const {
   buildProjectAccessQuery,
+  getProjectIdsForUserThroughTeams,
   mergeProjectTeamIds,
 } = require("../utils/projectRelations");
 const {
@@ -73,6 +74,21 @@ const isBugLifecycleStatus = (status) =>
 const isQaRole = (role) => role === ROLE_TESTER;
 const isDevRole = (role) => role === ROLE_DEVELOPER;
 const isLeadRole = (role) => [ROLE_ADMIN, ROLE_MANAGER].includes(role);
+const ISSUE_PRIORITY_VALUES = ["Critical", "High", "Medium", "Low"];
+const HIGH_PRIORITY_VALUES = ["Critical", "High"];
+const CRITICAL_SEVERITIES = ["Blocker", "Critical"];
+const CLOSED_FILTER_STATUSES = Array.from(
+  new Set([
+    ISSUE_STATUS.DONE,
+    ISSUE_STATUS.FIXED,
+    ...BUG_TERMINAL_STATUS_VALUES,
+  ])
+);
+const OPEN_FILTER_STATUSES = [
+  ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.IN_PROGRESS,
+  ISSUE_STATUS.REOPEN,
+];
 const escapeRegExp = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -111,22 +127,69 @@ const addPersonalIssueAccessQuery = (query, user) => {
   return query;
 };
 
+const addAndCondition = (query, condition) => {
+  if (!condition || !Object.keys(condition).length) {
+    return query;
+  }
+
+  query.$and = [...(query.$and || []), condition];
+  return query;
+};
+
+const buildHighPriorityCondition = () => ({
+  $or: [
+    {
+      priority: {
+        $in: HIGH_PRIORITY_VALUES,
+      },
+    },
+    {
+      "bugDetails.severity": {
+        $in: CRITICAL_SEVERITIES,
+      },
+    },
+  ],
+});
+
 const getAccessibleProjectIds = async (user) => {
   const workspaceId = normalizeWorkspaceId(user.workspaceId);
-  const projectAccessQuery = await buildProjectAccessQuery(user);
+
+  if (user?.role === ROLE_ADMIN) {
+    return Project.find({
+      workspaceId,
+    }).distinct("_id");
+  }
+
+  const userId = user.id || user._id;
+  const teamProjectIds = await getProjectIdsForUserThroughTeams(userId, workspaceId);
+  const projectAccessQuery = {
+    workspaceId,
+    $or: [
+      { createdBy: userId },
+      { manager: userId },
+      { teamLead: userId },
+      ...(teamProjectIds.length
+        ? [
+            {
+              _id: {
+                $in: teamProjectIds,
+              },
+            },
+          ]
+        : []),
+    ],
+  };
 
   const [memberProjectIds, directlyAssignedProjectIds] = await Promise.all([
     Project.find(projectAccessQuery).distinct("_id"),
-    isAdmin(user)
-      ? Promise.resolve([])
-      : Issue.find({
-          $or: [
-            { assignee: user._id },
-            { reporter: user._id },
-            { "bugDetails.testerOwner": user._id },
-            { "bugDetails.developerLead": user._id },
-          ],
-        }).distinct("projectId"),
+    Issue.find({
+      $or: [
+        { assignee: user._id },
+        { reporter: user._id },
+        { "bugDetails.testerOwner": user._id },
+        { "bugDetails.developerLead": user._id },
+      ],
+    }).distinct("projectId"),
   ]);
 
   const assignedProjectIds = directlyAssignedProjectIds.length
@@ -1104,34 +1167,51 @@ const buildIssueQueryFromRequest = async (
     query.projectId = req.query.projectId;
   }
 
-  if (req.query.status && req.query.status !== "all") {
-    const normalizedStatusFilter = normalizeIssueStatus(req.query.status);
-    const normalizedTypeFilter = getCanonicalIssueType(req.query.type, "");
-    const isExplicitBugLifecycleFilter =
-      normalizedTypeFilter === ISSUE_TYPES.BUG &&
-      BUG_STATUS_VALUES.includes(normalizedStatusFilter);
+  if (req.query.statusGroup && req.query.statusGroup !== "all") {
+    const statusGroup = String(req.query.statusGroup).trim().toLowerCase();
 
-    if (normalizedStatusFilter === "OPEN" && !isExplicitBugLifecycleFilter) {
+    if (statusGroup === "open") {
       query.status = {
-        $nin: [ISSUE_STATUS.DONE, ...BUG_TERMINAL_STATUS_VALUES],
+        $in: OPEN_FILTER_STATUSES,
       };
-    } else if (normalizedStatusFilter === "CLOSED" && !isExplicitBugLifecycleFilter) {
+    } else if (statusGroup === "closed") {
       query.status = {
-        $in: [ISSUE_STATUS.DONE, ...BUG_TERMINAL_STATUS_VALUES],
+        $in: CLOSED_FILTER_STATUSES,
       };
     } else {
-      const statusFilterResult = parseIssueStatusInput(req.query.status, "");
-
-      if (statusFilterResult.error) {
-        res.status(statusFilterResult.error.status);
-        throw new Error(statusFilterResult.error.message);
-      }
-
-      query.status = statusFilterResult.value;
+      res.status(400);
+      throw new Error("Invalid status group filter");
     }
   }
 
+  if (req.query.status && req.query.status !== "all") {
+    const statusFilterResult = parseIssueStatusInput(req.query.status, "");
+
+    if (statusFilterResult.error) {
+      res.status(statusFilterResult.error.status);
+      throw new Error(statusFilterResult.error.message);
+    }
+
+    query.status = statusFilterResult.value;
+  }
+
+  if (req.query.priorityGroup && req.query.priorityGroup !== "all") {
+    const priorityGroup = String(req.query.priorityGroup).trim().toLowerCase();
+
+    if (priorityGroup !== "high") {
+      res.status(400);
+      throw new Error("Invalid priority group filter");
+    }
+
+    addAndCondition(query, buildHighPriorityCondition());
+  }
+
   if (req.query.priority && req.query.priority !== "all") {
+    if (!ISSUE_PRIORITY_VALUES.includes(req.query.priority)) {
+      res.status(400);
+      throw new Error(`Priority must be ${ISSUE_PRIORITY_VALUES.join(", ")}`);
+    }
+
     query.priority = req.query.priority;
   }
 
@@ -1204,10 +1284,12 @@ const buildIssueQueryFromRequest = async (
       "i"
     );
 
-    query.$or = [
-      { title: searchExpression },
-      { description: searchExpression },
-    ];
+    addAndCondition(query, {
+      $or: [
+        { title: searchExpression },
+        { description: searchExpression },
+      ],
+    });
   }
 
   if (
@@ -1399,7 +1481,7 @@ const statusLabelMap = {
   [ISSUE_STATUS.DEFERRED]: "Deferred",
 };
 
-const priorityOrder = ["High", "Medium", "Low"];
+const priorityOrder = ISSUE_PRIORITY_VALUES;
 const statusOrder = [
   ISSUE_STATUS.TODO,
   ISSUE_STATUS.IN_PROGRESS,

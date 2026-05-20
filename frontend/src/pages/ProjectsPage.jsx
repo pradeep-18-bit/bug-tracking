@@ -124,6 +124,7 @@ const ProjectsPage = () => {
     mutationFn: createProject,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
 
@@ -139,6 +140,7 @@ const ProjectsPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       queryClient.invalidateQueries({ queryKey: ["project-teams"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
 
@@ -147,6 +149,7 @@ const ProjectsPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       queryClient.invalidateQueries({ queryKey: ["project-teams"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
 
@@ -154,6 +157,7 @@ const ProjectsPage = () => {
     mutationFn: updateProjectStatus,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
 
@@ -168,6 +172,7 @@ const ProjectsPage = () => {
         queryClient.invalidateQueries({ queryKey: ["project-teams"] }),
         queryClient.invalidateQueries({ queryKey: ["issues"] }),
         queryClient.invalidateQueries({ queryKey: ["reports"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
     },
     onError: (error) => {

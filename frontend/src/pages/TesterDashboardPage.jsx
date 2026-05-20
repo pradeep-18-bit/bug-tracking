@@ -345,12 +345,7 @@ const RecentTasksPanel = ({
                 <span className="hidden h-1 w-1 rounded-full bg-slate-300 sm:inline-flex" />
                 <span className="inline-flex items-center gap-1.5">
                   <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
-                  {assignedAt
-                    ? formatDate(assignedAt, {
-                        month: "short",
-                        day: "numeric",
-                      })
-                    : "Unknown date"}
+                  {assignedAt ? formatDate(assignedAt) : "Unknown date"}
                 </span>
               </div>
             </button>
@@ -757,13 +752,7 @@ const TesterDashboardPage = () => {
                           Updated
                         </span>
                         <span className="text-right font-medium">
-                          {updatedAt
-                            ? formatDateTime(updatedAt, {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              })
-                            : "Unknown"}
+                          {updatedAt ? formatDateTime(updatedAt) : "Unknown"}
                         </span>
                       </div>
                     </div>
@@ -849,13 +838,7 @@ const TesterDashboardPage = () => {
                           </p>
                         </td>
                         <td className="whitespace-nowrap px-4 py-4 text-slate-500">
-                          {updatedAt
-                            ? formatDateTime(updatedAt, {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              })
-                            : "Unknown"}
+                          {updatedAt ? formatDateTime(updatedAt) : "Unknown"}
                         </td>
                       </tr>
                     );

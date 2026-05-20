@@ -6,7 +6,7 @@ const ProjectTeam = require("../models/ProjectTeam");
 const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const asyncHandler = require("../utils/asyncHandler");
-const { BUG_SEVERITY_VALUES, BUG_TERMINAL_STATUS_VALUES } = require("../utils/bugLifecycle");
+const { BUG_TERMINAL_STATUS_VALUES } = require("../utils/bugLifecycle");
 const {
   ISSUE_STATUS,
   getCanonicalIssueStatus,
@@ -19,13 +19,28 @@ const {
   getCanonicalIssueType,
   isValidIssueType,
 } = require("../utils/issueTypes");
-const { buildProjectAccessQuery } = require("../utils/projectRelations");
-const { hasAdminAccess } = require("../utils/roles");
+const {
+  getProjectIdsForUserThroughTeams,
+} = require("../utils/projectRelations");
+const { ROLE_ADMIN, ROLE_MANAGER } = require("../utils/roles");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
-const CLOSED_STATUSES = [ISSUE_STATUS.DONE, ...BUG_TERMINAL_STATUS_VALUES];
-const PRIORITY_ORDER = ["High", "Medium", "Low"];
+const CLOSED_STATUSES = Array.from(
+  new Set([
+    ISSUE_STATUS.DONE,
+    ISSUE_STATUS.FIXED,
+    ...BUG_TERMINAL_STATUS_VALUES,
+  ])
+);
+const OPEN_DASHBOARD_STATUSES = [
+  ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.IN_PROGRESS,
+  ISSUE_STATUS.REOPEN,
+];
+const PRIORITY_ORDER = ["Critical", "High", "Medium", "Low"];
+const HIGH_PRIORITY_VALUES = ["Critical", "High"];
+const CRITICAL_SEVERITIES = ["Blocker", "Critical"];
 const STATUS_LABELS = {
   [ISSUE_STATUS.TODO]: "To Do",
   [ISSUE_STATUS.IN_PROGRESS]: "In Progress",
@@ -119,21 +134,81 @@ const uniqueObjectIds = (values = []) => {
   return Array.from(unique.values());
 };
 
+const isOrganizationAnalyticsUser = (user) => user?.role === ROLE_ADMIN;
+
+const addAndCondition = (match, condition) => {
+  if (!condition || !Object.keys(condition).length) {
+    return match;
+  }
+
+  match.$and = [...(match.$and || []), condition];
+  return match;
+};
+
+const buildHighPriorityCondition = () => ({
+  $or: [
+    {
+      priority: {
+        $in: HIGH_PRIORITY_VALUES,
+      },
+    },
+    {
+      "bugDetails.severity": {
+        $in: CRITICAL_SEVERITIES,
+      },
+    },
+  ],
+});
+
+const buildHighPriorityExpression = () => ({
+  $or: [
+    {
+      $in: ["$priority", HIGH_PRIORITY_VALUES],
+    },
+    {
+      $in: ["$bugDetails.severity", CRITICAL_SEVERITIES],
+    },
+  ],
+});
+
 const getAccessibleProjectIds = async (user) => {
   const workspaceId = normalizeWorkspaceId(user.workspaceId);
-  const projectAccessQuery = await buildProjectAccessQuery(user);
+
+  if (isOrganizationAnalyticsUser(user)) {
+    return Project.find({
+      workspaceId,
+    }).distinct("_id");
+  }
+
+  const userId = user.id || user._id;
+  const teamProjectIds = await getProjectIdsForUserThroughTeams(userId, workspaceId);
+  const projectAccessQuery = {
+    workspaceId,
+    $or: [
+      { createdBy: userId },
+      { manager: userId },
+      { teamLead: userId },
+      ...(teamProjectIds.length
+        ? [
+            {
+              _id: {
+                $in: teamProjectIds,
+              },
+            },
+          ]
+        : []),
+    ],
+  };
   const [memberProjectIds, directlyAssignedProjectIds] = await Promise.all([
     Project.find(projectAccessQuery).distinct("_id"),
-    hasAdminAccess(user.role)
-      ? Promise.resolve([])
-      : Issue.find({
-          $or: [
-            { assignee: user._id },
-            { reporter: user._id },
-            { "bugDetails.testerOwner": user._id },
-            { "bugDetails.developerLead": user._id },
-          ],
-        }).distinct("projectId"),
+    Issue.find({
+      $or: [
+        { assignee: user._id },
+        { reporter: user._id },
+        { "bugDetails.testerOwner": user._id },
+        { "bugDetails.developerLead": user._id },
+      ],
+    }).distinct("projectId"),
   ]);
 
   const assignedProjectIds = directlyAssignedProjectIds.length
@@ -211,23 +286,43 @@ const buildAnalyticsMatch = async (req, res) => {
     match.assignee = new mongoose.Types.ObjectId(req.query.assigneeId);
   }
 
-  if (req.query.status && req.query.status !== "all") {
-    const normalizedStatus = normalizeIssueStatus(req.query.status);
+  if (req.query.statusGroup && req.query.statusGroup !== "all") {
+    const statusGroup = String(req.query.statusGroup).trim().toLowerCase();
 
-    if (normalizedStatus === "OPEN") {
+    if (statusGroup === "open") {
       match.status = {
-        $nin: CLOSED_STATUSES,
+        $in: OPEN_DASHBOARD_STATUSES,
       };
-    } else if (normalizedStatus === "CLOSED") {
+    } else if (statusGroup === "closed") {
       match.status = {
         $in: CLOSED_STATUSES,
       };
-    } else if (Object.values(ISSUE_STATUS).includes(normalizedStatus)) {
+    } else {
+      res.status(400);
+      throw new Error("Invalid status group filter");
+    }
+  }
+
+  if (req.query.status && req.query.status !== "all") {
+    const normalizedStatus = normalizeIssueStatus(req.query.status);
+
+    if (Object.values(ISSUE_STATUS).includes(normalizedStatus)) {
       match.status = normalizedStatus;
     } else {
       res.status(400);
       throw new Error("Invalid status filter");
     }
+  }
+
+  if (req.query.priorityGroup && req.query.priorityGroup !== "all") {
+    const priorityGroup = String(req.query.priorityGroup).trim().toLowerCase();
+
+    if (priorityGroup !== "high") {
+      res.status(400);
+      throw new Error("Invalid priority group filter");
+    }
+
+    addAndCondition(match, buildHighPriorityCondition());
   }
 
   if (req.query.priority && req.query.priority !== "all") {
@@ -252,13 +347,15 @@ const buildAnalyticsMatch = async (req, res) => {
 
   if (req.query.search?.trim()) {
     const searchExpression = new RegExp(escapeRegExp(req.query.search.trim()), "i");
-    match.$or = [
-      { title: searchExpression },
-      { description: searchExpression },
-      { priority: searchExpression },
-      { status: searchExpression },
-      { type: searchExpression },
-    ];
+    addAndCondition(match, {
+      $or: [
+        { title: searchExpression },
+        { description: searchExpression },
+        { priority: searchExpression },
+        { status: searchExpression },
+        { type: searchExpression },
+      ],
+    });
   }
 
   if (req.query.dateFrom || req.query.dateTo) {
@@ -297,7 +394,7 @@ const buildAnalyticsMatch = async (req, res) => {
     }
   }
 
-  if (!hasAdminAccess(req.user.role)) {
+  if (!isOrganizationAnalyticsUser(req.user) && req.user.role !== ROLE_MANAGER) {
     addPersonalAccess(match, req.user);
   }
 
@@ -425,6 +522,27 @@ const loadClosureMetrics = async (issues = []) => {
     }
   });
 
+  issues.forEach((issue) => {
+    const issueId = String(issue._id);
+
+    if (closureByIssueId.has(issueId) || !CLOSED_STATUSES.includes(issue.status)) {
+      return;
+    }
+
+    const closedAt = issue.updatedAt || issue.createdAt;
+    const createdAt = issue.createdAt;
+
+    if (!closedAt) {
+      return;
+    }
+
+    closureByIssueId.set(issueId, closedAt);
+
+    if (createdAt && closedAt >= createdAt) {
+      resolutionDurations.push(closedAt.getTime() - createdAt.getTime());
+    }
+  });
+
   return {
     averageResolutionMs: resolutionDurations.length
       ? Math.round(
@@ -461,7 +579,7 @@ const buildWeekTrend = async (baseMatch) => {
         },
         openIssues: {
           $sum: {
-            $cond: [{ $in: ["$status", CLOSED_STATUSES] }, 0, 1],
+            $cond: [{ $in: ["$status", OPEN_DASHBOARD_STATUSES] }, 1, 0],
           },
         },
         closedIssues: {
@@ -472,12 +590,7 @@ const buildWeekTrend = async (baseMatch) => {
         highPriorityIssues: {
           $sum: {
             $cond: [
-              {
-                $and: [
-                  { $eq: ["$priority", "High"] },
-                  { $not: [{ $in: ["$status", CLOSED_STATUSES] }] },
-                ],
-              },
+              buildHighPriorityExpression(),
               1,
               0,
             ],
@@ -498,7 +611,7 @@ const buildWeekTrend = async (baseMatch) => {
         },
         openIssues: {
           $sum: {
-            $cond: [{ $in: ["$status", CLOSED_STATUSES] }, 0, 1],
+            $cond: [{ $in: ["$status", OPEN_DASHBOARD_STATUSES] }, 1, 0],
           },
         },
         closedIssues: {
@@ -509,12 +622,7 @@ const buildWeekTrend = async (baseMatch) => {
         highPriorityIssues: {
           $sum: {
             $cond: [
-              {
-                $and: [
-                  { $eq: ["$priority", "High"] },
-                  { $not: [{ $in: ["$status", CLOSED_STATUSES] }] },
-                ],
-              },
+              buildHighPriorityExpression(),
               1,
               0,
             ],
@@ -563,7 +671,7 @@ const getOverviewPayload = async (match, user) => {
               },
               openIssues: {
                 $sum: {
-                  $cond: [{ $in: ["$status", CLOSED_STATUSES] }, 0, 1],
+                  $cond: [{ $in: ["$status", OPEN_DASHBOARD_STATUSES] }, 1, 0],
                 },
               },
               closedIssues: {
@@ -574,12 +682,7 @@ const getOverviewPayload = async (match, user) => {
               highPriorityIssues: {
                 $sum: {
                   $cond: [
-                    {
-                      $and: [
-                        { $eq: ["$priority", "High"] },
-                        { $not: [{ $in: ["$status", CLOSED_STATUSES] }] },
-                      ],
-                    },
+                    buildHighPriorityExpression(),
                     1,
                     0,
                   ],
@@ -635,7 +738,7 @@ const getOverviewPayload = async (match, user) => {
     },
   ]);
   const issues = await Issue.find(match)
-    .select("_id createdAt status")
+    .select("_id createdAt updatedAt status")
     .lean();
   const closureMetrics = await loadClosureMetrics(issues);
   const summary = facetResult?.summary?.[0] || {
@@ -713,7 +816,7 @@ const buildProjectAnalytics = async (match, user, { limit = 0 } = {}) => {
         },
         openIssues: {
           $sum: {
-            $cond: [{ $in: ["$status", CLOSED_STATUSES] }, 0, 1],
+            $cond: [{ $in: ["$status", OPEN_DASHBOARD_STATUSES] }, 1, 0],
           },
         },
         closedIssues: {
@@ -723,7 +826,7 @@ const buildProjectAnalytics = async (match, user, { limit = 0 } = {}) => {
         },
         highPriorityIssues: {
           $sum: {
-            $cond: [{ $eq: ["$priority", "High"] }, 1, 0],
+            $cond: [buildHighPriorityExpression(), 1, 0],
           },
         },
         teamIds: {
@@ -816,7 +919,7 @@ const buildTeamAnalytics = async (match, user, { limit = 0 } = {}) => {
         },
         openIssues: {
           $sum: {
-            $cond: [{ $in: ["$status", CLOSED_STATUSES] }, 0, 1],
+            $cond: [{ $in: ["$status", OPEN_DASHBOARD_STATUSES] }, 1, 0],
           },
         },
         closedIssues: {
@@ -826,7 +929,12 @@ const buildTeamAnalytics = async (match, user, { limit = 0 } = {}) => {
         },
         highPriorityIssues: {
           $sum: {
-            $cond: [{ $eq: ["$priority", "High"] }, 1, 0],
+            $cond: [buildHighPriorityExpression(), 1, 0],
+          },
+        },
+        assignedIssues: {
+          $sum: {
+            $cond: [{ $ne: ["$assignee", null] }, 1, 0],
           },
         },
       },
@@ -894,19 +1002,47 @@ const buildTeamAnalytics = async (match, user, { limit = 0 } = {}) => {
         teamId: row._id,
         name: team?.name || "Unassigned team",
         totalIssues: row.totalIssues,
+        assignedIssues: row.assignedIssues,
         openIssues: row.openIssues,
         closedIssues: row.closedIssues,
         highPriorityIssues: row.highPriorityIssues,
-        pendingWorkload: row.openIssues,
+        completedIssues: row.closedIssues,
+        pendingWorkload: Math.max(row.totalIssues - row.closedIssues, 0),
+        pendingIssues: Math.max(row.totalIssues - row.closedIssues, 0),
         completionRate,
+        efficiency: row.assignedIssues
+          ? Math.round((row.closedIssues / row.assignedIssues) * 100)
+          : completionRate,
         productivity: completionRate,
         memberCount: memberCountByTeamId.get(String(row._id)) || 0,
       };
     });
 };
 
-const getTrendRange = (query) => {
-  const end = query.dateTo ? endOfDay(query.dateTo) : endOfDay(new Date());
+const getTrendRange = async (query, match) => {
+  let defaultEnd = endOfDay(new Date());
+
+  if (!query.dateFrom && !query.dateTo) {
+    const [bounds] = await Issue.aggregate([
+      {
+        $match: match,
+      },
+      {
+        $group: {
+          _id: null,
+          latestCreatedAt: {
+            $max: "$createdAt",
+          },
+        },
+      },
+    ]);
+
+    if (bounds?.latestCreatedAt) {
+      defaultEnd = endOfDay(bounds.latestCreatedAt);
+    }
+  }
+
+  const end = query.dateTo ? endOfDay(query.dateTo) : defaultEnd;
   const start = query.dateFrom
     ? startOfDay(query.dateFrom)
     : startOfDay(end.getTime() - 29 * DAY_IN_MS);
@@ -930,18 +1066,40 @@ const getMonthKey = (value) =>
     month: "2-digit",
   }).format(new Date(value));
 
+const formatShortDateLabel = (value) =>
+  new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  }).format(new Date(value));
+
+const formatShortMonthLabel = (value) =>
+  new Intl.DateTimeFormat("en-GB", {
+    month: "2-digit",
+    year: "2-digit",
+  }).format(new Date(value));
+
 const buildTrendRows = async (match, req) => {
-  const { start, end } = getTrendRange(req.query);
+  const { start, end } = await getTrendRange(req.query, match);
+  const requestedDayCount = Math.max(
+    Math.round((end.getTime() - start.getTime()) / DAY_IN_MS) + 1,
+    1
+  );
+  const dayCount = Math.min(requestedDayCount, 90);
+  const dailyStart =
+    requestedDayCount > dayCount
+      ? startOfDay(end.getTime() - (dayCount - 1) * DAY_IN_MS)
+      : start;
   const rangeMatch = {
     ...match,
     createdAt: {
       ...(match.createdAt || {}),
-      $gte: start,
+      $gte: dailyStart,
       $lte: end,
     },
   };
   const issueIds = await loadScopedIssueIds(match);
-  const [createdRows, closedRows] = await Promise.all([
+  const [createdRows, closureEvents] = await Promise.all([
     Issue.aggregate([
       {
         $match: rangeMatch,
@@ -971,58 +1129,92 @@ const buildTrendRows = async (match, req) => {
               toValue: {
                 $in: CLOSED_STATUSES,
               },
-              createdAt: {
-                $gte: start,
-                $lte: end,
-              },
+            },
+          },
+          {
+            $sort: {
+              createdAt: 1,
             },
           },
           {
             $group: {
-              _id: {
-                $dateToString: {
-                  date: "$createdAt",
-                  format: "%Y-%m-%d",
-                },
+              _id: "$issueId",
+              closedAt: {
+                $first: "$createdAt",
               },
-              closed: {
-                $sum: 1,
+            },
+          },
+          {
+            $match: {
+              closedAt: {
+                $gte: dailyStart,
+                $lte: end,
               },
             },
           },
         ])
       : Promise.resolve([]),
   ]);
+  const issuesWithClosureHistory = closureEvents.map((event) => event._id);
+  const fallbackClosedRows = await Issue.aggregate([
+    {
+      $match: {
+        ...match,
+        _id: {
+          $nin: issuesWithClosureHistory,
+        },
+        status: {
+          $in: CLOSED_STATUSES,
+        },
+        updatedAt: {
+          $gte: dailyStart,
+          $lte: end,
+        },
+      },
+    },
+    {
+      $group: {
+        _id: {
+          $dateToString: {
+            date: "$updatedAt",
+            format: "%Y-%m-%d",
+          },
+        },
+        closed: {
+          $sum: 1,
+        },
+      },
+    },
+  ]);
   const createdByDate = new Map(createdRows.map((row) => [row._id, row.created]));
-  const closedByDate = new Map(closedRows.map((row) => [row._id, row.closed]));
-  const dayCount = Math.min(
-    Math.max(Math.round((end.getTime() - start.getTime()) / DAY_IN_MS) + 1, 1),
-    90
-  );
+  const closedByDate = new Map();
+
+  closureEvents.forEach((event) => {
+    const key = getDateKey(event.closedAt);
+    closedByDate.set(key, (closedByDate.get(key) || 0) + 1);
+  });
+
+  fallbackClosedRows.forEach((row) => {
+    closedByDate.set(row._id, (closedByDate.get(row._id) || 0) + row.closed);
+  });
   const issueTrend = Array.from({ length: dayCount }, (_, index) => {
-    const date = startOfDay(start.getTime() + index * DAY_IN_MS);
+    const date = startOfDay(dailyStart.getTime() + index * DAY_IN_MS);
     const key = getDateKey(date);
 
     return {
       key,
-      label: new Intl.DateTimeFormat("en-US", {
-        month: "short",
-        day: "numeric",
-      }).format(date),
+      label: formatShortDateLabel(date),
       created: createdByDate.get(key) || 0,
       closed: closedByDate.get(key) || 0,
     };
   });
-  const weekEnd = endOfDay(new Date());
+  const weekEnd = endOfDay(end);
   const weeklyResolution = Array.from({ length: 6 }, (_, index) => {
     const weekStart = startOfDay(weekEnd.getTime() - (5 - index) * 7 * DAY_IN_MS);
     const weekFinish = endOfDay(weekStart.getTime() + 6 * DAY_IN_MS);
     const row = {
       key: getDateKey(weekStart),
-      label: new Intl.DateTimeFormat("en-US", {
-        month: "short",
-        day: "numeric",
-      }).format(weekStart),
+      label: formatShortDateLabel(weekStart),
       opened: 0,
       resolved: 0,
       resolutionRate: 0,
@@ -1040,17 +1232,26 @@ const buildTrendRows = async (match, req) => {
     row.resolutionRate = row.opened ? Math.round((row.resolved / row.opened) * 100) : 0;
     return row;
   });
-  const monthEnd = new Date();
+  const monthEnd = end;
   const monthStart = startOfDay(new Date(monthEnd.getFullYear(), monthEnd.getMonth() - 5, 1));
+  const monthlyCreatedAt = {
+    ...(match.createdAt || {}),
+  };
+  const monthEndDate = endOfDay(monthEnd);
+
+  monthlyCreatedAt.$gte =
+    monthlyCreatedAt.$gte && monthlyCreatedAt.$gte > monthStart
+      ? monthlyCreatedAt.$gte
+      : monthStart;
+  monthlyCreatedAt.$lte =
+    monthlyCreatedAt.$lte && monthlyCreatedAt.$lte < monthEndDate
+      ? monthlyCreatedAt.$lte
+      : monthEndDate;
   const monthlyRows = await Issue.aggregate([
     {
       $match: {
         ...match,
-        createdAt: {
-          ...(match.createdAt || {}),
-          $gte: monthStart,
-          $lte: endOfDay(monthEnd),
-        },
+        createdAt: monthlyCreatedAt,
       },
     },
     {
@@ -1074,9 +1275,7 @@ const buildTrendRows = async (match, req) => {
 
     return {
       key,
-      label: new Intl.DateTimeFormat("en-US", {
-        month: "short",
-      }).format(date),
+      label: formatShortMonthLabel(date),
       issues: issuesByMonth.get(key) || 0,
     };
   });
@@ -1120,12 +1319,14 @@ const buildRecentActivity = async (match) => {
         },
         {
           $or: [
-            { priority: "High" },
+            {
+              priority: {
+                $in: HIGH_PRIORITY_VALUES,
+              },
+            },
             {
               "bugDetails.severity": {
-                $in: BUG_SEVERITY_VALUES.filter((severity) =>
-                  ["Blocker", "Critical"].includes(severity)
-                ),
+                $in: CRITICAL_SEVERITIES,
               },
             },
           ],

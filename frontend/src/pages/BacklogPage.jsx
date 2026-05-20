@@ -709,6 +709,9 @@ const BacklogPage = () => {
       queryClient.invalidateQueries({
         queryKey: ["reports"],
       }),
+      queryClient.invalidateQueries({
+        queryKey: ["analytics"],
+      }),
     ]);
   };
 
