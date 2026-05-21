@@ -33,26 +33,32 @@ const TEAMS_NEW_MEETING_BASE_URL = "https://teams.microsoft.com/l/meeting/new";
 const PROJECT_CARD_PALETTES = [
   {
     headerGradient: "linear-gradient(135deg, #2563eb 0%, #0f766e 100%)",
+    accentGradient: "linear-gradient(90deg, #bfdbfe 0%, #99f6e4 100%)",
     glowColor: "rgba(125, 211, 252, 0.24)",
   },
   {
     headerGradient: "linear-gradient(135deg, #ea580c 0%, #db2777 100%)",
+    accentGradient: "linear-gradient(90deg, #fed7aa 0%, #fbcfe8 100%)",
     glowColor: "rgba(253, 186, 116, 0.26)",
   },
   {
     headerGradient: "linear-gradient(135deg, #059669 0%, #0284c7 100%)",
+    accentGradient: "linear-gradient(90deg, #a7f3d0 0%, #bae6fd 100%)",
     glowColor: "rgba(110, 231, 183, 0.24)",
   },
   {
     headerGradient: "linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%)",
+    accentGradient: "linear-gradient(90deg, #cbd5e1 0%, #bfdbfe 100%)",
     glowColor: "rgba(147, 197, 253, 0.22)",
   },
   {
     headerGradient: "linear-gradient(135deg, #0891b2 0%, #4338ca 100%)",
+    accentGradient: "linear-gradient(90deg, #a5f3fc 0%, #c7d2fe 100%)",
     glowColor: "rgba(103, 232, 249, 0.24)",
   },
   {
     headerGradient: "linear-gradient(135deg, #65a30d 0%, #0f766e 100%)",
+    accentGradient: "linear-gradient(90deg, #d9f99d 0%, #99f6e4 100%)",
     glowColor: "rgba(190, 242, 100, 0.22)",
   },
 ];
@@ -93,15 +99,15 @@ const StatusBadge = ({ isCompleted }) => (
   <span
     className={
       isCompleted
-        ? "inline-flex items-center gap-2 rounded-full border border-emerald-200/80 bg-emerald-500/15 px-3 py-1 text-sm font-semibold text-emerald-50 backdrop-blur"
-        : "inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1 text-sm font-semibold text-white backdrop-blur"
+        ? "inline-flex h-9 items-center gap-2 rounded-full bg-emerald-400/20 px-3.5 text-xs font-semibold text-emerald-50 ring-1 ring-emerald-200/30 backdrop-blur"
+        : "inline-flex h-9 items-center gap-2 rounded-full bg-white/10 px-3.5 text-xs font-semibold text-white ring-1 ring-white/20 backdrop-blur"
     }
   >
     <span
       className={
         isCompleted
-          ? "h-2.5 w-2.5 rounded-full bg-emerald-300"
-          : "h-2.5 w-2.5 rounded-full bg-white"
+          ? "h-2 w-2 rounded-full bg-emerald-300"
+          : "h-2 w-2 rounded-full bg-white"
       }
     />
     {isCompleted ? "Completed" : "Active"}
@@ -120,14 +126,14 @@ const getProjectAssignmentName = (value) => {
 };
 
 const ProjectAssignmentsSummary = ({ managerName, teamLeadName }) => (
-  <div
-    className="mt-4 flex min-w-0 items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-2 text-sm font-medium text-white/90 backdrop-blur"
-    title={`${managerName} | ${teamLeadName}`}
+  <p
+    className="mt-4 max-w-full truncate text-sm font-medium leading-6 text-white/90"
+    title={`${managerName} \u2022 ${teamLeadName}`}
   >
-    <span className="min-w-0 flex-1 truncate">{managerName}</span>
-    <span className="shrink-0 text-white/45">|</span>
-    <span className="min-w-0 flex-1 truncate">{teamLeadName}</span>
-  </div>
+    <span>{managerName}</span>
+    <span className="mx-2 text-white/45">{"\u2022"}</span>
+    <span>{teamLeadName}</span>
+  </p>
 );
 
 const ProjectTeamsPreview = ({ teams = [] }) => {
@@ -135,20 +141,20 @@ const ProjectTeamsPreview = ({ teams = [] }) => {
   const overflowTeams = Math.max(teams.length - visibleTeams.length, 0);
 
   return (
-    <div className="flex min-h-[88px] w-full max-w-full flex-col justify-between gap-2 rounded-[24px] border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-lg 2xl:w-auto 2xl:items-end">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-white/70">
+    <div className="flex w-full max-w-full flex-col gap-3 pt-1">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-white/70">
         <span>Attached Teams</span>
-        <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-white/25 bg-white/14 px-2 text-[10px] font-semibold text-white">
+        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/10 px-2 text-[10px] font-semibold text-white/90 ring-1 ring-white/10">
           {teams.length}
         </span>
       </div>
 
-      <div className="flex max-w-full flex-wrap items-center justify-start gap-1.5 2xl:justify-end">
+      <div className="flex max-w-full flex-wrap items-center justify-start gap-2">
         {visibleTeams.length ? (
           visibleTeams.map((team) => (
             <span
               key={team._id}
-              className="inline-flex max-w-full items-center rounded-full border border-white/35 bg-white/16 px-2.5 py-1 text-xs font-medium text-white backdrop-blur"
+              className="inline-flex max-w-full items-center rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white/90 ring-1 ring-white/10 backdrop-blur"
             >
               <span className="truncate">
                 {team.name} ({team.memberCount || team.members?.length || 0})
@@ -159,7 +165,7 @@ const ProjectTeamsPreview = ({ teams = [] }) => {
           <span className="text-xs text-white/75">No teams attached</span>
         )}
         {overflowTeams ? (
-          <span className="inline-flex items-center rounded-full border border-white/35 bg-white/16 px-2 py-1 text-xs font-semibold text-white backdrop-blur">
+          <span className="inline-flex items-center rounded-full bg-white/20 px-2.5 py-1.5 text-xs font-semibold text-white ring-1 ring-white/10 backdrop-blur">
             +{overflowTeams}
           </span>
         ) : null}
@@ -356,7 +362,7 @@ const ProjectCard = ({
         style={{ animationDelay: `${index * 45}ms` }}
       >
         <div
-          className="relative min-h-[290px] overflow-hidden px-5 py-5 text-white backdrop-blur-xl sm:px-6 lg:min-h-[304px] 2xl:min-h-[270px]"
+          className="relative min-h-[286px] overflow-hidden px-5 py-6 text-white backdrop-blur-xl sm:px-6 lg:min-h-[296px] 2xl:min-h-[276px]"
           style={{ backgroundImage: palette.headerGradient }}
         >
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.18),transparent_34%),radial-gradient(circle_at_bottom_left,_rgba(255,255,255,0.16),transparent_38%)]" />
@@ -365,70 +371,75 @@ const ProjectCard = ({
             style={{ backgroundColor: palette.glowColor }}
           />
 
-          <div className="relative flex h-full flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/70">
-                <span>Project</span>
-                <span className="h-1 w-1 rounded-full bg-white/70" />
+          <div className="relative flex h-full min-w-0 flex-col gap-6">
+            <div className="flex min-w-0 flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] uppercase tracking-[0.22em] text-white/70">
+                  <span>Project</span>
+                  <span className="h-1 w-1 rounded-full bg-white/60" />
+                  <span>Created {projectCreatedAt}</span>
+                </div>
+                <h3
+                  className="mt-4 line-clamp-2 max-w-[32rem] text-2xl font-semibold leading-tight tracking-tight text-white sm:text-3xl"
+                  title={projectTitle}
+                >
+                  {projectTitle}
+                </h3>
+                <span
+                  aria-hidden="true"
+                  className="mt-3 h-[3px] w-24 max-w-[45%] rounded-full opacity-95"
+                  style={{
+                    backgroundImage: palette.accentGradient,
+                    boxShadow: `0 0 0 1px rgba(255, 255, 255, 0.24), 0 0 18px ${palette.glowColor}`,
+                  }}
+                />
+                <ProjectAssignmentsSummary
+                  managerName={managerName}
+                  teamLeadName={teamLeadName}
+                />
               </div>
-              <p className="mt-2 text-[11px] font-medium uppercase tracking-[0.2em] text-white/62">
-                Created {projectCreatedAt}
-              </p>
-              <h3
-                className="mt-3 line-clamp-2 text-2xl font-semibold leading-tight text-white"
-                title={projectTitle}
-              >
-                {projectTitle}
-              </h3>
-              <ProjectAssignmentsSummary
-                managerName={managerName}
-                teamLeadName={teamLeadName}
-              />
+
+              <div className="flex min-w-0 shrink-0 flex-col gap-3 xl:items-end">
+                {canManageProject ? (
+                  <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                    <Button
+                      className="interactive-button h-9 rounded-xl bg-white/10 px-3.5 text-xs font-semibold text-white ring-1 ring-white/20 backdrop-blur hover:bg-white/20"
+                      disabled={isUpdatingStatus}
+                      type="button"
+                      onClick={handleStatusToggle}
+                    >
+                      {isUpdatingStatus ? (
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                      ) : project.isCompleted ? (
+                        <RotateCcw className="h-4 w-4" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4" />
+                      )}
+                      {project.isCompleted ? "Reopen Project" : "Mark as Completed"}
+                    </Button>
+                    <Button
+                      className="interactive-button h-9 w-9 rounded-xl bg-rose-500/20 p-0 text-rose-50 ring-1 ring-rose-200/30 shadow-[0_18px_36px_-24px_rgba(244,63,94,0.95)] backdrop-blur hover:bg-rose-500/30"
+                      disabled={isDeletingProject}
+                      size="icon"
+                      title="Delete Project"
+                      type="button"
+                      onClick={() => handleDeleteDialogChange(true)}
+                    >
+                      {isDeletingProject ? (
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      <span className="sr-only">Delete Project</span>
+                    </Button>
+                  </div>
+                ) : null}
+
+                <StatusBadge isCompleted={Boolean(project.isCompleted)} />
+              </div>
             </div>
 
-            <div className="flex min-w-0 w-full flex-col gap-3 2xl:w-[260px] 2xl:items-end">
-              {canManageProject ? (
-                <div className="flex flex-wrap items-center gap-2 2xl:justify-end">
-                  <Button
-                    className="interactive-button h-10 rounded-2xl border border-white/25 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur hover:bg-white/18"
-                    disabled={isUpdatingStatus}
-                    type="button"
-                    onClick={handleStatusToggle}
-                  >
-                    {isUpdatingStatus ? (
-                      <LoaderCircle className="h-4 w-4 animate-spin" />
-                    ) : project.isCompleted ? (
-                      <RotateCcw className="h-4 w-4" />
-                    ) : (
-                      <CheckCircle2 className="h-4 w-4" />
-                    )}
-                    {project.isCompleted ? "Reopen Project" : "Mark as Completed"}
-                  </Button>
-                  <Button
-                    className="interactive-button h-10 w-10 rounded-2xl border border-rose-300/45 bg-rose-500/18 p-0 text-rose-50 shadow-[0_18px_36px_-24px_rgba(244,63,94,0.95)] backdrop-blur hover:bg-rose-500/28"
-                    disabled={isDeletingProject}
-                    size="icon"
-                    title="Delete Project"
-                    type="button"
-                    onClick={() => handleDeleteDialogChange(true)}
-                  >
-                    {isDeletingProject ? (
-                      <LoaderCircle className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                    <span className="sr-only">Delete Project</span>
-                  </Button>
-                </div>
-              ) : null}
-
-              <div className="flex w-full min-w-0 flex-col items-start gap-2 2xl:items-end">
-                <ProjectTeamsPreview teams={attachedTeams} />
-                <div className="flex w-full justify-start 2xl:justify-end">
-                  <StatusBadge isCompleted={Boolean(project.isCompleted)} />
-                </div>
-              </div>
-            </div>
+            <ProjectTeamsPreview teams={attachedTeams} />
           </div>
         </div>
 
