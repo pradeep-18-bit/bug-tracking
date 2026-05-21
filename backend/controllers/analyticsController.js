@@ -9,6 +9,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const { BUG_TERMINAL_STATUS_VALUES } = require("../utils/bugLifecycle");
 const {
   ISSUE_STATUS,
+  ISSUE_STATUS_VALUES,
   getCanonicalIssueStatus,
   isClosedIssueStatus,
   normalizeIssueStatus,
@@ -21,6 +22,7 @@ const {
 } = require("../utils/issueTypes");
 const {
   getProjectIdsForUserThroughTeams,
+  mergeProjectTeamIds,
 } = require("../utils/projectRelations");
 const { ROLE_ADMIN, ROLE_MANAGER } = require("../utils/roles");
 const { normalizeWorkspaceId } = require("../utils/workspace");
@@ -33,11 +35,9 @@ const CLOSED_STATUSES = Array.from(
     ...BUG_TERMINAL_STATUS_VALUES,
   ])
 );
-const OPEN_DASHBOARD_STATUSES = [
-  ISSUE_STATUS.OPEN,
-  ISSUE_STATUS.IN_PROGRESS,
-  ISSUE_STATUS.REOPEN,
-];
+const OPEN_DASHBOARD_STATUSES = ISSUE_STATUS_VALUES.filter(
+  (status) => !CLOSED_STATUSES.includes(status)
+);
 const PRIORITY_ORDER = ["Critical", "High", "Medium", "Low"];
 const HIGH_PRIORITY_VALUES = ["Critical", "High"];
 const CRITICAL_SEVERITIES = ["Blocker", "Critical"];
@@ -171,6 +171,16 @@ const buildHighPriorityExpression = () => ({
   ],
 });
 
+const isHighPriorityIssue = (issue = {}) =>
+  HIGH_PRIORITY_VALUES.includes(issue.priority) ||
+  CRITICAL_SEVERITIES.includes(issue.bugDetails?.severity);
+
+const cloneWithoutCreatedAt = (match = {}) => {
+  const { createdAt: _createdAt, ...rest } = match;
+
+  return rest;
+};
+
 const getAccessibleProjectIds = async (user) => {
   const workspaceId = normalizeWorkspaceId(user.workspaceId);
 
@@ -274,7 +284,63 @@ const buildAnalyticsMatch = async (req, res) => {
       throw new Error("Invalid team id filter");
     }
 
-    match.teamId = new mongoose.Types.ObjectId(req.query.teamId);
+    const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+    const teamObjectId = new mongoose.Types.ObjectId(req.query.teamId);
+    const [team, teamMemberUserIds, teamProjectIds] = await Promise.all([
+      Team.findOne({
+        _id: teamObjectId,
+        workspaceId,
+      })
+        .select("_id")
+        .lean(),
+      TeamMember.find({
+        teamId: teamObjectId,
+      }).distinct("userId"),
+      Promise.all([
+        ProjectTeam.find({
+          teamId: teamObjectId,
+        }).distinct("projectId"),
+        Project.find({
+          workspaceId,
+          $or: [
+            {
+              attachedTeams: teamObjectId,
+            },
+            {
+              teamIds: teamObjectId,
+            },
+          ],
+        }).distinct("_id"),
+      ]).then(([linkedProjectIds, inlineProjectIds]) =>
+        uniqueObjectIds([...linkedProjectIds, ...inlineProjectIds])
+      ),
+    ]);
+
+    if (!team) {
+      res.status(404);
+      throw new Error("Team not found");
+    }
+
+    addAndCondition(match, {
+      $or: [
+        {
+          teamId: teamObjectId,
+        },
+        ...(teamMemberUserIds.length && teamProjectIds.length
+          ? [
+              {
+                teamId: null,
+                projectId: {
+                  $in: teamProjectIds,
+                },
+                assignee: {
+                  $in: teamMemberUserIds,
+                },
+              },
+            ]
+          : []),
+      ],
+    });
   }
 
   if (req.query.assigneeId && req.query.assigneeId !== "all") {
@@ -907,70 +973,158 @@ const buildProjectAnalytics = async (match, user, { limit = 0 } = {}) => {
 };
 
 const buildTeamAnalytics = async (match, user, { limit = 0 } = {}) => {
-  const rows = await Issue.aggregate([
-    {
-      $match: match,
-    },
-    {
-      $group: {
-        _id: "$teamId",
-        totalIssues: {
-          $sum: 1,
-        },
-        openIssues: {
-          $sum: {
-            $cond: [{ $in: ["$status", OPEN_DASHBOARD_STATUSES] }, 1, 0],
+  const issues = await Issue.find(match)
+    .select("_id status priority bugDetails.severity teamId assignee projectId")
+    .lean();
+  const directTeamIds = issues.map((issue) => issue.teamId).filter(Boolean);
+  const projectIds = uniqueObjectIds(issues.map((issue) => issue.projectId));
+  const assigneeIds = uniqueObjectIds(issues.map((issue) => issue.assignee));
+  const workspaceId = normalizeWorkspaceId(user.workspaceId);
+  const [projects, projectTeams, assigneeTeamMemberships] = await Promise.all([
+    projectIds.length
+      ? Project.find({
+          _id: {
+            $in: projectIds,
           },
-        },
-        closedIssues: {
-          $sum: {
-            $cond: [{ $in: ["$status", CLOSED_STATUSES] }, 1, 0],
+          workspaceId,
+        })
+          .select("_id attachedTeams teamIds")
+          .lean()
+      : [],
+    projectIds.length
+      ? ProjectTeam.find({
+          projectId: {
+            $in: projectIds,
           },
-        },
-        highPriorityIssues: {
-          $sum: {
-            $cond: [buildHighPriorityExpression(), 1, 0],
+        })
+          .select("projectId teamId")
+          .lean()
+      : [],
+    assigneeIds.length
+      ? TeamMember.find({
+          userId: {
+            $in: assigneeIds,
           },
-        },
-        assignedIssues: {
-          $sum: {
-            $cond: [{ $ne: ["$assignee", null] }, 1, 0],
-          },
-        },
-      },
-    },
-    {
-      $sort: {
-        totalIssues: -1,
-        closedIssues: -1,
-      },
-    },
-    ...(limit
-      ? [
-          {
-            $limit: limit,
-          },
-        ]
-      : []),
+        })
+          .select("teamId userId")
+          .lean()
+      : [],
   ]);
-  const teamIds = rows.map((row) => row._id).filter(Boolean);
+  const projectTeamLinksByProjectId = new Map();
+
+  projectTeams.forEach((projectTeam) => {
+    const projectId = String(projectTeam.projectId || "");
+
+    projectTeamLinksByProjectId.set(projectId, [
+      ...(projectTeamLinksByProjectId.get(projectId) || []),
+      projectTeam,
+    ]);
+  });
+
+  const teamIdsByProjectId = new Map(
+    projects.map((project) => [
+      String(project._id),
+      mergeProjectTeamIds(
+        project,
+        projectTeamLinksByProjectId.get(String(project._id)) || []
+      ).map(String),
+    ])
+  );
+  const teamIdsByUserId = new Map();
+
+  assigneeTeamMemberships.forEach((membership) => {
+    const userId = String(membership.userId || "");
+    const teamId = String(membership.teamId || "");
+
+    if (!userId || !teamId) {
+      return;
+    }
+
+    teamIdsByUserId.set(userId, [...(teamIdsByUserId.get(userId) || []), teamId]);
+  });
+
+  const resolveIssueTeamId = (issue) => {
+    if (issue.teamId) {
+      return String(issue.teamId);
+    }
+
+    const projectTeamIds = teamIdsByProjectId.get(String(issue.projectId || "")) || [];
+
+    if (!projectTeamIds.length) {
+      return "";
+    }
+
+    const assigneeTeamIds = teamIdsByUserId.get(String(issue.assignee || "")) || [];
+    const matchingAssigneeTeamId = assigneeTeamIds.find((teamId) =>
+      projectTeamIds.includes(teamId)
+    );
+
+    if (matchingAssigneeTeamId) {
+      return matchingAssigneeTeamId;
+    }
+
+    return projectTeamIds.length === 1 ? projectTeamIds[0] : "";
+  };
+  const bucketsByTeamId = new Map();
+
+  issues.forEach((issue) => {
+    const teamId = resolveIssueTeamId(issue);
+
+    if (!teamId) {
+      return;
+    }
+
+    const status = getCanonicalIssueStatus(issue.status, ISSUE_STATUS.TODO);
+    const isClosed = CLOSED_STATUSES.includes(status) || isClosedIssueStatus(status);
+    const bucket =
+      bucketsByTeamId.get(teamId) ||
+      {
+        _id: teamId,
+        totalIssues: 0,
+        openIssues: 0,
+        closedIssues: 0,
+        highPriorityIssues: 0,
+        assignedIssues: 0,
+      };
+
+    bucket.totalIssues += 1;
+    bucket.openIssues += isClosed ? 0 : 1;
+    bucket.closedIssues += isClosed ? 1 : 0;
+    bucket.highPriorityIssues += isHighPriorityIssue(issue) ? 1 : 0;
+    bucket.assignedIssues += issue.assignee ? 1 : 0;
+    bucketsByTeamId.set(teamId, bucket);
+  });
+
+  const rows = Array.from(bucketsByTeamId.values()).sort(
+    (left, right) =>
+      right.totalIssues - left.totalIssues ||
+      right.closedIssues - left.closedIssues
+  );
+  const limitedRows = limit ? rows.slice(0, limit) : rows;
+  const teamIds = uniqueObjectIds([
+    ...limitedRows.map((row) => row._id).filter(Boolean),
+    ...directTeamIds,
+  ]);
+  const teamObjectIds = teamIds
+    .filter((teamId) => mongoose.isValidObjectId(teamId))
+    .map((teamId) => new mongoose.Types.ObjectId(teamId));
   const [teams, memberCounts] = await Promise.all([
-    teamIds.length
+    teamObjectIds.length
       ? Team.find({
           _id: {
-            $in: teamIds,
+            $in: teamObjectIds,
           },
-          workspaceId: normalizeWorkspaceId(user.workspaceId),
+          workspaceId,
         })
           .select("name")
           .lean()
       : [],
-    teamIds.length
+    teamObjectIds.length
       ? TeamMember.aggregate([
           {
             $match: {
               teamId: {
-                $in: teamIds,
+                $in: teamObjectIds,
               },
             },
           },
@@ -990,7 +1144,7 @@ const buildTeamAnalytics = async (match, user, { limit = 0 } = {}) => {
     memberCounts.map((row) => [String(row._id), row.count])
   );
 
-  return rows
+  return limitedRows
     .filter((row) => row._id)
     .map((row) => {
       const team = teamsById.get(String(row._id));
@@ -1005,6 +1159,7 @@ const buildTeamAnalytics = async (match, user, { limit = 0 } = {}) => {
         assignedIssues: row.assignedIssues,
         openIssues: row.openIssues,
         closedIssues: row.closedIssues,
+        resolvedIssues: row.closedIssues,
         highPriorityIssues: row.highPriorityIssues,
         completedIssues: row.closedIssues,
         pendingWorkload: Math.max(row.totalIssues - row.closedIssues, 0),
@@ -1023,22 +1178,55 @@ const getTrendRange = async (query, match) => {
   let defaultEnd = endOfDay(new Date());
 
   if (!query.dateFrom && !query.dateTo) {
-    const [bounds] = await Issue.aggregate([
-      {
-        $match: match,
-      },
-      {
-        $group: {
-          _id: null,
-          latestCreatedAt: {
-            $max: "$createdAt",
+    const issueIds = await loadScopedIssueIds(match);
+    const [[issueBounds], [historyBounds]] = await Promise.all([
+      Issue.aggregate([
+        {
+          $match: match,
+        },
+        {
+          $group: {
+            _id: null,
+            latestCreatedAt: {
+              $max: "$createdAt",
+            },
+            latestUpdatedAt: {
+              $max: "$updatedAt",
+            },
           },
         },
-      },
+      ]),
+      issueIds.length
+        ? IssueHistory.aggregate([
+            {
+              $match: {
+                issueId: {
+                  $in: issueIds,
+                },
+                field: "status",
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                latestStatusChangedAt: {
+                  $max: "$createdAt",
+                },
+              },
+            },
+          ])
+        : Promise.resolve([]),
     ]);
+    const latestActivityAt = [
+      issueBounds?.latestCreatedAt,
+      issueBounds?.latestUpdatedAt,
+      historyBounds?.latestStatusChangedAt,
+    ]
+      .filter(Boolean)
+      .sort((left, right) => new Date(right) - new Date(left))[0];
 
-    if (bounds?.latestCreatedAt) {
-      defaultEnd = endOfDay(bounds.latestCreatedAt);
+    if (latestActivityAt) {
+      defaultEnd = endOfDay(latestActivityAt);
     }
   }
 
@@ -1080,7 +1268,8 @@ const formatShortMonthLabel = (value) =>
   }).format(new Date(value));
 
 const buildTrendRows = async (match, req) => {
-  const { start, end } = await getTrendRange(req.query, match);
+  const eventScopeMatch = cloneWithoutCreatedAt(match);
+  const { start, end } = await getTrendRange(req.query, eventScopeMatch);
   const requestedDayCount = Math.max(
     Math.round((end.getTime() - start.getTime()) / DAY_IN_MS) + 1,
     1
@@ -1098,70 +1287,124 @@ const buildTrendRows = async (match, req) => {
       $lte: end,
     },
   };
-  const issueIds = await loadScopedIssueIds(match);
-  const [createdRows, closureEvents] = await Promise.all([
-    Issue.aggregate([
-      {
-        $match: rangeMatch,
-      },
-      {
-        $group: {
-          _id: {
-            $dateToString: {
-              date: "$createdAt",
-              format: "%Y-%m-%d",
+  const issueIds = await loadScopedIssueIds(eventScopeMatch);
+  const [createdRows, closureHistoryIssueIds, resolvedRows, reopenedRows] =
+    await Promise.all([
+      Issue.aggregate([
+        {
+          $match: rangeMatch,
+        },
+        {
+          $group: {
+            _id: {
+              $dateToString: {
+                date: "$createdAt",
+                format: "%Y-%m-%d",
+              },
             },
-          },
-          created: {
-            $sum: 1,
+            created: {
+              $sum: 1,
+            },
           },
         },
-      },
-    ]),
-    issueIds.length
-      ? IssueHistory.aggregate([
-          {
-            $match: {
-              issueId: {
-                $in: issueIds,
-              },
-              field: "status",
-              toValue: {
-                $in: CLOSED_STATUSES,
-              },
+      ]),
+      issueIds.length
+        ? IssueHistory.distinct("issueId", {
+            issueId: {
+              $in: issueIds,
             },
-          },
-          {
-            $sort: {
-              createdAt: 1,
+            field: "status",
+            toValue: {
+              $in: CLOSED_STATUSES,
             },
-          },
-          {
-            $group: {
-              _id: "$issueId",
-              closedAt: {
-                $first: "$createdAt",
-              },
-            },
-          },
-          {
-            $match: {
-              closedAt: {
-                $gte: dailyStart,
-                $lte: end,
+          })
+        : Promise.resolve([]),
+      issueIds.length
+        ? IssueHistory.aggregate([
+            {
+              $match: {
+                issueId: {
+                  $in: issueIds,
+                },
+                field: "status",
+                toValue: {
+                  $in: CLOSED_STATUSES,
+                },
+                createdAt: {
+                  $gte: dailyStart,
+                  $lte: end,
+                },
               },
             },
-          },
-        ])
-      : Promise.resolve([]),
-  ]);
-  const issuesWithClosureHistory = closureEvents.map((event) => event._id);
+            {
+              $group: {
+                _id: {
+                  date: {
+                    $dateToString: {
+                      date: "$createdAt",
+                      format: "%Y-%m-%d",
+                    },
+                  },
+                  issueId: "$issueId",
+                },
+              },
+            },
+            {
+              $group: {
+                _id: "$_id.date",
+                resolved: {
+                  $sum: 1,
+                },
+              },
+            },
+          ])
+        : Promise.resolve([]),
+      issueIds.length
+        ? IssueHistory.aggregate([
+            {
+              $match: {
+                issueId: {
+                  $in: issueIds,
+                },
+                field: "status",
+                toValue: ISSUE_STATUS.REOPEN,
+                createdAt: {
+                  $gte: dailyStart,
+                  $lte: end,
+                },
+              },
+            },
+            {
+              $group: {
+                _id: {
+                  date: {
+                    $dateToString: {
+                      date: "$createdAt",
+                      format: "%Y-%m-%d",
+                    },
+                  },
+                  issueId: "$issueId",
+                },
+              },
+            },
+            {
+              $group: {
+                _id: "$_id.date",
+                reopened: {
+                  $sum: 1,
+                },
+              },
+            },
+          ])
+        : Promise.resolve([]),
+    ]);
   const fallbackClosedRows = await Issue.aggregate([
     {
       $match: {
-        ...match,
+        ...eventScopeMatch,
         _id: {
-          $nin: issuesWithClosureHistory,
+          $in: issueIds,
+          $nin: closureHistoryIssueIds,
         },
         status: {
           $in: CLOSED_STATUSES,
@@ -1180,37 +1423,46 @@ const buildTrendRows = async (match, req) => {
             format: "%Y-%m-%d",
           },
         },
-        closed: {
+        resolved: {
           $sum: 1,
         },
       },
     },
   ]);
   const createdByDate = new Map(createdRows.map((row) => [row._id, row.created]));
-  const closedByDate = new Map();
-
-  closureEvents.forEach((event) => {
-    const key = getDateKey(event.closedAt);
-    closedByDate.set(key, (closedByDate.get(key) || 0) + 1);
-  });
+  const resolvedByDate = new Map(
+    resolvedRows.map((row) => [row._id, row.resolved])
+  );
+  const reopenedByDate = new Map(
+    reopenedRows.map((row) => [row._id, row.reopened])
+  );
 
   fallbackClosedRows.forEach((row) => {
-    closedByDate.set(row._id, (closedByDate.get(row._id) || 0) + row.closed);
+    resolvedByDate.set(row._id, (resolvedByDate.get(row._id) || 0) + row.resolved);
   });
+  let runningPending = 0;
   const issueTrend = Array.from({ length: dayCount }, (_, index) => {
     const date = startOfDay(dailyStart.getTime() + index * DAY_IN_MS);
     const key = getDateKey(date);
+    const created = createdByDate.get(key) || 0;
+    const resolved = resolvedByDate.get(key) || 0;
+    const reopened = reopenedByDate.get(key) || 0;
+
+    runningPending = Math.max(runningPending + created + reopened - resolved, 0);
 
     return {
       key,
       label: formatShortDateLabel(date),
-      created: createdByDate.get(key) || 0,
-      closed: closedByDate.get(key) || 0,
+      created,
+      resolved,
+      closed: resolved,
+      reopened,
+      pending: runningPending,
     };
   });
   const weekEnd = endOfDay(end);
-  const weeklyResolution = Array.from({ length: 6 }, (_, index) => {
-    const weekStart = startOfDay(weekEnd.getTime() - (5 - index) * 7 * DAY_IN_MS);
+  const weeklyResolution = Array.from({ length: 7 }, (_, index) => {
+    const weekStart = startOfDay(weekEnd.getTime() - (6 - index) * 7 * DAY_IN_MS);
     const weekFinish = endOfDay(weekStart.getTime() + 6 * DAY_IN_MS);
     const row = {
       key: getDateKey(weekStart),
@@ -1225,7 +1477,7 @@ const buildTrendRows = async (match, req) => {
 
       if (trendDate >= weekStart && trendDate <= weekFinish) {
         row.opened += trendRow.created;
-        row.resolved += trendRow.closed;
+        row.resolved += trendRow.resolved || trendRow.closed || 0;
       }
     });
 
@@ -1272,18 +1524,74 @@ const buildTrendRows = async (match, req) => {
   const monthlyGrowth = Array.from({ length: 6 }, (_, index) => {
     const date = new Date(monthEnd.getFullYear(), monthEnd.getMonth() - (5 - index), 1);
     const key = getMonthKey(date);
+    const issues = issuesByMonth.get(key) || 0;
+    const previousDate = new Date(date.getFullYear(), date.getMonth() - 1, 1);
+    const previousIssues = issuesByMonth.get(getMonthKey(previousDate)) || 0;
+    const difference = issues - previousIssues;
 
     return {
       key,
       label: formatShortMonthLabel(date),
-      issues: issuesByMonth.get(key) || 0,
+      issues,
+      previousIssues,
+      difference,
+      percentChange: previousIssues
+        ? Math.round((difference / previousIssues) * 100)
+        : issues
+          ? 100
+          : 0,
     };
   });
+  const latestMonth = monthlyGrowth[monthlyGrowth.length - 1] || {
+    issues: 0,
+    previousIssues: 0,
+    difference: 0,
+    percentChange: 0,
+  };
+  const pendingMatch = {
+    ...match,
+  };
+
+  addAndCondition(pendingMatch, {
+    status: {
+      $nin: CLOSED_STATUSES,
+    },
+  });
+  const pending = await Issue.countDocuments(pendingMatch);
+  const trendTotals = issueTrend.reduce(
+    (totals, row) => ({
+      created: totals.created + row.created,
+      resolved: totals.resolved + row.resolved,
+      closed: totals.closed + row.resolved,
+      reopened: totals.reopened + row.reopened,
+      pending,
+    }),
+    {
+      created: 0,
+      resolved: 0,
+      closed: 0,
+      reopened: 0,
+      pending,
+    }
+  );
 
   return {
     issueTrend,
     weeklyResolution,
     monthlyGrowth,
+    monthlyGrowthSummary: {
+      currentMonth: latestMonth.issues,
+      previousMonth: latestMonth.previousIssues,
+      difference: latestMonth.difference,
+      percentChange: latestMonth.percentChange,
+      direction:
+        latestMonth.difference > 0
+          ? "up"
+          : latestMonth.difference < 0
+            ? "down"
+            : "flat",
+    },
+    trendTotals,
   };
 };
 

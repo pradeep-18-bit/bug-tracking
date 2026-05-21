@@ -84,11 +84,9 @@ const CLOSED_FILTER_STATUSES = Array.from(
     ...BUG_TERMINAL_STATUS_VALUES,
   ])
 );
-const OPEN_FILTER_STATUSES = [
-  ISSUE_STATUS.OPEN,
-  ISSUE_STATUS.IN_PROGRESS,
-  ISSUE_STATUS.REOPEN,
-];
+const OPEN_FILTER_STATUSES = ISSUE_STATUS_VALUES.filter(
+  (status) => !CLOSED_FILTER_STATUSES.includes(status)
+);
 const escapeRegExp = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 

@@ -157,13 +157,39 @@ const getBadgeClass = (map, key, fallback) =>
 const Pill = ({ children, className }) => (
   <span
     className={cn(
-      "inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+      "inline-flex h-6 items-center justify-center whitespace-nowrap rounded-full border px-2.5 text-[11px] font-semibold leading-none",
       className
     )}
   >
     {children}
   </span>
 );
+
+const bugWorkTableColumns = [
+  "w-[92px]",
+  "w-[320px]",
+  "w-[92px]",
+  "w-[98px]",
+  "w-[122px]",
+  "w-[128px]",
+  "w-[158px]",
+  "w-[156px]",
+  "w-[108px]",
+  "w-[136px]",
+  "w-[236px]",
+];
+
+const taskWorkTableColumns = [
+  "w-[96px]",
+  "w-[380px]",
+  "w-[96px]",
+  "w-[124px]",
+  "w-[136px]",
+  "w-[168px]",
+  "w-[112px]",
+  "w-[136px]",
+  "w-[226px]",
+];
 
 const getLastUpdated = (issue) => issue?.updatedAt || issue?.lastUpdatedAt || issue?.createdAt;
 
@@ -657,10 +683,12 @@ const WorkTable = ({
       />
     );
   }
+  const tableColumns = type === "bugs" ? bugWorkTableColumns : taskWorkTableColumns;
+  const tableMinWidth = type === "bugs" ? "min-w-[1646px]" : "min-w-[1474px]";
 
   return (
     <>
-      <div className="grid gap-3 xl:hidden">
+      <div className="hidden">
         {issues.map((issue) => {
           const severity = getBugSeverity(issue);
           const currentBugStatus = normalizeBugStatusForIssue(issue);
@@ -766,34 +794,26 @@ const WorkTable = ({
         })}
       </div>
 
-      <div className="hidden max-h-[640px] overflow-y-auto overflow-x-hidden rounded-[24px] border border-slate-200/80 bg-white/70 xl:block">
-        <table className="w-full table-fixed text-left text-[12px]">
+      <div className="max-h-[640px] overflow-auto rounded-[22px] border border-slate-200/80 bg-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
+        <table className={cn("w-full table-fixed text-left text-[12px]", tableMinWidth)}>
           <colgroup>
-            <col className={type === "bugs" ? "w-[7%]" : "w-[8%]"} />
-            <col className={type === "bugs" ? "w-[19%]" : "w-[24%]"} />
-            <col className={type === "bugs" ? "w-[7%]" : "w-[9%]"} />
-            {type === "bugs" ? <col className="w-[7%]" /> : null}
-            <col className={type === "bugs" ? "w-[8%]" : "w-[10%]"} />
-            <col className={type === "bugs" ? "w-[9%]" : "w-[11%]"} />
-            <col className={type === "bugs" ? "w-[9%]" : "w-[11%]"} />
-            {type === "bugs" ? <col className="w-[9%]" /> : null}
-            <col className={type === "bugs" ? "w-[7%]" : "w-[9%]"} />
-            <col className={type === "bugs" ? "w-[9%]" : "w-[10%]"} />
-            <col className={type === "bugs" ? "w-[9%]" : "w-[8%]"} />
+            {tableColumns.map((columnClass, index) => (
+              <col className={columnClass} key={`${type}-work-column-${index}`} />
+            ))}
           </colgroup>
           <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 backdrop-blur">
           <tr>
-            <th className="px-2 py-3">{type === "bugs" ? "Bug ID" : "ID"}</th>
-            <th className="px-2 py-3">{type === "bugs" ? "Bug Title" : "Title"}</th>
-            <th className="px-2 py-3">Priority</th>
-            {type === "bugs" ? <th className="px-2 py-3">Severity</th> : null}
-            <th className="px-2 py-3">Status</th>
-            <th className="px-2 py-3">Team</th>
-            <th className="px-2 py-3">Assigned</th>
-            {type === "bugs" ? <th className="px-2 py-3">Reporter</th> : null}
-            <th className="px-2 py-3">Created</th>
-            <th className="px-2 py-3">Updated</th>
-            <th className="px-2 py-3">Actions</th>
+            <th className="px-3 py-2.5">{type === "bugs" ? "Bug ID" : "ID"}</th>
+            <th className="px-3 py-2.5">{type === "bugs" ? "Bug Title" : "Title"}</th>
+            <th className="px-3 py-2.5">Priority</th>
+            {type === "bugs" ? <th className="px-3 py-2.5">Severity</th> : null}
+            <th className="px-3 py-2.5">Status</th>
+            <th className="px-3 py-2.5">Team</th>
+            <th className="px-3 py-2.5">Assigned</th>
+            {type === "bugs" ? <th className="px-3 py-2.5">Reporter</th> : null}
+            <th className="px-3 py-2.5">Created</th>
+            <th className="px-3 py-2.5">Updated</th>
+            <th className="px-3 py-2.5 text-right">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200/80">
@@ -806,12 +826,12 @@ const WorkTable = ({
             return (
               <tr
                 key={issue._id}
-                className="bg-white/58 transition hover:bg-blue-50/42"
+                className="h-[52px] bg-white/58 transition hover:bg-blue-50/42"
               >
-                <td className="truncate px-2 py-2.5 font-mono text-[11px] font-semibold text-slate-500" title={getIssueDisplayKey(issue)}>
+                <td className="truncate px-3 py-2 align-middle font-mono text-[11px] font-semibold text-slate-500" title={getIssueDisplayKey(issue)}>
                   {getIssueDisplayKey(issue)}
                 </td>
-                <td className="px-2 py-2.5">
+                <td className="px-3 py-2 align-middle">
                   <button
                     className="block max-w-full truncate text-left font-semibold text-slate-950 hover:text-blue-700"
                     type="button"
@@ -824,52 +844,52 @@ const WorkTable = ({
                     {getProjectName(issue)}
                   </p>
                 </td>
-                <td className="px-2 py-2.5">
+                <td className="px-3 py-2 align-middle">
                   <Pill className={getBadgeClass(priorityStyleMap, issue.priority)}>
                     {issue.priority || "Medium"}
                   </Pill>
                 </td>
                 {type === "bugs" ? (
-                  <td className="px-2 py-2.5">
+                  <td className="px-3 py-2 align-middle">
                     <Pill className={getBadgeClass(severityStyleMap, severity)}>
                       {severity}
                     </Pill>
                   </td>
                 ) : null}
-                <td className="px-2 py-2.5">
+                <td className="px-3 py-2 align-middle">
                   <Pill className={getBadgeClass(statusStyleMap, issue.status)}>
                     {getStatusLabel(issue)}
                   </Pill>
                 </td>
-                <td className="px-2 py-2.5">
+                <td className="px-3 py-2 align-middle">
                   <span className="block truncate text-slate-600" title={getTeamName(issue)}>
                     {getTeamName(issue)}
                   </span>
                 </td>
-                <td className="px-2 py-2.5">
-                  <span className="block truncate text-slate-700" title={getAssigneeName(issue)}>
+                <td className="px-3 py-2 align-middle">
+                  <span className="block truncate font-medium text-slate-700" title={getAssigneeName(issue)}>
                     {getAssigneeName(issue)}
                   </span>
                 </td>
                 {type === "bugs" ? (
-                  <td className="px-2 py-2.5">
+                  <td className="px-3 py-2 align-middle">
                     <span className="block truncate text-slate-600" title={getReporterName(issue)}>
                       {getReporterName(issue)}
                     </span>
                   </td>
                 ) : null}
-                <td className="truncate px-2 py-2.5 text-slate-500" title={issue.createdAt ? formatDate(issue.createdAt) : "Unknown"}>
+                <td className="truncate whitespace-nowrap px-3 py-2 align-middle text-slate-500" title={issue.createdAt ? formatDate(issue.createdAt) : "Unknown"}>
                   {issue.createdAt ? formatDate(issue.createdAt) : "Unknown"}
                 </td>
-                <td className="truncate px-2 py-2.5 text-slate-500" title={getLastUpdated(issue) ? formatDateTime(getLastUpdated(issue)) : "Unknown"}>
+                <td className="truncate whitespace-nowrap px-3 py-2 align-middle text-slate-500" title={getLastUpdated(issue) ? formatDateTime(getLastUpdated(issue)) : "Unknown"}>
                   {getLastUpdated(issue) ? formatDateTime(getLastUpdated(issue)) : "Unknown"}
                 </td>
-                <td className="px-2 py-2.5">
-                  <div className="flex items-center gap-1.5">
+                <td className="px-3 py-2 align-middle">
+                  <div className="flex items-center justify-end gap-2">
                     {type === "bugs" ? (
                       <select
                         aria-label={`Update ${getIssueDisplayKey(issue)} status`}
-                        className="h-8 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-700 shadow-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20"
+                        className="h-8 w-[104px] rounded-xl border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-700 shadow-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20"
                         disabled={!bugOptions.length || updatingId === issue._id}
                         value=""
                         onChange={(event) => {
@@ -890,7 +910,7 @@ const WorkTable = ({
                     ) : (
                       <select
                         aria-label={`Update ${getIssueDisplayKey(issue)} status`}
-                        className="h-8 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-700 shadow-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20"
+                        className="h-8 w-[112px] rounded-xl border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-700 shadow-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20"
                         disabled={updatingId === issue._id}
                         value={issue.status}
                         onChange={(event) => onStatusChange(issue, event.target.value)}
@@ -904,16 +924,19 @@ const WorkTable = ({
                     )}
                     {nextAction ? (
                       <Button
-                        className="hidden h-8 rounded-xl px-2 text-[11px] 2xl:inline-flex"
+                        className="h-8 max-w-[86px] shrink-0 rounded-xl px-2 text-[11px]"
                         disabled={updatingId === issue._id}
                         type="button"
+                        title={updatingId === issue._id ? "Syncing" : nextAction.label}
                         onClick={() => onStatusChange(issue, nextAction.status)}
                       >
-                        {updatingId === issue._id ? "Syncing" : nextAction.label}
+                        <span className="truncate">
+                          {updatingId === issue._id ? "Syncing" : nextAction.label}
+                        </span>
                       </Button>
                     ) : null}
                     <Button
-                      className="h-8 shrink-0 rounded-xl px-2 text-[11px]"
+                      className="h-8 shrink-0 rounded-xl px-3 text-[11px]"
                       type="button"
                       variant="outline"
                       onClick={() => onOpenIssue(issue)}

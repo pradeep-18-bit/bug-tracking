@@ -16,6 +16,7 @@ import {
   Filter,
   FolderKanban,
   Layers3,
+  RotateCcw,
   Search,
   ShieldAlert,
   Sparkles,
@@ -67,6 +68,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import ToastNotice from "@/components/shared/ToastNotice";
 import {
   ISSUE_STATUS_OPTIONS,
   getIssuePriorityVariant,
@@ -82,11 +84,17 @@ const PRIORITY_COLORS = {
   Medium: "#f59e0b",
   Low: "#3b82f6",
 };
+const toNumber = (value) => {
+  const number = Number(value);
+
+  return Number.isFinite(number) ? number : 0;
+};
+const asArray = (value) => (Array.isArray(value) ? value : []);
 const STATUS_FILTERS = [
   { value: "all", label: "All statuses", status: "all", statusGroup: "all" },
   {
     value: "group:open",
-    label: "Open / In Progress / Reopened",
+    label: "Active / Pending / Reopened",
     status: "all",
     statusGroup: "open",
   },
@@ -204,10 +212,15 @@ const ReportsPage = () => {
     direction: "desc",
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const [toast, setToast] = useState(null);
   const analytics = useAnalytics(filters, {
     includeIssues: true,
   });
-  const { data: projectOptions = [] } = useQuery({
+  const {
+    data: projectOptions = [],
+    error: projectsError,
+    isLoading: isProjectsLoading,
+  } = useQuery({
     queryKey: ["projects", "analytics-filter-options"],
     queryFn: fetchProjects,
     staleTime: 60_000,
@@ -256,16 +269,84 @@ const ReportsPage = () => {
   }, [filters.projectId, projectOptions]);
   const summary = analytics.overview?.summary || emptyOverview;
   const trends = analytics.overview?.trends || {};
-  const issueTrend = analytics.trends?.issueTrend || [];
-  const weeklyResolution = analytics.trends?.weeklyResolution || [];
-  const monthlyGrowth = analytics.trends?.monthlyGrowth || [];
+  const issueTrend = useMemo(
+    () =>
+      asArray(analytics.trends?.issueTrend).map((row) => ({
+        ...row,
+        created: toNumber(row?.created),
+        resolved: toNumber(row?.resolved ?? row?.closed),
+        closed: toNumber(row?.resolved ?? row?.closed),
+        reopened: toNumber(row?.reopened),
+        pending: toNumber(row?.pending),
+      })),
+    [analytics.trends]
+  );
+  const weeklyResolution = useMemo(
+    () =>
+      asArray(analytics.trends?.weeklyResolution).map((row) => ({
+        ...row,
+        opened: toNumber(row?.opened),
+        resolved: toNumber(row?.resolved),
+        resolutionRate: toNumber(row?.resolutionRate),
+      })),
+    [analytics.trends]
+  );
+  const monthlyGrowth = useMemo(
+    () =>
+      asArray(analytics.trends?.monthlyGrowth).map((row) => ({
+        ...row,
+        issues: toNumber(row?.issues),
+        previousIssues: toNumber(row?.previousIssues),
+        difference: toNumber(row?.difference),
+        percentChange: toNumber(row?.percentChange),
+      })),
+    [analytics.trends]
+  );
   const priorityRows =
     analytics.priorities?.priorities || analytics.overview?.priorityDistribution || [];
-  const projectRows = analytics.projects?.projects || [];
-  const teamRows = analytics.teams?.teams || [];
-  const issueRows = analytics.issues?.issues || [];
-  const activityRows = analytics.recentActivity?.activity || [];
+  const projectRows = useMemo(
+    () =>
+      asArray(analytics.projects?.projects).map((project) => ({
+        ...project,
+        totalIssues: toNumber(project?.totalIssues),
+        openIssues: toNumber(project?.openIssues),
+        closedIssues: toNumber(project?.closedIssues),
+        highPriorityIssues: toNumber(project?.highPriorityIssues),
+        completionRate: toNumber(project?.completionRate),
+      })),
+    [analytics.projects]
+  );
+  const teamRows = useMemo(
+    () =>
+      asArray(analytics.teams?.teams).map((team) => ({
+        ...team,
+        assignedIssues: toNumber(team?.assignedIssues),
+        closedIssues: toNumber(team?.closedIssues),
+        resolvedIssues: toNumber(team?.resolvedIssues ?? team?.closedIssues),
+        openIssues: toNumber(team?.openIssues),
+        pendingIssues: toNumber(team?.pendingIssues ?? team?.pendingWorkload),
+        pendingWorkload: toNumber(team?.pendingWorkload ?? team?.pendingIssues),
+        totalIssues: toNumber(team?.totalIssues),
+        productivity: toNumber(team?.productivity ?? team?.completionRate),
+        completionRate: toNumber(team?.completionRate ?? team?.productivity),
+        memberCount: toNumber(team?.memberCount),
+      })),
+    [analytics.teams]
+  );
+  const issueRows = asArray(analytics.issues?.issues);
+  const activityRows = asArray(analytics.recentActivity?.activity);
   const totalPages = Math.max(Math.ceil(issueRows.length / PAGE_SIZE), 1);
+  const chartKey = [
+    filters.projectId,
+    filters.teamId,
+    filters.assigneeId,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.status,
+    filters.statusGroup,
+    filters.priority,
+    filters.priorityGroup,
+  ].join("|");
 
   useEffect(() => {
     setCurrentPage(1);
@@ -302,6 +383,40 @@ const ReportsPage = () => {
     });
   }, [assigneeOptions, teamOptions]);
 
+  const reportsErrorMessage =
+    analytics.error?.response?.data?.message ||
+    analytics.error?.message ||
+    "";
+  const projectsErrorMessage =
+    projectsError?.response?.data?.message ||
+    projectsError?.message ||
+    "";
+
+  useEffect(() => {
+    const message = reportsErrorMessage || projectsErrorMessage;
+
+    if (!message) {
+      return;
+    }
+
+    setToast({
+      id: `${Date.now()}-${message}`,
+      type: "error",
+      title: reportsErrorMessage ? "Reports unavailable" : "Filter data unavailable",
+      message,
+    });
+  }, [projectsErrorMessage, reportsErrorMessage]);
+
+  useEffect(() => {
+    if (!toast?.id) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setToast(null), 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [toast?.id]);
+
   const sortedIssues = useMemo(() => {
     const accessors = {
       issueId: (issue) => issue.issueId || "",
@@ -335,11 +450,106 @@ const ReportsPage = () => {
     currentPage * PAGE_SIZE
   );
   const hasAnalytics = summary.totalIssues > 0;
-  const hasIssueTrendData = issueTrend.some((row) => row.created || row.closed);
+  const trendTotals = useMemo(() => {
+    const backendTotals = analytics.trends?.trendTotals || {};
+
+    return {
+      created:
+        toNumber(backendTotals.created) ||
+        issueTrend.reduce((sum, row) => sum + toNumber(row.created), 0),
+      resolved:
+        toNumber(backendTotals.resolved ?? backendTotals.closed) ||
+        issueTrend.reduce((sum, row) => sum + toNumber(row.resolved), 0),
+      reopened:
+        toNumber(backendTotals.reopened) ||
+        issueTrend.reduce((sum, row) => sum + toNumber(row.reopened), 0),
+      pending:
+        toNumber(backendTotals.pending) ||
+        toNumber(summary.openIssues) ||
+        issueTrend.reduce((sum, row) => sum + toNumber(row.pending), 0),
+    };
+  }, [analytics.trends, issueTrend, summary.openIssues]);
+  const monthlyGrowthSummary = useMemo(() => {
+    const backendSummary = analytics.trends?.monthlyGrowthSummary;
+
+    if (backendSummary) {
+      return {
+        currentMonth: toNumber(backendSummary.currentMonth),
+        previousMonth: toNumber(backendSummary.previousMonth),
+        difference: toNumber(backendSummary.difference),
+        percentChange: toNumber(backendSummary.percentChange),
+        direction: backendSummary.direction || "flat",
+      };
+    }
+
+    const currentMonth = monthlyGrowth[monthlyGrowth.length - 1]?.issues || 0;
+    const previousMonth = monthlyGrowth[monthlyGrowth.length - 2]?.issues || 0;
+    const difference = currentMonth - previousMonth;
+    const percentChange = previousMonth
+      ? Math.round((difference / previousMonth) * 100)
+      : currentMonth
+        ? 100
+        : 0;
+
+    return {
+      currentMonth,
+      previousMonth,
+      difference,
+      percentChange,
+      direction: difference > 0 ? "up" : difference < 0 ? "down" : "flat",
+    };
+  }, [analytics.trends, monthlyGrowth]);
+  const trendTileCards = [
+    {
+      label: "Created",
+      value: trendTotals.created,
+      icon: Layers3,
+      tone: "border-blue-200 bg-blue-50 text-blue-700",
+      onClick: () => openIssueList(),
+    },
+    {
+      label: "Resolved",
+      value: trendTotals.resolved,
+      icon: CheckCircle2,
+      tone: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      onClick: () => openIssueList({ status: "all", statusGroup: "closed" }),
+    },
+    {
+      label: "Reopened",
+      value: trendTotals.reopened,
+      icon: RotateCcw,
+      tone: "border-rose-200 bg-rose-50 text-rose-700",
+      onClick: () => openIssueList({ status: "REOPEN" }),
+    },
+    {
+      label: "Pending",
+      value: trendTotals.pending,
+      icon: Clock3,
+      tone: "border-amber-200 bg-amber-50 text-amber-700",
+      onClick: () => openIssueList({ status: "all", statusGroup: "open" }),
+    },
+  ];
+  const hasIssueTrendData = issueTrend.some(
+    (row) => row.created || row.resolved || row.reopened || row.pending
+  );
   const hasWeeklyResolutionData = weeklyResolution.some(
     (row) => row.opened || row.resolved
   );
   const hasMonthlyGrowthData = monthlyGrowth.some((row) => row.issues);
+  const hasProjectData = projectRows.some(
+    (row) =>
+      row.totalIssues ||
+      row.openIssues ||
+      row.closedIssues ||
+      row.highPriorityIssues
+  );
+  const hasTeamData = teamRows.some(
+    (row) =>
+      row.assignedIssues ||
+      row.resolvedIssues ||
+      row.pendingIssues ||
+      row.totalIssues
+  );
   const strongestTeam = useMemo(
     () =>
       [...teamRows].sort(
@@ -578,17 +788,24 @@ const ReportsPage = () => {
   };
 
   if (analytics.isLoading) {
-    return <ReportsLoading />;
+    return (
+      <>
+        <ReportsLoading />
+        <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
+      </>
+    );
   }
 
   if (analytics.error) {
     return (
-      <Card className={ANALYTICS_PANEL_CLASS}>
-        <CardContent className="p-6 text-sm text-rose-700">
-          {analytics.error.response?.data?.message ||
-            "Unable to load analytics reports right now."}
-        </CardContent>
-      </Card>
+      <>
+        <Card className={ANALYTICS_PANEL_CLASS}>
+          <CardContent className="p-6 text-sm text-rose-700">
+            {reportsErrorMessage || "Unable to load analytics reports right now."}
+          </CardContent>
+        </Card>
+        <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
+      </>
     );
   }
 
@@ -596,47 +813,33 @@ const ReportsPage = () => {
     <div className="space-y-5 page-shell-enter">
       <Card className="overflow-hidden rounded-[16px] border-white/60 bg-[linear-gradient(135deg,rgba(255,255,255,0.84),rgba(239,246,255,0.74),rgba(238,242,255,0.66))] shadow-[0_24px_70px_-36px_rgba(15,23,42,0.42)] backdrop-blur-2xl dark:border-white/10 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.88),rgba(30,41,59,0.76),rgba(15,23,42,0.82))]">
         <CardContent className="relative p-4 sm:p-5">
-          <div className="grid gap-5 xl:grid-cols-[0.9fr_1.3fr] xl:items-end">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/65 bg-white/72 px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm backdrop-blur-xl">
-                <Sparkles className="h-3.5 w-3.5 text-blue-600" />
-                Management Insights Center
+          <div className="space-y-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/65 bg-white/72 px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm backdrop-blur-xl">
+                  <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+                  Management Insights Center
+                </div>
+                <h1 className="mt-3 text-2xl font-semibold text-slate-950 dark:text-slate-100">
+                  Reports & Analytics
+                </h1>
               </div>
-              <h1 className="mt-3 text-2xl font-semibold text-slate-950 dark:text-slate-100">
-                Reports & Analytics
-              </h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-400">
-              </p>
+              {analytics.isFetching ? (
+                <div className="flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-500 shadow-sm">
+                  <Skeleton className="h-2 w-2 rounded-full" />
+                  Refreshing reports
+                </div>
+              ) : null}
             </div>
 
-            <div className="grid gap-3 xl:grid-cols-[1fr_180px_180px_180px_auto_auto]">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Input
-                  type="date"
-                  className={ANALYTICS_FIELD_CLASS}
-                  value={filters.dateFrom}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      dateFrom: event.target.value,
-                    }))
-                  }
-                />
-                <Input
-                  type="date"
-                  className={ANALYTICS_FIELD_CLASS}
-                  min={filters.dateFrom || undefined}
-                  value={filters.dateTo}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      dateTo: event.target.value,
-                    }))
-                  }
-                />
-              </div>
+            <div className="flex flex-wrap items-end gap-3 rounded-[20px] border border-white/50 bg-white/38 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] dark:border-white/10 dark:bg-slate-950/22">
               <select
-                className={ANALYTICS_SELECT_CLASS}
+                aria-label="Project filter"
+                className={cn(
+                  ANALYTICS_SELECT_CLASS,
+                  "min-w-[11.5rem] flex-1 sm:flex-[1_1_12rem] xl:flex-[1_1_11.5rem]"
+                )}
+                disabled={isProjectsLoading}
                 value={filters.projectId}
                 onChange={(event) =>
                   setFilters((current) => ({
@@ -655,7 +858,11 @@ const ReportsPage = () => {
                 ))}
               </select>
               <select
-                className={ANALYTICS_SELECT_CLASS}
+                aria-label="Team filter"
+                className={cn(
+                  ANALYTICS_SELECT_CLASS,
+                  "min-w-[11rem] flex-1 sm:flex-[1_1_11rem] xl:flex-[1_1_11rem]"
+                )}
                 value={filters.teamId}
                 onChange={(event) =>
                   setFilters((current) => ({
@@ -672,7 +879,11 @@ const ReportsPage = () => {
                 ))}
               </select>
               <select
-                className={ANALYTICS_SELECT_CLASS}
+                aria-label="Assignee filter"
+                className={cn(
+                  ANALYTICS_SELECT_CLASS,
+                  "min-w-[12rem] flex-1 sm:flex-[1_1_12rem] xl:flex-[1_1_12rem]"
+                )}
                 value={filters.assigneeId}
                 onChange={(event) =>
                   setFilters((current) => ({
@@ -688,10 +899,37 @@ const ReportsPage = () => {
                   </option>
                 ))}
               </select>
+              <div className="grid min-w-0 w-full flex-[2_1_18rem] grid-cols-1 gap-2 sm:w-auto sm:min-w-[18rem] sm:grid-cols-2 xl:min-w-[19.5rem] xl:flex-[1.4_1_19.5rem]">
+                <Input
+                  aria-label="Start date"
+                  type="date"
+                  className={ANALYTICS_FIELD_CLASS}
+                  value={filters.dateFrom}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      dateFrom: event.target.value,
+                    }))
+                  }
+                />
+                <Input
+                  aria-label="End date"
+                  type="date"
+                  className={ANALYTICS_FIELD_CLASS}
+                  min={filters.dateFrom || undefined}
+                  value={filters.dateTo}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      dateTo: event.target.value,
+                    }))
+                  }
+                />
+              </div>
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-full border-white/60 bg-white/72 text-slate-700 shadow-sm"
+                className="min-w-[8.75rem] flex-1 rounded-full border-white/60 bg-white/72 text-slate-700 shadow-sm sm:flex-none"
                 onClick={() => window.print()}
               >
                 <FileText className="h-4 w-4" />
@@ -700,7 +938,7 @@ const ReportsPage = () => {
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-full border-white/60 bg-white/72 text-slate-700 shadow-sm"
+                className="min-w-[8.75rem] flex-1 rounded-full border-white/60 bg-white/72 text-slate-700 shadow-sm sm:flex-none"
                 onClick={exportCsv}
               >
                 <FileSpreadsheet className="h-4 w-4" />
@@ -715,6 +953,41 @@ const ReportsPage = () => {
         {kpiCards.map((card) => (
           <AnalyticsKpiCard key={card.title} {...card} />
         ))}
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {trendTileCards.map((tile) => {
+          const Icon = tile.icon;
+
+          return (
+            <button
+              key={tile.label}
+              type="button"
+              className={cn(
+                ANALYTICS_SUBPANEL_CLASS,
+                "flex min-h-[104px] items-center justify-between gap-4 p-4 text-left"
+              )}
+              onClick={tile.onClick}
+            >
+              <div>
+                <p className="text-xs font-semibold uppercase text-slate-500">
+                  {tile.label}
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950 dark:text-slate-100">
+                  {formatCompactNumber(tile.value)}
+                </p>
+              </div>
+              <span
+                className={cn(
+                  "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border",
+                  tile.tone
+                )}
+              >
+                <Icon className="h-5 w-5" />
+              </span>
+            </button>
+          );
+        })}
       </section>
 
       {!hasAnalytics ? (
@@ -744,6 +1017,7 @@ const ReportsPage = () => {
             >
               <ResponsiveContainer height="100%" width="100%">
                 <LineChart
+                  key={`issue-trend-${chartKey}`}
                   data={issueTrend}
                   margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
                   onClick={openDatePoint}
@@ -753,14 +1027,15 @@ const ReportsPage = () => {
                   <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={chartTooltipStyle} />
                   <Line type="monotone" dataKey="created" stroke="#2563eb" strokeWidth={3} dot={false} />
-                  <Line type="monotone" dataKey="closed" stroke="#10b981" strokeWidth={3} dot={false} />
+                  <Line type="monotone" dataKey="resolved" stroke="#10b981" strokeWidth={3} dot={false} />
+                  <Line type="monotone" dataKey="reopened" stroke="#e11d48" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           ) : (
             <AnalyticsEmptyState
               icon={Activity}
-              title="No trend data"
+              title="No Data Available"
               description="Issue trend data appears when the scope contains issue movement."
               className="min-h-[290px]"
             />
@@ -849,9 +1124,9 @@ const ReportsPage = () => {
 
         <ChartCard
           title="Team Performance"
-          description="Open and closed workload by team."
+          description="Assigned, resolved, pending, and resolution rate by team."
         >
-          {teamRows.length ? (
+          {hasTeamData ? (
             <div
               className="h-[300px] cursor-pointer"
               role="button"
@@ -865,6 +1140,7 @@ const ReportsPage = () => {
             >
               <ResponsiveContainer height="100%" width="100%">
                 <BarChart
+                  key={`team-performance-${chartKey}`}
                   data={teamRows.slice(0, 8)}
                   margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
                   onClick={(chartState) => {
@@ -878,13 +1154,18 @@ const ReportsPage = () => {
                   <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={chartTooltipStyle} />
                   <Bar
-                    dataKey="openIssues"
-                    fill="#f59e0b"
+                    dataKey="assignedIssues"
+                    fill="#2563eb"
                     radius={[10, 10, 0, 0]}
                   />
                   <Bar
-                    dataKey="closedIssues"
+                    dataKey="resolvedIssues"
                     fill="#10b981"
+                    radius={[10, 10, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="pendingIssues"
+                    fill="#f59e0b"
                     radius={[10, 10, 0, 0]}
                   />
                 </BarChart>
@@ -893,7 +1174,7 @@ const ReportsPage = () => {
           ) : (
             <AnalyticsEmptyState
               icon={Users2}
-              title="No team performance yet"
+              title="No Data Available"
               description="Assign issues to teams to compare delivery performance."
               className="min-h-[300px]"
             />
@@ -918,6 +1199,7 @@ const ReportsPage = () => {
             >
               <ResponsiveContainer height="100%" width="100%">
                 <AreaChart
+                  key={`weekly-resolution-${chartKey}`}
                   data={weeklyResolution}
                   margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
                   onClick={openDatePoint}
@@ -934,7 +1216,7 @@ const ReportsPage = () => {
           ) : (
             <AnalyticsEmptyState
               icon={Clock3}
-              title="No weekly resolution data"
+              title="No Data Available"
               description="Resolution trend appears once issue history is available."
               className="min-h-[300px]"
             />
@@ -942,10 +1224,10 @@ const ReportsPage = () => {
         </ChartCard>
 
         <ChartCard
-          title="Issues by Project"
-          description="Project-level issue volume and open workload."
+          title="Issues by Projects"
+          description="Project-level total, open, closed, and high-priority workload."
         >
-          {projectRows.length ? (
+          {hasProjectData ? (
             <div
               className="h-[300px] cursor-pointer"
               role="button"
@@ -959,6 +1241,7 @@ const ReportsPage = () => {
             >
               <ResponsiveContainer height="100%" width="100%">
                 <BarChart
+                  key={`issues-by-project-${chartKey}`}
                   data={projectRows.slice(0, 8)}
                   layout="vertical"
                   margin={{ top: 8, right: 18, left: 12, bottom: 0 }}
@@ -982,13 +1265,23 @@ const ReportsPage = () => {
                     fill="#f59e0b"
                     radius={[0, 10, 10, 0]}
                   />
+                  <Bar
+                    dataKey="closedIssues"
+                    fill="#10b981"
+                    radius={[0, 10, 10, 0]}
+                  />
+                  <Bar
+                    dataKey="highPriorityIssues"
+                    fill="#ef4444"
+                    radius={[0, 10, 10, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
             <AnalyticsEmptyState
               icon={FolderKanban}
-              title="No project analytics"
+              title="No Data Available"
               description="Project issue volume appears once matching issues exist."
               className="min-h-[300px]"
             />
@@ -1000,50 +1293,83 @@ const ReportsPage = () => {
           description="Issue growth over the latest six months."
         >
           {hasMonthlyGrowthData ? (
-            <div
-              className="h-[300px] cursor-pointer"
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openIssueList();
-                }
-              }}
-            >
-              <ResponsiveContainer height="100%" width="100%">
-                <AreaChart
-                  data={monthlyGrowth}
-                  margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
-                  onClick={(chartState) => {
-                    const key = chartState?.activePayload?.[0]?.payload?.key;
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className={cn(ANALYTICS_SUBPANEL_CLASS, "p-3")}>
+                  <p className="text-xs font-semibold text-slate-500">Current month</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-950 dark:text-slate-100">
+                    {formatCompactNumber(monthlyGrowthSummary.currentMonth)}
+                  </p>
+                </div>
+                <div className={cn(ANALYTICS_SUBPANEL_CLASS, "p-3")}>
+                  <p className="text-xs font-semibold text-slate-500">Previous month</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-950 dark:text-slate-100">
+                    {formatCompactNumber(monthlyGrowthSummary.previousMonth)}
+                  </p>
+                </div>
+                <div className={cn(ANALYTICS_SUBPANEL_CLASS, "p-3")}>
+                  <p className="text-xs font-semibold text-slate-500">Change</p>
+                  <p
+                    className={cn(
+                      "mt-1 text-xl font-semibold",
+                      monthlyGrowthSummary.direction === "up"
+                        ? "text-emerald-700"
+                        : monthlyGrowthSummary.direction === "down"
+                          ? "text-rose-700"
+                          : "text-slate-950 dark:text-slate-100"
+                    )}
+                  >
+                    {monthlyGrowthSummary.percentChange > 0 ? "+" : ""}
+                    {monthlyGrowthSummary.percentChange}%
+                  </p>
+                </div>
+              </div>
+              <div
+                className="h-[240px] cursor-pointer"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openIssueList();
+                  }
+                }}
+              >
+                <ResponsiveContainer height="100%" width="100%">
+                  <AreaChart
+                    key={`monthly-growth-${chartKey}`}
+                    data={monthlyGrowth}
+                    margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
+                    onClick={(chartState) => {
+                      const key = chartState?.activePayload?.[0]?.payload?.key;
 
-                    if (key) {
-                      const [year, month] = key.split("-").map(Number);
-                      const monthEndDay = new Date(year, month, 0).getDate();
-                      const monthEnd = `${key}-${String(monthEndDay).padStart(2, "0")}`;
+                      if (key) {
+                        const [year, month] = key.split("-").map(Number);
+                        const monthEndDay = new Date(year, month, 0).getDate();
+                        const monthEnd = `${key}-${String(monthEndDay).padStart(2, "0")}`;
 
-                      openIssueList({
-                        dateFrom: `${key}-01`,
-                        dateTo: monthEnd,
-                      });
-                    } else {
-                      openIssueList();
-                    }
-                  }}
-                >
-                  <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={chartTooltipStyle} />
-                  <Area type="monotone" dataKey="issues" stroke="#8b5cf6" strokeWidth={2} fill="#ddd6fe" fillOpacity={0.75} />
-                </AreaChart>
-              </ResponsiveContainer>
+                        openIssueList({
+                          dateFrom: `${key}-01`,
+                          dateTo: monthEnd,
+                        });
+                      } else {
+                        openIssueList();
+                      }
+                    }}
+                  >
+                    <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={chartTooltipStyle} />
+                    <Area type="monotone" dataKey="issues" stroke="#8b5cf6" strokeWidth={2} fill="#ddd6fe" fillOpacity={0.75} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           ) : (
             <AnalyticsEmptyState
               icon={BarChart3}
-              title="No monthly growth data"
+              title="No Data Available"
               description="Growth metrics appear as issues are created over time."
               className="min-h-[300px]"
             />
@@ -1097,7 +1423,7 @@ const ReportsPage = () => {
           title="Team Productivity Analytics"
           description="Completion ratios, workload balance, and pending work by team."
         >
-          {teamRows.length ? (
+          {hasTeamData ? (
             <div className="grid gap-3 md:grid-cols-2">
               {teamRows.slice(0, 6).map((team) => (
                 <button
@@ -1116,31 +1442,31 @@ const ReportsPage = () => {
                       </p>
                     </div>
                     <Badge className="border-cyan-200 bg-cyan-50 text-cyan-700">
-                      {team.productivity}%
+                      {team.completionRate}%
                     </Badge>
                   </div>
                   <div className="mt-4 grid grid-cols-3 gap-2">
                     <div className="rounded-[14px] bg-slate-950/[0.03] px-3 py-2">
-                      <p className="text-xs text-slate-500">Total</p>
-                      <p className="text-lg font-semibold">{team.totalIssues}</p>
+                      <p className="text-xs text-slate-500">Assigned</p>
+                      <p className="text-lg font-semibold">{team.assignedIssues}</p>
                     </div>
                     <div className="rounded-[14px] bg-amber-50 px-3 py-2">
                       <p className="text-xs text-amber-700">Pending</p>
                       <p className="text-lg font-semibold text-amber-900">
-                        {team.pendingWorkload}
+                        {team.pendingIssues}
                       </p>
                     </div>
                     <div className="rounded-[14px] bg-emerald-50 px-3 py-2">
-                      <p className="text-xs text-emerald-700">Closed</p>
+                      <p className="text-xs text-emerald-700">Resolved</p>
                       <p className="text-lg font-semibold text-emerald-900">
-                        {team.closedIssues}
+                        {team.resolvedIssues}
                       </p>
                     </div>
                   </div>
                   <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-200/70">
                     <div
                       className="h-full rounded-full bg-[linear-gradient(90deg,#06b6d4,#3b82f6)]"
-                      style={{ width: `${Math.max(team.productivity, team.totalIssues ? 5 : 0)}%` }}
+                      style={{ width: `${Math.max(team.completionRate, team.totalIssues ? 5 : 0)}%` }}
                     />
                   </div>
                 </button>
@@ -1149,7 +1475,7 @@ const ReportsPage = () => {
           ) : (
             <AnalyticsEmptyState
               icon={Users2}
-              title="No team productivity data"
+              title="No Data Available"
               description="Team productivity analytics appear once teams own issues."
             />
           )}
@@ -1480,6 +1806,7 @@ const ReportsPage = () => {
           />
         )}
       </AnalyticsPanel>
+      <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 };
