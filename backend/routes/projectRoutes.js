@@ -3,6 +3,8 @@ const {
   getProjects,
   getProjectTeams,
   createProject,
+  updateProject,
+  updateProjectLeadership,
   deleteProject,
   attachProjectTeam,
   detachProjectTeam,
@@ -16,6 +18,8 @@ const router = express.Router();
 
 router.get("/", auth, getProjects);
 router.post("/", auth, createProject);
+router.patch("/:id", auth, updateProject);
+router.patch("/:id/leadership", auth, updateProjectLeadership);
 router.delete("/:id", auth, deleteProject);
 router.get("/:id/teams", auth, getProjectTeams);
 router.post("/:id/teams", auth, attachProjectTeam);

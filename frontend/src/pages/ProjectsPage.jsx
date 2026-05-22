@@ -4,14 +4,18 @@ import { FolderKanban, Plus, UserRoundPlus, Users2 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   attachProjectTeam,
+  createEpic,
   createProject,
   createTeam,
+  deleteEpic,
   deleteProject,
   fetchProjects,
   fetchTeams,
   fetchWorkspaceUsers,
   fetchUsers,
   detachProjectTeam,
+  updateEpic,
+  updateProject,
   updateProjectStatus,
 } from "@/lib/api";
 import ProjectComposer from "@/components/projects/ProjectComposer";
@@ -153,11 +157,64 @@ const ProjectsPage = () => {
     },
   });
 
+  const updateProjectMutation = useMutation({
+    mutationFn: updateProject,
+    onSuccess: async (updatedProject, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["issues"] }),
+        queryClient.invalidateQueries({ queryKey: ["reports"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+        queryClient.invalidateQueries({ queryKey: ["backlog"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["project-epics", variables?.projectId],
+        }),
+      ]);
+      showToast("success", updatedProject?.message || "Project updated.");
+    },
+  });
+
   const updateProjectStatusMutation = useMutation({
     mutationFn: updateProjectStatus,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
+    },
+  });
+
+  const createEpicMutation = useMutation({
+    mutationFn: createEpic,
+    onSuccess: async (_createdEpic, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["backlog"] }),
+        queryClient.invalidateQueries({ queryKey: ["issues"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-epics", variables?.projectId] }),
+      ]);
+    },
+  });
+
+  const updateEpicMutation = useMutation({
+    mutationFn: updateEpic,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["backlog"] }),
+        queryClient.invalidateQueries({ queryKey: ["issues"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-epics"] }),
+      ]);
+    },
+  });
+
+  const deleteEpicMutation = useMutation({
+    mutationFn: deleteEpic,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["backlog"] }),
+        queryClient.invalidateQueries({ queryKey: ["issues"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-epics"] }),
+      ]);
     },
   });
 
@@ -324,6 +381,10 @@ const ProjectsPage = () => {
                     updateProjectStatusMutation.isPending &&
                     updateProjectStatusMutation.variables?.projectId === project._id
                   }
+                  isUpdatingProject={
+                    updateProjectMutation.isPending &&
+                    updateProjectMutation.variables?.projectId === project._id
+                  }
                   detachingTeamId={
                     detachProjectTeamMutation.isPending &&
                     detachProjectTeamMutation.variables?.projectId === project._id
@@ -336,11 +397,23 @@ const ProjectsPage = () => {
                   onDetachTeam={(payload) =>
                     detachProjectTeamMutation.mutateAsync(payload)
                   }
+                  onUpdateProject={(payload) =>
+                    updateProjectMutation.mutateAsync(payload)
+                  }
                   onUpdateStatus={(payload) =>
                     updateProjectStatusMutation.mutateAsync(payload)
                   }
                   onDeleteProject={(projectId) =>
                     deleteProjectMutation.mutateAsync(projectId)
+                  }
+                  onCreateEpic={(payload) =>
+                    createEpicMutation.mutateAsync(payload)
+                  }
+                  onUpdateEpic={(payload) =>
+                    updateEpicMutation.mutateAsync(payload)
+                  }
+                  onDeleteEpic={(payload) =>
+                    deleteEpicMutation.mutateAsync(payload)
                   }
                   onOpenTeamsComposer={() =>
                     showToast("success", "Opening Microsoft Teams...")
@@ -349,9 +422,15 @@ const ProjectsPage = () => {
                     deleteProjectMutation.isPending &&
                     deleteProjectMutation.variables === project._id
                   }
+                  isSavingEpic={createEpicMutation.isPending || updateEpicMutation.isPending}
+                  deletingEpicId={
+                    deleteEpicMutation.isPending ? deleteEpicMutation.variables?.id : ""
+                  }
                   project={project}
+                  users={users}
                   workspaceTeams={teams}
                   teamsErrorMessage={isTeamsLoading ? "" : teamsErrorMessage}
+                  usersErrorMessage={isUsersLoading ? "" : usersErrorMessage}
                 />
               ))
             ) : (

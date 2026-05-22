@@ -19,7 +19,12 @@ import {
   getIssueDisplayKey,
   resolveIssueProjectId,
 } from "@/lib/issues";
-import { fetchProjectTeams, logTeamSelectionDebug } from "@/lib/api";
+import {
+  fetchEpics,
+  fetchProjectTeams,
+  fetchSprints,
+  logTeamSelectionDebug,
+} from "@/lib/api";
 import {
   findProjectById,
   getProjectMembers,
@@ -29,7 +34,9 @@ import {
   resolveTeamId,
   resolveUserId,
 } from "@/lib/project-teams";
-import { getInitials } from "@/lib/utils";
+import { hasAdminPanelAccess } from "@/lib/roles";
+import { formatDate, getInitials } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 
 const ISSUE_TYPES = ISSUE_TYPE_OPTIONS;
 const ISSUE_PRIORITIES = ["Low", "Medium", "High", "Critical"];
@@ -88,6 +95,8 @@ const buildInitialState = ({
     priority: isBug ? "High" : "Medium",
     type: defaultType,
     status: isBug ? ISSUE_STATUS.NEW : ISSUE_STATUS.TODO,
+    epicId: "",
+    sprintId: "",
     dueAt: "",
     dependsOnIssueId: "",
     bugDetails: {
@@ -138,6 +147,36 @@ const buildDependencyOption = (issue) => ({
   label: formatDependencyOption(issue),
   issue,
 });
+
+const buildEpicOption = (epic) => ({
+  value: String(epic?._id || ""),
+  label: epic?.name || "Untitled epic",
+  color: epic?.color || "#7C3AED",
+  epic,
+});
+
+const resolveSprintTeamId = (sprint) =>
+  String(sprint?.teamId?._id || sprint?.teamId || "");
+
+const buildSprintOption = (sprint) => {
+  if (!sprint) {
+    return {
+      value: "",
+      label: "Backlog",
+      state: "BACKLOG",
+      sprint: null,
+    };
+  }
+
+  return {
+    value: String(sprint?._id || ""),
+    label: sprint?.name || "Untitled sprint",
+    state: sprint?.state || sprint?.status || "PLANNED",
+    startDate: sprint?.startDate || null,
+    endDate: sprint?.endDate || null,
+    sprint,
+  };
+};
 
 const issueSelectStyles = {
   container: (base) => ({
@@ -275,6 +314,38 @@ const formatDependencyLabel = (option) => (
   </div>
 );
 
+const formatEpicOptionLabel = (option) => (
+  <div className="flex min-w-0 items-center gap-3">
+    <span
+      className="h-3.5 w-3.5 shrink-0 rounded-full"
+      style={{ backgroundColor: option.color }}
+    />
+    <span className="truncate text-sm font-medium text-slate-900">{option.label}</span>
+  </div>
+);
+
+const formatSprintOptionLabel = (option) => {
+  const dateRange =
+    option.startDate && option.endDate
+      ? `${formatDate(option.startDate)} - ${formatDate(option.endDate)}`
+      : "Dates not set";
+  const statusLabel =
+    option.state === "ACTIVE"
+      ? "Active Sprint"
+      : option.state === "PLANNED"
+        ? "Upcoming Sprint"
+        : "Backlog";
+
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-sm font-medium text-slate-900">{option.label}</p>
+      <p className="truncate text-xs text-slate-500">
+        {option.state === "BACKLOG" ? "Backlog" : `${statusLabel} / ${dateRange}`}
+      </p>
+    </div>
+  );
+};
+
 const SectionLabel = ({ title, description }) => (
   <div className="space-y-0.5">
     <p className="text-sm font-semibold text-slate-900">{title}</p>
@@ -317,6 +388,8 @@ const IssueCreateDialog = ({
   const [isSequenceSubmitting, setIsSequenceSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [attachmentFiles, setAttachmentFiles] = useState([]);
+  const { role } = useAuth();
+  const canManagePlanningFields = hasAdminPanelAccess(role);
 
   const menuPortalTarget =
     typeof document !== "undefined" ? document.body : undefined;
@@ -340,6 +413,18 @@ const IssueCreateDialog = ({
     queryKey: ["project-teams", selectedProjectId],
     queryFn: () => fetchProjectTeams(selectedProjectId),
     enabled: open && Boolean(selectedProjectId),
+    refetchOnMount: "always",
+  });
+  const { data: projectEpicsData = [] } = useQuery({
+    queryKey: ["project-epics", selectedProjectId],
+    queryFn: () => fetchEpics({ projectId: selectedProjectId }),
+    enabled: open && canManagePlanningFields && Boolean(selectedProjectId),
+    refetchOnMount: "always",
+  });
+  const { data: projectSprintsData = [] } = useQuery({
+    queryKey: ["project-sprints", selectedProjectId],
+    queryFn: () => fetchSprints({ projectId: selectedProjectId }),
+    enabled: open && canManagePlanningFields && Boolean(selectedProjectId),
     refetchOnMount: "always",
   });
   const selectedProjectTeams = useMemo(
@@ -426,6 +511,47 @@ const IssueCreateDialog = ({
       ) || null,
     [dependencyOptions, formData.dependsOnIssueId]
   );
+  const activeEpicOptions = useMemo(
+    () =>
+      (Array.isArray(projectEpicsData) ? projectEpicsData : [])
+        .filter((epic) => String(epic?.status || "ACTIVE") !== "ARCHIVED")
+        .map(buildEpicOption),
+    [projectEpicsData]
+  );
+  const selectedEpicOption = useMemo(
+    () =>
+      activeEpicOptions.find((epic) => epic.value === String(formData.epicId)) ||
+      null,
+    [activeEpicOptions, formData.epicId]
+  );
+  const sprintOptions = useMemo(() => {
+    const assignableSprints = (Array.isArray(projectSprintsData) ? projectSprintsData : [])
+      .filter((sprint) => ["ACTIVE", "PLANNED"].includes(String(sprint?.state || "")))
+      .filter((sprint) => {
+        const sprintTeamId = resolveSprintTeamId(sprint);
+
+        return !sprintTeamId || !formData.teamId || sprintTeamId === String(formData.teamId);
+      })
+      .sort((left, right) => {
+        const stateDelta =
+          (left.state === "ACTIVE" ? 0 : 1) - (right.state === "ACTIVE" ? 0 : 1);
+
+        if (stateDelta !== 0) {
+          return stateDelta;
+        }
+
+        return new Date(left.startDate || left.createdAt || 0) -
+          new Date(right.startDate || right.createdAt || 0);
+      });
+
+    return [buildSprintOption(null), ...assignableSprints.map(buildSprintOption)];
+  }, [formData.teamId, projectSprintsData]);
+  const selectedSprintOption = useMemo(
+    () =>
+      sprintOptions.find((sprint) => sprint.value === String(formData.sprintId)) ||
+      sprintOptions[0],
+    [formData.sprintId, sprintOptions]
+  );
   const isBugType = formData.type === "Bug";
   const qaOwnerOptions = useMemo(
     () =>
@@ -505,6 +631,7 @@ const IssueCreateDialog = ({
       ...current,
       teamId: nextTeamId,
       assigneeId: "",
+      sprintId: "",
       bugDetails: {
         ...current.bugDetails,
         testerOwnerId: "",
@@ -576,6 +703,34 @@ const IssueCreateDialog = ({
   }, [dependencyOptions, formData.dependsOnIssueId]);
 
   useEffect(() => {
+    if (
+      !formData.epicId ||
+      activeEpicOptions.some((epic) => epic.value === String(formData.epicId))
+    ) {
+      return;
+    }
+
+    setFormData((current) => ({
+      ...current,
+      epicId: "",
+    }));
+  }, [activeEpicOptions, formData.epicId]);
+
+  useEffect(() => {
+    if (
+      !formData.sprintId ||
+      sprintOptions.some((sprint) => sprint.value === String(formData.sprintId))
+    ) {
+      return;
+    }
+
+    setFormData((current) => ({
+      ...current,
+      sprintId: "",
+    }));
+  }, [formData.sprintId, sprintOptions]);
+
+  useEffect(() => {
     if (!assignEntireTeam) {
       return;
     }
@@ -611,6 +766,8 @@ const IssueCreateDialog = ({
       teamId: "",
       assigneeId: "",
       dependsOnIssueId: "",
+      epicId: "",
+      sprintId: "",
       bugDetails: {
         ...current.bugDetails,
         testerOwnerId: "",
@@ -653,6 +810,29 @@ const IssueCreateDialog = ({
       return;
     }
 
+    if (canManagePlanningFields) {
+      if (activeEpicOptions.length && !formData.epicId) {
+        setError("Epic is required for this project.");
+        return;
+      }
+
+      if (
+        formData.epicId &&
+        !activeEpicOptions.some((epic) => epic.value === String(formData.epicId))
+      ) {
+        setError("Choose an epic from the selected project.");
+        return;
+      }
+
+      if (
+        formData.sprintId &&
+        !sprintOptions.some((sprint) => sprint.value === String(formData.sprintId))
+      ) {
+        setError("Choose a sprint from the selected project.");
+        return;
+      }
+    }
+
     if (assignEntireTeam && !availableAssignees.length) {
       setError("The selected team does not have any members to assign.");
       return;
@@ -686,6 +866,12 @@ const IssueCreateDialog = ({
       dueAt: formData.dueAt || null,
       dependsOnIssueId: formData.dependsOnIssueId || null,
       status: isBugType ? ISSUE_STATUS.NEW : ISSUE_STATUS.TODO,
+      ...(canManagePlanningFields
+        ? {
+            epicId: formData.epicId || null,
+            sprintId: formData.sprintId || null,
+          }
+        : {}),
       ...(isBugType
         ? {
             bugDetails: {
@@ -825,6 +1011,7 @@ const IssueCreateDialog = ({
                           ...current,
                           teamId: option?.value || "",
                           assigneeId: "",
+                          sprintId: "",
                           bugDetails: {
                             ...current.bugDetails,
                             testerOwnerId: "",
@@ -914,6 +1101,80 @@ const IssueCreateDialog = ({
                 </div>
               </div>
             </div>
+
+            {canManagePlanningFields ? (
+              <div className="rounded-[24px] border border-slate-200/80 bg-white p-3 sm:p-3.5 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.28)]">
+                <div className="space-y-3">
+                  <SectionLabel
+                    title="Planning"
+                    description="Map the work item into an epic and sprint."
+                  />
+
+                  <div className="grid items-start gap-3 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                        Epic
+                      </span>
+                      <Select
+                        options={activeEpicOptions}
+                        value={selectedEpicOption}
+                        onChange={(option) =>
+                          setFormData((current) => ({
+                            ...current,
+                            epicId: option?.value || "",
+                          }))
+                        }
+                        styles={issueSelectStyles}
+                        formatOptionLabel={formatEpicOptionLabel}
+                        isClearable={!activeEpicOptions.length}
+                        isSearchable
+                        isDisabled={!formData.projectId || !activeEpicOptions.length || isSubmitPending}
+                        menuPortalTarget={menuPortalTarget}
+                        {...baseSelectProps}
+                        placeholder={
+                          activeEpicOptions.length
+                            ? "Search epics"
+                            : "No epics in this project"
+                        }
+                        noOptionsMessage={() =>
+                          formData.projectId
+                            ? "No epics available."
+                            : "Select a project first."
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                        Sprint
+                      </span>
+                      <Select
+                        options={sprintOptions}
+                        value={selectedSprintOption}
+                        onChange={(option) =>
+                          setFormData((current) => ({
+                            ...current,
+                            sprintId: option?.value || "",
+                          }))
+                        }
+                        styles={issueSelectStyles}
+                        formatOptionLabel={formatSprintOptionLabel}
+                        isSearchable
+                        isDisabled={!formData.projectId || isSubmitPending}
+                        menuPortalTarget={menuPortalTarget}
+                        {...baseSelectProps}
+                        placeholder="Backlog"
+                        noOptionsMessage={() =>
+                          formData.projectId
+                            ? "No active or upcoming sprints."
+                            : "Select a project first."
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className="space-y-1.5">
               <SectionLabel title="Description" />

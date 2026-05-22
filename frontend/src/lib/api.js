@@ -287,6 +287,11 @@ export const createProject = async (payload) => {
   return response.data;
 };
 
+export const updateProject = async ({ projectId, payload }) => {
+  const response = await api.patch(`/projects/${projectId}`, payload);
+  return response.data;
+};
+
 export const deleteProject = async (projectId) => {
   const response = await api.delete(`/projects/${projectId}`);
   return response.data;

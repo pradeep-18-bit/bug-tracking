@@ -25,6 +25,7 @@ const projectShadows = [
 
 const ProjectOverviewTile = ({ project, index = 0, onOpen }) => {
   const themeIndex = index % projectColors.length;
+  const status = project.status || (project.isCompleted ? "Completed" : "Active");
 
   return (
     <button
@@ -88,7 +89,7 @@ const ProjectOverviewTile = ({ project, index = 0, onOpen }) => {
             <span>Created {formatDate(project.createdAt)}</span>
           </div>
           <span className="rounded-full bg-white/10 px-3 py-1 text-xs uppercase tracking-[0.24em] text-white/90">
-            {project.isCompleted ? "Completed" : "Active"}
+            {status}
           </span>
         </div>
       </div>

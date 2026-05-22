@@ -1,11 +1,12 @@
 const Issue = require("../models/Issue");
 const Project = require("../models/Project");
 const { buildProjectAccessQuery } = require("./projectRelations");
+const { hasAdminAccess } = require("./roles");
 const { normalizeWorkspaceId } = require("./workspace");
 
 const getUserId = (user) => String(user?.id || user?._id || "");
 
-const isAdmin = (user) => user?.role === "Admin";
+const isAdmin = (user) => hasAdminAccess(user?.role);
 
 const canManageProjectPlanning = (user, project) => {
   if (!user || !project) {
@@ -22,7 +23,13 @@ const canManageProjectPlanning = (user, project) => {
     return false;
   }
 
-  return [project.createdBy, project.manager, project.teamLead].some(
+  return [
+    project.createdBy,
+    project.manager,
+    project.projectManager,
+    project.teamLead,
+    project.qaLead,
+  ].some(
     (value) => String(value || "") === userId
   );
 };

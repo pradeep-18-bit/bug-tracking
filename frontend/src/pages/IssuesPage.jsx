@@ -4,8 +4,10 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   createIssue,
   deleteIssue,
+  fetchEpics,
   fetchIssues,
   fetchProjects,
+  fetchSprints,
   updateIssue,
   uploadIssueAttachment,
 } from "@/lib/api";
@@ -157,17 +159,19 @@ const getAvailableAssignees = (
 };
 
 const buildIssueListCacheFilters = (queryKey = []) => ({
-  search: queryKey[8] || "",
-  status: queryKey[9] || "all",
-  statusGroup: queryKey[10] || "all",
-  priority: queryKey[11] || "all",
-  priorityGroup: queryKey[12] || "all",
+  search: queryKey[10] || "",
+  status: queryKey[11] || "all",
+  statusGroup: queryKey[12] || "all",
+  priority: queryKey[13] || "all",
+  priorityGroup: queryKey[14] || "all",
   projectId: queryKey[4] || ALL_PROJECTS_VALUE,
   teamId: queryKey[5] || "all",
-  assigneeId: queryKey[6] || "all",
-  type: queryKey[7] || "all",
-  dateFrom: queryKey[13] || "",
-  dateTo: queryKey[14] || "",
+  epicId: queryKey[6] || "all",
+  sprintId: queryKey[7] || "all",
+  assigneeId: queryKey[8] || "all",
+  type: queryKey[9] || "all",
+  dateFrom: queryKey[15] || "",
+  dateTo: queryKey[16] || "",
 });
 
 const IssueBoardSkeleton = () => (
@@ -198,6 +202,8 @@ const IssuesPage = () => {
   const [filters, setFilters] = useState({
     projectId: normalizeProjectFilterValue(searchParams.get("projectId")),
     teamId: searchParams.get("teamId") || "all",
+    epicId: searchParams.get("epicId") || "all",
+    sprintId: searchParams.get("sprintId") || "all",
     assigneeId: searchParams.get("assigneeId") || "all",
     type: "all",
     status: normalizeStatusFilterValue(searchParams.get("status")) || "all",
@@ -251,6 +257,8 @@ const IssuesPage = () => {
       )
         ? String(requestedTeamId)
         : "all";
+      const nextEpicId = searchParams.get("epicId") || current.epicId || "all";
+      const nextSprintId = searchParams.get("sprintId") || current.sprintId || "all";
       const nextSearch = searchParams.get("search") || current.search;
       const requestedAssigneeId = searchParams.get("assigneeId") || current.assigneeId;
       const nextStatus = normalizeStatusFilterValue(searchParams.get("status")) || "all";
@@ -265,6 +273,8 @@ const IssuesPage = () => {
       if (
         current.projectId === nextProjectId &&
         current.teamId === nextTeamId &&
+        current.epicId === nextEpicId &&
+        current.sprintId === nextSprintId &&
         current.assigneeId === requestedAssigneeId &&
         current.status === nextStatus &&
         current.statusGroup === nextStatusGroup &&
@@ -280,6 +290,8 @@ const IssuesPage = () => {
       return {
         projectId: nextProjectId,
         teamId: nextTeamId,
+        epicId: nextEpicId,
+        sprintId: nextSprintId,
         assigneeId: requestedAssigneeId,
         type: current.type,
         status: nextStatus,
@@ -313,6 +325,48 @@ const IssuesPage = () => {
     () => findProjectById(projects, filters.projectId),
     [filters.projectId, projects]
   );
+  const selectedProjectId =
+    selectedProject && filters.projectId !== ALL_PROJECTS_VALUE ? selectedProject._id : "";
+  const {
+    data: selectedProjectEpicsData = [],
+    isFetched: areSelectedProjectEpicsFetched,
+  } = useQuery({
+    queryKey: ["project-epics", selectedProjectId],
+    queryFn: () => fetchEpics({ projectId: selectedProjectId }),
+    enabled: Boolean(selectedProjectId),
+  });
+  const {
+    data: selectedProjectSprintsData = [],
+    isFetched: areSelectedProjectSprintsFetched,
+  } = useQuery({
+    queryKey: ["project-sprints", selectedProjectId],
+    queryFn: () => fetchSprints({ projectId: selectedProjectId }),
+    enabled: Boolean(selectedProjectId),
+  });
+  const availableEpics = useMemo(
+    () =>
+      (Array.isArray(selectedProjectEpicsData) ? selectedProjectEpicsData : []).filter(
+        (epic) => String(epic?.status || "ACTIVE") !== "ARCHIVED"
+      ),
+    [selectedProjectEpicsData]
+  );
+  const availableSprints = useMemo(
+    () =>
+      (Array.isArray(selectedProjectSprintsData) ? selectedProjectSprintsData : [])
+        .filter((sprint) => ["ACTIVE", "PLANNED"].includes(String(sprint?.state || "")))
+        .sort((left, right) => {
+          const stateDelta =
+            (left.state === "ACTIVE" ? 0 : 1) - (right.state === "ACTIVE" ? 0 : 1);
+
+          if (stateDelta !== 0) {
+            return stateDelta;
+          }
+
+          return new Date(left.startDate || left.createdAt || 0) -
+            new Date(right.startDate || right.createdAt || 0);
+        }),
+    [selectedProjectSprintsData]
+  );
   const availableTeams = useMemo(
     () => getAvailableTeams(projects, filters.projectId),
     [filters.projectId, projects]
@@ -338,6 +392,49 @@ const IssuesPage = () => {
     }));
   }, [availableAssignees, filters.assigneeId]);
 
+  useEffect(() => {
+    if (selectedProjectId && !areSelectedProjectEpicsFetched) {
+      return;
+    }
+
+    if (
+      filters.epicId === "all" ||
+      filters.epicId === "unassigned" ||
+      availableEpics.some((epic) => String(epic._id) === String(filters.epicId))
+    ) {
+      return;
+    }
+
+    setFilters((current) => ({
+      ...current,
+      epicId: "all",
+    }));
+  }, [areSelectedProjectEpicsFetched, availableEpics, filters.epicId, selectedProjectId]);
+
+  useEffect(() => {
+    if (selectedProjectId && !areSelectedProjectSprintsFetched) {
+      return;
+    }
+
+    if (
+      filters.sprintId === "all" ||
+      filters.sprintId === "backlog" ||
+      availableSprints.some((sprint) => String(sprint._id) === String(filters.sprintId))
+    ) {
+      return;
+    }
+
+    setFilters((current) => ({
+      ...current,
+      sprintId: "all",
+    }));
+  }, [
+    areSelectedProjectSprintsFetched,
+    availableSprints,
+    filters.sprintId,
+    selectedProjectId,
+  ]);
+
   const {
     data: issuesData = [],
     isLoading: isIssuesLoading,
@@ -350,6 +447,8 @@ const IssuesPage = () => {
       role,
       filters.projectId,
       filters.teamId,
+      filters.epicId,
+      filters.sprintId,
       filters.assigneeId,
       filters.type,
       deferredSearch,
@@ -365,6 +464,8 @@ const IssuesPage = () => {
         projectId:
           filters.projectId === ALL_PROJECTS_VALUE ? "" : filters.projectId,
         teamId: filters.teamId,
+        epicId: filters.epicId,
+        sprintId: filters.sprintId,
         assigneeId: filters.assigneeId,
         type: filters.type,
         status: filters.status,
@@ -554,6 +655,8 @@ const IssuesPage = () => {
         ...current,
         projectId: nextProjectId,
         teamId: nextTeamId,
+        epicId: "all",
+        sprintId: "all",
         assigneeId: nextAvailableAssignees.some(
           (assignee) => resolveUserId(assignee) === String(current.assigneeId)
         )
@@ -573,6 +676,7 @@ const IssuesPage = () => {
     setFilters((current) => ({
       ...current,
       teamId,
+      sprintId: "all",
       assigneeId: nextAvailableAssignees.some(
         (assignee) => resolveUserId(assignee) === String(current.assigneeId)
       )
@@ -585,6 +689,20 @@ const IssuesPage = () => {
     setFilters((current) => ({
       ...current,
       assigneeId,
+    }));
+  };
+
+  const handleEpicChange = (epicId) => {
+    setFilters((current) => ({
+      ...current,
+      epicId,
+    }));
+  };
+
+  const handleSprintChange = (sprintId) => {
+    setFilters((current) => ({
+      ...current,
+      sprintId,
     }));
   };
 
@@ -616,6 +734,8 @@ const IssuesPage = () => {
       filters.dateTo ||
       filters.projectId !== ALL_PROJECTS_VALUE ||
       filters.teamId !== "all" ||
+      filters.epicId !== "all" ||
+      filters.sprintId !== "all" ||
       filters.assigneeId !== "all" ||
       filters.type !== "all" ||
       filters.search.trim()
@@ -646,6 +766,8 @@ const IssuesPage = () => {
         filters={filters}
         projects={projects}
         teams={availableTeams}
+        epics={availableEpics}
+        sprints={availableSprints}
         assignees={availableAssignees}
         visibleIssueCount={filteredIssues.length}
         activeStatusLabel={activeStatusLabel}
@@ -654,6 +776,8 @@ const IssuesPage = () => {
         isCreateDisabled={!projects.length || !canCreateIssue}
         onProjectChange={handleProjectChange}
         onTeamChange={handleTeamChange}
+        onEpicChange={handleEpicChange}
+        onSprintChange={handleSprintChange}
         onAssigneeChange={handleAssigneeChange}
         onTypeChange={handleTypeChange}
         onSearchChange={handleSearchChange}

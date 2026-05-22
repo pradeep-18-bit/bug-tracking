@@ -396,6 +396,12 @@ export const resolveIssueAssignee = (issue) =>
 export const resolveIssueTeamId = (issue) =>
   String(issue?.teamId?._id || issue?.teamId || "");
 
+export const resolveIssueEpicId = (issue) =>
+  String(issue?.epicId?._id || issue?.epicId || "");
+
+export const resolveIssueSprintId = (issue) =>
+  String(issue?.sprintId?._id || issue?.sprintId || "");
+
 export const resolveIssueDependencyId = (issue) =>
   String(issue?.dependsOnIssueId?._id || issue?.dependsOnIssueId || "");
 
@@ -494,6 +500,32 @@ export const filterIssues = (issues, filters) => {
     }
 
     if (filters.teamId !== "all" && resolveIssueTeamId(issue) !== String(filters.teamId)) {
+      return false;
+    }
+
+    if (filters.epicId === "unassigned" && resolveIssueEpicId(issue)) {
+      return false;
+    }
+
+    if (
+      filters.epicId &&
+      filters.epicId !== "all" &&
+      filters.epicId !== "unassigned" &&
+      resolveIssueEpicId(issue) !== String(filters.epicId)
+    ) {
+      return false;
+    }
+
+    if (filters.sprintId === "backlog" && resolveIssueSprintId(issue)) {
+      return false;
+    }
+
+    if (
+      filters.sprintId &&
+      filters.sprintId !== "all" &&
+      filters.sprintId !== "backlog" &&
+      resolveIssueSprintId(issue) !== String(filters.sprintId)
+    ) {
       return false;
     }
 

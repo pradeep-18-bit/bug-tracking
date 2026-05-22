@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Epic = require("../models/Epic");
 const Issue = require("../models/Issue");
+const Project = require("../models/Project");
 const asyncHandler = require("../utils/asyncHandler");
 const {
   canManageProjectPlanning,
@@ -88,6 +89,17 @@ const createEpic = asyncHandler(async (req, res) => {
     createdBy: req.user._id,
   });
 
+  await Project.updateOne(
+    {
+      _id: project._id,
+    },
+    {
+      $addToSet: {
+        epics: epic.name,
+      },
+    }
+  );
+
   res.status(201).json(epic);
 });
 
@@ -116,6 +128,8 @@ const updateEpic = asyncHandler(async (req, res) => {
     throw new Error("You do not have permission to update epics for this project");
   }
 
+  const previousName = epic.name;
+
   ["name", "description", "color", "status"].forEach((field) => {
     if (typeof req.body[field] !== "undefined") {
       epic[field] =
@@ -124,6 +138,29 @@ const updateEpic = asyncHandler(async (req, res) => {
   });
 
   await epic.save();
+
+  if (previousName !== epic.name) {
+    await Project.updateOne(
+      {
+        _id: epic.projectId,
+      },
+      {
+        $pull: {
+          epics: previousName,
+        },
+      }
+    );
+    await Project.updateOne(
+      {
+        _id: epic.projectId,
+      },
+      {
+        $addToSet: {
+          epics: epic.name,
+        },
+      }
+    );
+  }
 
   res.status(200).json(epic);
 });
@@ -213,6 +250,16 @@ const deleteEpic = asyncHandler(async (req, res) => {
   await Epic.deleteOne({
     _id: epic._id,
   });
+  await Project.updateOne(
+    {
+      _id: epic.projectId._id,
+    },
+    {
+      $pull: {
+        epics: epic.name,
+      },
+    }
+  );
 
   res.status(200).json({
     message: "Epic deleted successfully",

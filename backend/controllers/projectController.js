@@ -23,6 +23,7 @@ const {
   logProjectTeamsWarning,
   summarizeTeams,
 } = require("../utils/projectTeamDiagnostics");
+const { ISSUE_STATUS } = require("../utils/issueStatus");
 const { attachMembersToTeams } = require("../utils/teamRelations");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 const { PLANNING_ORDER_INCREMENT } = require("../utils/planningOrder");
@@ -31,7 +32,18 @@ const { createUniqueProjectShortCode } = require("../utils/displayIds");
 const projectPopulation = [
   { path: "createdBy", select: "name email role workspaceId" },
   { path: "manager", select: "name email role workspaceId" },
+  { path: "projectManager", select: "name email role workspaceId" },
   { path: "teamLead", select: "name email role workspaceId" },
+  { path: "qaLead", select: "name email role workspaceId" },
+];
+
+const PROJECT_STATUS_VALUES = ["Active", "On Hold", "Completed"];
+const PROJECT_PRIORITY_VALUES = ["Low", "Medium", "High", "Critical"];
+const CLOSED_DETACH_STATUS_VALUES = [
+  ISSUE_STATUS.DONE,
+  ISSUE_STATUS.CLOSED,
+  ISSUE_STATUS.REJECTED,
+  ISSUE_STATUS.DEFERRED,
 ];
 
 const populateProject = (target) => target.populate(projectPopulation);
@@ -57,6 +69,72 @@ const parseProjectCompletedValue = (value) => {
       message: "Project status must include isCompleted as a boolean",
     },
   };
+};
+
+const normalizeProjectStatus = (value, fallback = "Active") => {
+  if (value === null || typeof value === "undefined" || value === "") {
+    return {
+      value: fallback,
+    };
+  }
+
+  const normalizedValue = String(value).trim().toLowerCase();
+  const status = PROJECT_STATUS_VALUES.find(
+    (item) => item.toLowerCase() === normalizedValue
+  );
+
+  if (!status) {
+    return {
+      error: {
+        status: 400,
+        message: `Project status must be ${PROJECT_STATUS_VALUES.join(", ")}`,
+      },
+    };
+  }
+
+  return {
+    value: status,
+  };
+};
+
+const normalizeProjectPriority = (value, fallback = "Medium") => {
+  if (value === null || typeof value === "undefined" || value === "") {
+    return {
+      value: fallback,
+    };
+  }
+
+  const normalizedValue = String(value).trim().toLowerCase();
+  const priority = PROJECT_PRIORITY_VALUES.find(
+    (item) => item.toLowerCase() === normalizedValue
+  );
+
+  if (!priority) {
+    return {
+      error: {
+        status: 400,
+        message: `Project priority must be ${PROJECT_PRIORITY_VALUES.join(", ")}`,
+      },
+    };
+  }
+
+  return {
+    value: priority,
+  };
+};
+
+const normalizeThemeColor = (value, fallback = "#2563EB") => {
+  if (value === null || typeof value === "undefined" || value === "") {
+    return fallback;
+  }
+
+  const color = String(value).trim();
+
+  if (/^#[0-9A-Fa-f]{6}$/.test(color)) {
+    return color.toUpperCase();
+  }
+
+  return fallback;
 };
 
 const normalizeProjectEpics = (value) => {
@@ -419,7 +497,12 @@ const createProject = asyncHandler(async (req, res) => {
     description = "",
     epics = [],
     manager = null,
+    projectManager = null,
     teamLead = null,
+    qaLead = null,
+    status = "Active",
+    priority = "Medium",
+    themeColor = "#2563EB",
   } = req.body;
 
   if (!userId) {
@@ -437,11 +520,25 @@ const createProject = asyncHandler(async (req, res) => {
     throw new Error("Project name is required");
   }
 
-  const [managerResult, teamLeadResult] = await Promise.all([
+  const statusResult = normalizeProjectStatus(status, "Active");
+  const priorityResult = normalizeProjectPriority(priority, "Medium");
+
+  if (statusResult.error) {
+    res.status(statusResult.error.status);
+    throw new Error(statusResult.error.message);
+  }
+
+  if (priorityResult.error) {
+    res.status(priorityResult.error.status);
+    throw new Error(priorityResult.error.message);
+  }
+
+  const requestedManager = projectManager || manager;
+  const [managerResult, teamLeadResult, qaLeadResult] = await Promise.all([
     loadWorkspaceUserAssignment({
-      userId: manager,
+      userId: requestedManager,
       workspaceId,
-      label: "Manager",
+      label: "Project manager",
       allowedRoles: ["Admin", "Manager"],
     }),
     loadWorkspaceUserAssignment({
@@ -449,6 +546,12 @@ const createProject = asyncHandler(async (req, res) => {
       workspaceId,
       label: "Team lead",
       allowedRoles: ["Admin", "Manager", "Developer"],
+    }),
+    loadWorkspaceUserAssignment({
+      userId: qaLead,
+      workspaceId,
+      label: "QA lead",
+      allowedRoles: ["Admin", "Manager", "Tester"],
     }),
   ]);
 
@@ -462,6 +565,11 @@ const createProject = asyncHandler(async (req, res) => {
     throw new Error(teamLeadResult.error.message);
   }
 
+  if (qaLeadResult.error) {
+    res.status(qaLeadResult.error.status);
+    throw new Error(qaLeadResult.error.message);
+  }
+
   const shortCode = await createUniqueProjectShortCode({
     Project,
     name,
@@ -472,12 +580,17 @@ const createProject = asyncHandler(async (req, res) => {
     name: name.trim(),
     description: typeof description === "string" ? description.trim() : "",
     shortCode,
+    status: statusResult.value,
+    priority: priorityResult.value,
+    themeColor: normalizeThemeColor(themeColor),
     epics: normalizeProjectEpics(epics),
     manager: managerResult.value,
+    projectManager: managerResult.value,
     teamLead: teamLeadResult.value,
+    qaLead: qaLeadResult.value,
     workspaceId,
     createdBy: userId,
-    isCompleted: false,
+    isCompleted: statusResult.value === "Completed",
   });
   const normalizedEpics = normalizeProjectEpics(epics);
 
@@ -498,6 +611,164 @@ const createProject = asyncHandler(async (req, res) => {
 
   res.status(201).json(await buildProjectResponse(project._id));
 });
+
+const updateProject = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Unauthorized");
+  }
+
+  if (!hasAdminAccess(req.user.role)) {
+    res.status(403);
+    throw new Error("Only admins and managers can update projects");
+  }
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid project id");
+  }
+
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const project = await Project.findOne({
+    _id: req.params.id,
+    workspaceId,
+  });
+
+  if (!project) {
+    res.status(404);
+    throw new Error("Project not found");
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body, "name")) {
+    const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
+
+    if (!name) {
+      res.status(400);
+      throw new Error("Project name is required");
+    }
+
+    project.name = name;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body, "description")) {
+    project.description =
+      typeof req.body.description === "string" ? req.body.description.trim() : "";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body, "status")) {
+    const statusResult = normalizeProjectStatus(req.body.status, project.status || "Active");
+
+    if (statusResult.error) {
+      res.status(statusResult.error.status);
+      throw new Error(statusResult.error.message);
+    }
+
+    project.status = statusResult.value;
+    project.isCompleted = statusResult.value === "Completed";
+  } else if (Object.prototype.hasOwnProperty.call(req.body, "isCompleted")) {
+    const completedValueResult = parseProjectCompletedValue(req.body.isCompleted);
+
+    if (completedValueResult.error) {
+      res.status(completedValueResult.error.status);
+      throw new Error(completedValueResult.error.message);
+    }
+
+    project.isCompleted = completedValueResult.value;
+    project.status = completedValueResult.value ? "Completed" : "Active";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body, "priority")) {
+    const priorityResult = normalizeProjectPriority(
+      req.body.priority,
+      project.priority || "Medium"
+    );
+
+    if (priorityResult.error) {
+      res.status(priorityResult.error.status);
+      throw new Error(priorityResult.error.message);
+    }
+
+    project.priority = priorityResult.value;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body, "themeColor")) {
+    project.themeColor = normalizeThemeColor(req.body.themeColor, project.themeColor);
+  }
+
+  const hasProjectManagerInput =
+    Object.prototype.hasOwnProperty.call(req.body, "projectManager") ||
+    Object.prototype.hasOwnProperty.call(req.body, "manager");
+  const hasTeamLeadInput = Object.prototype.hasOwnProperty.call(req.body, "teamLead");
+  const hasQaLeadInput = Object.prototype.hasOwnProperty.call(req.body, "qaLead");
+
+  if (hasProjectManagerInput || hasTeamLeadInput || hasQaLeadInput) {
+    const [managerResult, teamLeadResult, qaLeadResult] = await Promise.all([
+      hasProjectManagerInput
+        ? loadWorkspaceUserAssignment({
+            userId: Object.prototype.hasOwnProperty.call(req.body, "projectManager")
+              ? req.body.projectManager
+              : req.body.manager,
+            workspaceId,
+            label: "Project manager",
+            allowedRoles: ["Admin", "Manager"],
+          })
+        : Promise.resolve({ value: project.projectManager || project.manager || null }),
+      hasTeamLeadInput
+        ? loadWorkspaceUserAssignment({
+            userId: req.body.teamLead,
+            workspaceId,
+            label: "Team lead",
+            allowedRoles: ["Admin", "Manager", "Developer"],
+          })
+        : Promise.resolve({ value: project.teamLead || null }),
+      hasQaLeadInput
+        ? loadWorkspaceUserAssignment({
+            userId: req.body.qaLead,
+            workspaceId,
+            label: "QA lead",
+            allowedRoles: ["Admin", "Manager", "Tester"],
+          })
+        : Promise.resolve({ value: project.qaLead || null }),
+    ]);
+
+    if (managerResult.error) {
+      res.status(managerResult.error.status);
+      throw new Error(managerResult.error.message);
+    }
+
+    if (teamLeadResult.error) {
+      res.status(teamLeadResult.error.status);
+      throw new Error(teamLeadResult.error.message);
+    }
+
+    if (qaLeadResult.error) {
+      res.status(qaLeadResult.error.status);
+      throw new Error(qaLeadResult.error.message);
+    }
+
+    if (hasProjectManagerInput) {
+      project.manager = managerResult.value;
+      project.projectManager = managerResult.value;
+    }
+
+    if (hasTeamLeadInput) {
+      project.teamLead = teamLeadResult.value;
+    }
+
+    if (hasQaLeadInput) {
+      project.qaLead = qaLeadResult.value;
+    }
+  }
+
+  await project.save();
+
+  res.status(200).json({
+    message: "Project updated successfully",
+    ...(await buildProjectResponse(project._id)),
+  });
+});
+
+const updateProjectLeadership = updateProject;
 
 const deleteProject = asyncHandler(async (req, res) => {
   if (!req.user) {
@@ -541,6 +812,9 @@ const deleteProject = asyncHandler(async (req, res) => {
         })
       : Promise.resolve(),
     Issue.deleteMany({
+      projectId: project._id,
+    }),
+    Epic.deleteMany({
       projectId: project._id,
     }),
     ProjectTeam.deleteMany({
@@ -812,6 +1086,23 @@ const detachProjectTeam = asyncHandler(async (req, res) => {
     throw new Error("This team is not attached to the project");
   }
 
+  const activeIssueCount = await Issue.countDocuments({
+    projectId: project._id,
+    teamId: team._id,
+    status: {
+      $nin: CLOSED_DETACH_STATUS_VALUES,
+    },
+  });
+
+  if (activeIssueCount > 0) {
+    res.status(409);
+    throw new Error(
+      `Cannot detach ${team.name} while ${activeIssueCount} active work item${
+        activeIssueCount === 1 ? " is" : "s are"
+      } assigned to this team. Reassign or close the work first.`
+    );
+  }
+
   await Promise.all([
     projectTeam
       ? ProjectTeam.deleteOne({
@@ -873,6 +1164,7 @@ const updateProjectStatus = asyncHandler(async (req, res) => {
   }
 
   project.isCompleted = completedValueResult.value;
+  project.status = completedValueResult.value ? "Completed" : "Active";
   await project.save();
 
   res.status(200).json({
@@ -1031,6 +1323,8 @@ module.exports = {
   getProjects,
   getProjectTeams,
   createProject,
+  updateProject,
+  updateProjectLeadership,
   deleteProject,
   attachProjectTeam,
   detachProjectTeam,

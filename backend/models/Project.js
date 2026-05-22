@@ -28,6 +28,28 @@ const projectSchema = new Schema(
       default: 0,
       min: 0,
     },
+    status: {
+      type: String,
+      enum: {
+        values: ["Active", "On Hold", "Completed"],
+        message: "Project status must be Active, On Hold, or Completed",
+      },
+      default: "Active",
+      index: true,
+    },
+    priority: {
+      type: String,
+      enum: {
+        values: ["Low", "Medium", "High", "Critical"],
+        message: "Project priority must be Low, Medium, High, or Critical",
+      },
+      default: "Medium",
+    },
+    themeColor: {
+      type: String,
+      trim: true,
+      default: "#2563EB",
+    },
     epics: {
       type: [
         {
@@ -43,7 +65,19 @@ const projectSchema = new Schema(
       default: null,
       index: true,
     },
+    projectManager: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
     teamLead: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    qaLead: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,

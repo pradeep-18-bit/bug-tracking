@@ -11,6 +11,8 @@ const IssuesToolbar = ({
   filters,
   projects = [],
   teams = [],
+  epics = [],
+  sprints = [],
   assignees = [],
   visibleIssueCount = 0,
   activeStatusLabel = "",
@@ -19,6 +21,8 @@ const IssuesToolbar = ({
   isCreateDisabled = false,
   onProjectChange,
   onTeamChange,
+  onEpicChange,
+  onSprintChange,
   onAssigneeChange,
   onTypeChange,
   onSearchChange,
@@ -51,7 +55,7 @@ const IssuesToolbar = ({
           </Button>
         </div>
 
-        <div className="grid gap-3 xl:grid-cols-[220px_220px_220px_200px_minmax(0,1fr)]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[180px_180px_180px_180px_180px_160px_minmax(0,1fr)]">
           <label className="space-y-2">
             <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
               Project
@@ -103,6 +107,46 @@ const IssuesToolbar = ({
               {assignees.map((assignee) => (
                 <option key={assignee._id} value={assignee._id}>
                   {assignee.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-2">
+            <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+              Epic
+            </span>
+            <select
+              className="field-select"
+              value={filters.epicId}
+              onChange={(event) => onEpicChange(event.target.value)}
+              disabled={!selectedProject}
+            >
+              <option value="all">All epics</option>
+              <option value="unassigned">No epic</option>
+              {epics.map((epic) => (
+                <option key={epic._id} value={epic._id}>
+                  {epic.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-2">
+            <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
+              Sprint
+            </span>
+            <select
+              className="field-select"
+              value={filters.sprintId}
+              onChange={(event) => onSprintChange(event.target.value)}
+              disabled={!selectedProject}
+            >
+              <option value="all">All sprints</option>
+              <option value="backlog">Backlog</option>
+              {sprints.map((sprint) => (
+                <option key={sprint._id} value={sprint._id}>
+                  {sprint.name}
                 </option>
               ))}
             </select>

@@ -219,7 +219,12 @@ const serializeProjectsWithRelations = async (projects = []) => {
       workspaceId: normalizeWorkspaceId(project.workspaceId),
       createdBy: sanitizeUser(project.createdBy),
       manager: sanitizeProjectUser(project.manager),
+      projectManager: sanitizeProjectUser(project.projectManager || project.manager),
       teamLead: sanitizeProjectUser(project.teamLead),
+      qaLead: sanitizeProjectUser(project.qaLead),
+      status: project.status || (project.isCompleted ? "Completed" : "Active"),
+      priority: project.priority || "Medium",
+      themeColor: project.themeColor || "#2563EB",
       epics: Array.isArray(project.epics)
         ? project.epics
             .map((epic) => (typeof epic === "string" ? epic.trim() : ""))
@@ -308,7 +313,9 @@ const buildProjectAccessQuery = async (user) => {
   const accessConditions = [
     { createdBy: userId },
     { manager: userId },
+    { projectManager: userId },
     { teamLead: userId },
+    { qaLead: userId },
   ];
 
   if (teamProjectIds.length) {

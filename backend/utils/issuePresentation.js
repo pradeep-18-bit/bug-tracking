@@ -11,7 +11,8 @@ const issuePopulation = [
   { path: "reporter", select: "name email role" },
   {
     path: "projectId",
-    select: "name shortCode description createdBy isCompleted manager teamLead",
+    select:
+      "name shortCode description createdBy isCompleted status priority themeColor manager projectManager teamLead qaLead",
   },
   { path: "teamId", select: "name description workspaceId" },
   { path: "epicId", select: "name color status planningOrder" },

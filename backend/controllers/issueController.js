@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Comment = require("../models/Comment");
+const Epic = require("../models/Epic");
 const Issue = require("../models/Issue");
 const IssueHistory = require("../models/IssueHistory");
 const Project = require("../models/Project");
@@ -153,7 +154,7 @@ const buildHighPriorityCondition = () => ({
 const getAccessibleProjectIds = async (user) => {
   const workspaceId = normalizeWorkspaceId(user.workspaceId);
 
-  if (user?.role === ROLE_ADMIN) {
+  if (hasAdminAccess(user?.role)) {
     return Project.find({
       workspaceId,
     }).distinct("_id");
@@ -166,7 +167,9 @@ const getAccessibleProjectIds = async (user) => {
     $or: [
       { createdBy: userId },
       { manager: userId },
+      { projectManager: userId },
       { teamLead: userId },
+      { qaLead: userId },
       ...(teamProjectIds.length
         ? [
             {
@@ -1065,6 +1068,104 @@ const ensureDependencyIssueForProject = async ({
   };
 };
 
+const ensureEpicForProject = async ({ epicId, projectId, requireActive = false }) => {
+  if (!epicId) {
+    return {
+      epic: null,
+    };
+  }
+
+  if (!mongoose.isValidObjectId(epicId)) {
+    return {
+      error: {
+        status: 400,
+        message: "Invalid epic id",
+      },
+    };
+  }
+
+  const query = {
+    _id: epicId,
+    projectId,
+  };
+
+  if (requireActive) {
+    query.status = "ACTIVE";
+  }
+
+  const epic = await Epic.findOne(query)
+    .select("_id name status")
+    .lean();
+
+  if (!epic) {
+    return {
+      error: {
+        status: 404,
+        message: "Selected epic could not be found in this project",
+      },
+    };
+  }
+
+  return {
+    epic,
+  };
+};
+
+const ensureSprintForIssue = async ({ sprintId, projectId, teamId }) => {
+  if (!sprintId) {
+    return {
+      sprint: null,
+    };
+  }
+
+  if (!mongoose.isValidObjectId(sprintId)) {
+    return {
+      error: {
+        status: 400,
+        message: "Invalid sprint id",
+      },
+    };
+  }
+
+  const sprint = await Sprint.findOne({
+    _id: sprintId,
+    projectId,
+  })
+    .select("_id name teamId state")
+    .lean();
+
+  if (!sprint) {
+    return {
+      error: {
+        status: 404,
+        message: "Selected sprint could not be found in this project",
+      },
+    };
+  }
+
+  if (sprint.state === "COMPLETED") {
+    return {
+      error: {
+        status: 400,
+        message: "Completed sprints cannot receive new issues",
+      },
+    };
+  }
+
+  if (sprint.teamId && String(sprint.teamId) !== String(teamId || "")) {
+    return {
+      error: {
+        status: 400,
+        message: "This issue team does not match the selected sprint scope",
+      },
+    };
+  }
+
+  return {
+    sprint,
+  };
+};
+
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const parseDateFilterInput = (value, label, { endOfDay = false } = {}) => {
@@ -1234,6 +1335,19 @@ const buildIssueQueryFromRequest = async (
     }
 
     query.teamId = req.query.teamId;
+  }
+
+  if (req.query.epicId && req.query.epicId !== "all") {
+    if (req.query.epicId === "unassigned") {
+      query.epicId = null;
+    } else {
+      if (!mongoose.isValidObjectId(req.query.epicId)) {
+        res.status(400);
+        throw new Error("Invalid epic id filter");
+      }
+
+      query.epicId = req.query.epicId;
+    }
   }
 
   if (req.query.sprintId && req.query.sprintId !== "all") {
@@ -1849,10 +1963,15 @@ const createIssue = asyncHandler(async (req, res) => {
     priority,
     projectId,
     teamId,
+    epicId,
+    sprintId,
     dueAt,
     dependsOnIssueId,
   } = req.body;
   const assigneeId = resolveAssigneeInput(req.body);
+  const hasEpicInput = hasOwnField(req.body, "epicId");
+  const hasSprintInput = hasOwnField(req.body, "sprintId");
+  const canAssignPlanningFields = hasAdminAccess(req.user?.role);
   const normalizedType = getCanonicalIssueType(type, ISSUE_TYPES.TASK);
   const isBug = normalizedType === ISSUE_TYPES.BUG;
   const requestedStatus = isBug
@@ -1904,6 +2023,11 @@ const createIssue = asyncHandler(async (req, res) => {
   if (req.user.role === "Tester" && normalizedType !== ISSUE_TYPES.BUG) {
     res.status(403);
     throw new Error("Testers can only report bug issues");
+  }
+
+  if (!canAssignPlanningFields && ((hasEpicInput && epicId) || (hasSprintInput && sprintId))) {
+    res.status(403);
+    throw new Error("Only admins and managers can assign epic or sprint during creation");
   }
 
   if (isBug && statusResult.value !== BUG_STATUS.NEW) {
@@ -1989,6 +2113,48 @@ const createIssue = asyncHandler(async (req, res) => {
     throw new Error(dependencyResult.error.message);
   }
 
+  let epicResult = {
+    epic: null,
+  };
+  let sprintResult = {
+    sprint: null,
+  };
+
+  if (canAssignPlanningFields) {
+    const activeEpicCount = await Epic.countDocuments({
+      projectId: project._id,
+      workspaceId,
+      status: "ACTIVE",
+    });
+
+    if (activeEpicCount > 0 && !epicId) {
+      res.status(400);
+      throw new Error("Epic is required for projects that contain epics");
+    }
+
+    epicResult = await ensureEpicForProject({
+      epicId: epicId || null,
+      projectId: project._id,
+      requireActive: true,
+    });
+
+    if (epicResult.error) {
+      res.status(epicResult.error.status);
+      throw new Error(epicResult.error.message);
+    }
+
+    sprintResult = await ensureSprintForIssue({
+      sprintId: sprintId || null,
+      projectId: project._id,
+      teamId,
+    });
+
+    if (sprintResult.error) {
+      res.status(sprintResult.error.status);
+      throw new Error(sprintResult.error.message);
+    }
+  }
+
   const normalizedPriority = isBug
     ? normalizeBugPriority(priority, "")
     : priority;
@@ -2057,7 +2223,7 @@ const createIssue = asyncHandler(async (req, res) => {
 
   const planningOrder = await getNextPlanningOrder(Issue, {
     projectId,
-    sprintId: null,
+    sprintId: sprintResult.sprint?._id || null,
   });
   const displayBugId = await getNextIssueDisplayId({
     Project,
@@ -2076,6 +2242,8 @@ const createIssue = asyncHandler(async (req, res) => {
     reporter: req.user._id,
     projectId,
     teamId,
+    epicId: epicResult.epic?._id || null,
+    sprintId: sprintResult.sprint?._id || null,
     dueAt: dueAtResult.value,
     dependsOnIssueId: dependsOnIssueId || null,
     bugDetails,
@@ -2096,6 +2264,8 @@ const createIssue = asyncHandler(async (req, res) => {
       type: issue.type,
       priority: issue.priority,
       status: issue.status,
+      epicId: epicResult.epic?._id || null,
+      sprintId: sprintResult.sprint?._id || null,
     },
   });
 
@@ -2220,6 +2390,8 @@ const updateIssue = asyncHandler(async (req, res) => {
           "priority",
           "status",
           "teamId",
+          "epicId",
+          "sprintId",
           "assigneeId",
           "assignee",
           "dueAt",
@@ -2405,10 +2577,20 @@ const updateIssue = asyncHandler(async (req, res) => {
   }
 
   const hasTeamChange = hasOwnField(req.body, "teamId");
+  const hasEpicChange = hasOwnField(req.body, "epicId");
+  const hasSprintChange = hasOwnField(req.body, "sprintId");
   const hasAssigneeChange = hasAssigneeInput(req.body);
   const hasDueAtChange = hasOwnField(req.body, "dueAt");
   const hasDependencyChange = hasOwnField(req.body, "dependsOnIssueId");
   const nextTeamId = hasTeamChange ? req.body.teamId || null : issue.teamId || null;
+  const nextEpicId =
+    hasEpicChange || req.body.projectId
+      ? req.body.epicId || null
+      : issue.epicId || null;
+  const nextSprintId =
+    hasSprintChange || req.body.projectId
+      ? req.body.sprintId || null
+      : issue.sprintId || null;
   const nextAssigneeId = hasAssigneeChange
     ? resolveAssigneeInput(req.body) || null
     : issue.assignee || null;
@@ -2469,6 +2651,31 @@ const updateIssue = asyncHandler(async (req, res) => {
     if (teamResult.error) {
       res.status(teamResult.error.status);
       throw new Error(teamResult.error.message);
+    }
+  }
+
+  if (hasEpicChange || req.body.projectId) {
+    const epicResult = await ensureEpicForProject({
+      epicId: nextEpicId,
+      projectId: targetProject?._id || issue.projectId,
+    });
+
+    if (epicResult.error) {
+      res.status(epicResult.error.status);
+      throw new Error(epicResult.error.message);
+    }
+  }
+
+  if (hasSprintChange || req.body.projectId || (hasTeamChange && nextSprintId)) {
+    const sprintResult = await ensureSprintForIssue({
+      sprintId: nextSprintId,
+      projectId: targetProject?._id || issue.projectId,
+      teamId: nextTeamId,
+    });
+
+    if (sprintResult.error) {
+      res.status(sprintResult.error.status);
+      throw new Error(sprintResult.error.message);
     }
   }
 
@@ -2571,6 +2778,24 @@ const updateIssue = asyncHandler(async (req, res) => {
       toValue: nextTeamId || null,
     });
     issue.teamId = nextTeamId;
+  }
+
+  if (hasEpicChange || req.body.projectId) {
+    changeEntries.push({
+      field: "epicId",
+      fromValue: issue.epicId || null,
+      toValue: nextEpicId || null,
+    });
+    issue.epicId = nextEpicId;
+  }
+
+  if (hasSprintChange || req.body.projectId) {
+    changeEntries.push({
+      field: "sprintId",
+      fromValue: issue.sprintId || null,
+      toValue: nextSprintId || null,
+    });
+    issue.sprintId = nextSprintId;
   }
 
   if (hasAssigneeChange) {

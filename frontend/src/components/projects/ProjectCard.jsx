@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import Select from "react-select";
 import {
@@ -6,11 +7,13 @@ import {
   Bug,
   CheckCircle2,
   ClipboardList,
+  FolderTree,
   Layers3,
   Link2,
   ListChecks,
   LoaderCircle,
   RotateCcw,
+  Settings2,
   Trash2,
   Users,
   Video,
@@ -29,7 +32,9 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { formatDate, getInitials } from "@/lib/utils";
 import { getProjectTeams } from "@/lib/project-teams";
+import { fetchEpics } from "@/lib/api";
 import { memberSelectStyles } from "@/components/projects/memberSelectTheme";
+import ProjectManageDialog from "@/components/projects/ProjectManageDialog";
 
 const TEAMS_NEW_MEETING_BASE_URL = "https://teams.microsoft.com/l/meeting/new";
 const PROJECT_CARD_PALETTES = [
@@ -97,22 +102,29 @@ const formatTeamOptionLabel = (option, { context }) => {
   );
 };
 
-const StatusBadge = ({ isCompleted }) => (
+const getProjectStatus = (project) =>
+  project?.status || (project?.isCompleted ? "Completed" : "Active");
+
+const StatusBadge = ({ status = "Active" }) => (
   <span
     className={
-      isCompleted
+      status === "Completed"
         ? "inline-flex h-8 items-center gap-2 rounded-full bg-emerald-400/20 px-3 text-xs font-semibold text-emerald-50 ring-1 ring-emerald-200/30 backdrop-blur"
+        : status === "On Hold"
+          ? "inline-flex h-8 items-center gap-2 rounded-full bg-amber-400/20 px-3 text-xs font-semibold text-amber-50 ring-1 ring-amber-200/30 backdrop-blur"
         : "inline-flex h-8 items-center gap-2 rounded-full bg-white/10 px-3 text-xs font-semibold text-white ring-1 ring-white/20 backdrop-blur"
     }
   >
     <span
       className={
-        isCompleted
+        status === "Completed"
           ? "h-2 w-2 rounded-full bg-emerald-300"
+          : status === "On Hold"
+            ? "h-2 w-2 rounded-full bg-amber-300"
           : "h-2 w-2 rounded-full bg-white"
       }
     />
-    {isCompleted ? "Completed" : "Active"}
+    {status}
   </span>
 );
 
@@ -182,36 +194,125 @@ const ProjectTeamsPreview = ({ teams = [] }) => {
   );
 };
 
+const ProjectEpicsPreview = ({ epics = [], onSelectEpic }) => {
+  const visibleEpics = epics.slice(0, 4);
+  const overflowEpics = Math.max(epics.length - visibleEpics.length, 0);
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <FolderTree className="h-3.5 w-3.5 text-violet-600" />
+          <span>Epics</span>
+        </div>
+        <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-violet-50 px-2 text-xs font-semibold text-violet-700 ring-1 ring-violet-100">
+          {epics.length}
+        </span>
+      </div>
+
+      <div className="mt-3 flex min-h-[32px] flex-wrap gap-2">
+        {visibleEpics.length ? (
+          visibleEpics.map((epic) => (
+            <button
+              key={epic._id || epic.name}
+              type="button"
+              className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:-translate-y-0.5 hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+              onClick={() => onSelectEpic?.(epic)}
+              title={epic.name}
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: epic.color || "#7C3AED" }}
+              />
+              <span className="max-w-[10rem] truncate">{epic.name}</span>
+            </button>
+          ))
+        ) : (
+          <span className="text-sm text-slate-500">No epics yet</span>
+        )}
+        {overflowEpics ? (
+          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-500">
+            +{overflowEpics}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+};
+
 const ProjectCard = ({
   project,
   index = 0,
   workspaceTeams = [],
+  users = [],
   canManageProject = false,
   onAttachTeam,
+  onDetachTeam,
+  onUpdateProject,
   onUpdateStatus,
   onDeleteProject,
+  onCreateEpic,
+  onUpdateEpic,
+  onDeleteEpic,
   onOpenTeamsComposer,
   isAttachingTeam = false,
+  isUpdatingProject = false,
   isUpdatingStatus = false,
   isDeletingProject = false,
+  isSavingEpic = false,
+  deletingEpicId = "",
+  detachingTeamId = "",
   teamsErrorMessage = "",
+  usersErrorMessage = "",
 }) => {
   const navigate = useNavigate();
   const [isTeamDialogOpen, setIsTeamDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isManageDialogOpen, setIsManageDialogOpen] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [deleteConfirmationValue, setDeleteConfirmationValue] = useState("");
   const [teamError, setTeamError] = useState("");
   const [statusError, setStatusError] = useState("");
   const [teamsActionError, setTeamsActionError] = useState("");
-  const managerName = getProjectAssignmentName(project?.manager);
+  const managerName = getProjectAssignmentName(project?.projectManager || project?.manager);
   const teamLeadName = getProjectAssignmentName(project?.teamLead);
+  const projectStatus = getProjectStatus(project);
   const palette = PROJECT_CARD_PALETTES[index % PROJECT_CARD_PALETTES.length];
   const projectTitle = String(project?.name || "").trim() || "Untitled project";
   const projectCreatedAt = project?.createdAt ? formatDate(project.createdAt) : "Unknown";
   const projectShortCode = String(project?.shortCode || "").trim().toUpperCase();
 
   const attachedTeams = useMemo(() => getProjectTeams(project), [project]);
+  const fallbackEpics = useMemo(
+    () =>
+      Array.isArray(project?.epics)
+        ? project.epics
+            .map((epic, epicIndex) =>
+              typeof epic === "string"
+                ? {
+                    _id: "",
+                    name: epic,
+                    color: project?.themeColor || "#7C3AED",
+                    planningOrder: epicIndex + 1,
+                  }
+                : epic
+            )
+            .filter((epic) => epic?.name)
+        : [],
+    [project?.epics, project?.themeColor]
+  );
+  const { data: projectEpicsData = [] } = useQuery({
+    queryKey: ["project-epics", project?._id],
+    queryFn: () => fetchEpics({ projectId: project._id }),
+    enabled: Boolean(project?._id),
+  });
+  const projectEpics = useMemo(
+    () =>
+      Array.isArray(projectEpicsData) && projectEpicsData.length
+        ? projectEpicsData
+        : fallbackEpics,
+    [fallbackEpics, projectEpicsData]
+  );
   const attachedTeamIds = useMemo(
     () =>
       new Set(
@@ -359,6 +460,18 @@ const ProjectCard = ({
     setTeamsActionError("");
   };
 
+  const handleSelectEpic = (epic) => {
+    const params = new URLSearchParams({
+      projectId: project._id,
+    });
+
+    if (epic?._id) {
+      params.set("epicId", epic._id);
+    }
+
+    navigate(`/issues?${params.toString()}`);
+  };
+
   const actionButtonClass =
     "interactive-button h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-800 shadow-sm hover:border-blue-200 hover:bg-blue-50 sm:w-auto";
   const isDeleteConfirmationValid =
@@ -416,9 +529,19 @@ const ProjectCard = ({
               </div>
 
               <div className="flex shrink-0 flex-col items-end gap-2">
-                <StatusBadge isCompleted={Boolean(project.isCompleted)} />
+                <StatusBadge status={projectStatus} />
                 {canManageProject ? (
                   <div className="flex items-center gap-1.5 rounded-2xl bg-white/10 p-1 ring-1 ring-white/20 backdrop-blur">
+                    <Button
+                      aria-label="Manage Project"
+                      className="interactive-button h-9 w-9 rounded-xl bg-white/10 p-0 text-white ring-1 ring-white/10 hover:bg-white/20"
+                      title="Manage Project"
+                      type="button"
+                      onClick={() => setIsManageDialogOpen(true)}
+                    >
+                      <Settings2 className="h-4 w-4" />
+                      <span className="sr-only">Manage Project</span>
+                    </Button>
                     <Button
                       aria-label={project.isCompleted ? "Reopen Project" : "Mark as Completed"}
                       className="interactive-button h-9 w-9 rounded-xl bg-white/10 p-0 text-white ring-1 ring-white/10 hover:bg-white/20"
@@ -468,8 +591,12 @@ const ProjectCard = ({
               {project.description}
             </p>
           ) : (
-            <div className="min-h-[3rem]" aria-hidden="true" />
+            <p className="text-sm leading-6 text-slate-500">
+              No description added yet.
+            </p>
           )}
+
+          <ProjectEpicsPreview epics={projectEpics} onSelectEpic={handleSelectEpic} />
 
           {statusError ? (
             <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -526,6 +653,17 @@ const ProjectCard = ({
             {canManageProject ? (
               <Button
                 className={actionButtonClass}
+                type="button"
+                onClick={() => setIsManageDialogOpen(true)}
+              >
+                <Settings2 className="h-4 w-4" />
+                Manage Project
+              </Button>
+            ) : null}
+
+            {canManageProject ? (
+              <Button
+                className={actionButtonClass}
                 disabled={Boolean(teamsErrorMessage) || !availableTeams.length}
                 type="button"
                 onClick={() => handleTeamDialogChange(true)}
@@ -560,6 +698,30 @@ const ProjectCard = ({
           ) : null}
         </CardContent>
       </Card>
+
+      <ProjectManageDialog
+        open={isManageDialogOpen}
+        onOpenChange={setIsManageDialogOpen}
+        project={project}
+        users={users}
+        workspaceTeams={workspaceTeams}
+        epics={projectEpics}
+        canManageProject={canManageProject}
+        onUpdateProject={onUpdateProject}
+        onAttachTeam={onAttachTeam}
+        onDetachTeam={onDetachTeam}
+        onCreateEpic={onCreateEpic}
+        onUpdateEpic={onUpdateEpic}
+        onDeleteEpic={onDeleteEpic}
+        onEpicClick={handleSelectEpic}
+        isUpdatingProject={isUpdatingProject}
+        isAttachingTeam={isAttachingTeam}
+        detachingTeamId={detachingTeamId}
+        isSavingEpic={isSavingEpic}
+        deletingEpicId={deletingEpicId}
+        teamsErrorMessage={teamsErrorMessage}
+        usersErrorMessage={usersErrorMessage}
+      />
 
       <Dialog open={isTeamDialogOpen} onOpenChange={handleTeamDialogChange}>
         <DialogContent className="max-w-xl border-white/70 bg-white/92 shadow-[0_28px_80px_-40px_rgba(15,23,42,0.48)] backdrop-blur-2xl">
