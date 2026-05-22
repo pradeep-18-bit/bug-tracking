@@ -1,5 +1,6 @@
-import { createContext, useMemo, useState } from "react";
+import { createContext, useEffect, useMemo, useState } from "react";
 import {
+  AUTH_SESSION_CLEARED_EVENT,
   clearStoredSession,
   readStoredSession,
   writeStoredSession,
@@ -11,15 +12,25 @@ export const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(() => readStoredSession());
 
-  const setAuthSession = (value) => {
+  const setAuthSession = (value, options = {}) => {
     setSession(value);
-    writeStoredSession(value);
+    writeStoredSession(value, options);
   };
 
   const logout = () => {
     setSession(null);
     clearStoredSession();
   };
+
+  useEffect(() => {
+    const handleSessionCleared = () => setSession(null);
+
+    window.addEventListener(AUTH_SESSION_CLEARED_EVENT, handleSessionCleared);
+
+    return () => {
+      window.removeEventListener(AUTH_SESSION_CLEARED_EVENT, handleSessionCleared);
+    };
+  }, []);
 
   const value = useMemo(
     () => ({

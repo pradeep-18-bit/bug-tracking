@@ -24,6 +24,7 @@ const { startSprintNotificationWorker } = require("./services/sprintNotification
 const { ensureDefaultUser } = require("./utils/defaultUser");
 const syncProjectEpics = require("./utils/syncProjectEpics");
 const syncIssueStatuses = require("./utils/syncIssueStatuses");
+const syncIssueDisplayIds = require("./utils/syncIssueDisplayIds");
 const syncWorkspaceScopes = require("./utils/syncWorkspaceScopes");
 
 const app = express();
@@ -66,6 +67,7 @@ const startServer = async () => {
   await syncIssueStatuses();
   await syncWorkspaceScopes();
   await syncProjectEpics();
+  await syncIssueDisplayIds();
   startSprintNotificationWorker();
 
   app.listen(PORT, () => {

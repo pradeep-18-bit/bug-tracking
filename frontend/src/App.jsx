@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AppShell from "@/components/layout/AppShell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
@@ -36,11 +36,46 @@ const PublicRouteFallback = () => (
   </main>
 );
 
+const getSafeRedirectPath = (search = "", fallback = "") => {
+  const redirect = new URLSearchParams(search).get("redirect") || "";
+
+  if (
+    !redirect ||
+    !redirect.startsWith("/") ||
+    redirect.startsWith("//") ||
+    redirect.includes("\\")
+  ) {
+    return fallback;
+  }
+
+  try {
+    const origin =
+      typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const parsedUrl = new URL(redirect, origin);
+
+    if (parsedUrl.origin !== origin || ["/login", "/auth", "/admin"].includes(parsedUrl.pathname)) {
+      return fallback;
+    }
+
+    return `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+  } catch (error) {
+    return fallback;
+  }
+};
+
 const ProtectedRoute = ({ children, roles }) => {
   const { isAuthenticated, role } = useAuth();
+  const location = useLocation();
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    const redirectTarget = `${location.pathname}${location.search}${location.hash}`;
+
+    return (
+      <Navigate
+        to={`/login?redirect=${encodeURIComponent(redirectTarget)}`}
+        replace
+      />
+    );
   }
 
   if (roles?.length && !roles.includes(role)) {
@@ -52,9 +87,15 @@ const ProtectedRoute = ({ children, roles }) => {
 
 const PublicRoute = ({ children }) => {
   const { isAuthenticated, role } = useAuth();
+  const location = useLocation();
 
   if (isAuthenticated) {
-    return <Navigate to={getDashboardPathByRole(role)} replace />;
+    return (
+      <Navigate
+        to={getSafeRedirectPath(location.search, getDashboardPathByRole(role))}
+        replace
+      />
+    );
   }
 
   return children;

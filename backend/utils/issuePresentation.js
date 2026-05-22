@@ -9,7 +9,10 @@ const issuePopulation = [
   { path: "bugDetails.developerLead", select: "name email role" },
   { path: "dependsOnIssueId", select: "title status dueAt" },
   { path: "reporter", select: "name email role" },
-  { path: "projectId", select: "name description createdBy isCompleted manager teamLead" },
+  {
+    path: "projectId",
+    select: "name shortCode description createdBy isCompleted manager teamLead",
+  },
   { path: "teamId", select: "name description workspaceId" },
   { path: "epicId", select: "name color status planningOrder" },
   { path: "sprintId", select: "name state startDate endDate teamId startedAt completedAt" },

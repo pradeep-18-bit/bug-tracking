@@ -110,6 +110,13 @@ const issueSchema = new Schema(
       },
       default: "Medium",
     },
+    displayBugId: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: undefined,
+      index: true,
+    },
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
@@ -196,5 +203,7 @@ issueSchema.index({ projectId: 1, dueAt: 1 });
 issueSchema.index({ projectId: 1, sprintId: 1, planningOrder: 1 });
 issueSchema.index({ projectId: 1, epicId: 1, planningOrder: 1 });
 issueSchema.index({ assignee: 1, sprintId: 1, status: 1 });
+issueSchema.index({ displayBugId: 1 }, { unique: true, sparse: true });
+issueSchema.index({ projectId: 1, displayBugId: 1 });
 
 module.exports = models.Issue || model("Issue", issueSchema);

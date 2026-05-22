@@ -16,6 +16,18 @@ const projectSchema = new Schema(
       trim: true,
       default: "",
     },
+    shortCode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: undefined,
+      index: true,
+    },
+    issueSequence: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     epics: {
       type: [
         {
@@ -114,5 +126,6 @@ const projectSchema = new Schema(
 
 projectSchema.index({ workspaceId: 1, createdAt: -1 });
 projectSchema.index({ workspaceId: 1, createdBy: 1, createdAt: -1 });
+projectSchema.index({ workspaceId: 1, shortCode: 1 }, { unique: true, sparse: true });
 
 module.exports = models.Project || model("Project", projectSchema);

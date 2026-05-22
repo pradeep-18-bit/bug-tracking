@@ -1,5 +1,5 @@
 const nodemailer = require("nodemailer");
-const { generateIssueUrl } = require("../config/env");
+const { generateIssueRedirectUrl } = require("../config/env");
 const User = require("../models/User");
 const UserEmailConfig = require("../models/UserEmailConfig");
 const WorkspaceSetting = require("../models/WorkspaceSetting");
@@ -51,29 +51,29 @@ const getStatusLabel = (status = "") => {
 const createBadge = (value, color = "blue") => {
   const palette = {
     blue: {
-      background: "#1E3A8A",
-      border: "#2563EB",
-      color: "#DBEAFE",
+      background: "#EFF6FF",
+      border: "#BFDBFE",
+      color: "#1D4ED8",
     },
     green: {
-      background: "#14532D",
-      border: "#22C55E",
-      color: "#DCFCE7",
+      background: "#ECFDF5",
+      border: "#A7F3D0",
+      color: "#047857",
     },
     amber: {
-      background: "#78350F",
-      border: "#F59E0B",
-      color: "#FEF3C7",
+      background: "#FFFBEB",
+      border: "#FDE68A",
+      color: "#B45309",
     },
     red: {
-      background: "#7F1D1D",
-      border: "#EF4444",
-      color: "#FEE2E2",
+      background: "#FEF2F2",
+      border: "#FECACA",
+      color: "#B91C1C",
     },
     slate: {
-      background: "#1E293B",
-      border: "#475569",
-      color: "#E2E8F0",
+      background: "#F8FAFC",
+      border: "#E2E8F0",
+      color: "#334155",
     },
   };
   const style = palette[color] || palette.slate;
@@ -121,35 +121,53 @@ const getSeverityBadgeColor = (severity = "") => {
   return "blue";
 };
 
+const projectAccentPalette = ["#2563EB", "#0F766E", "#7C3AED", "#DB2777", "#0891B2", "#4D7C0F"];
+
+const getProjectAccentColor = (projectName = "") => {
+  const source = String(projectName || "Project");
+  const hash = source.split("").reduce((total, char) => total + char.charCodeAt(0), 0);
+
+  return projectAccentPalette[hash % projectAccentPalette.length];
+};
+
 const createDetailRow = (label, value) => `
   <tr>
-    <td style="padding: 12px 0; color: #94A3B8; font-size: 13px; width: 130px; vertical-align: top;">${escapeHtml(
+    <td style="padding: 12px 0; color: #64748B; font-size: 13px; width: 140px; vertical-align: top;">${escapeHtml(
       label
     )}</td>
-    <td style="padding: 12px 0; color: #F8FAFC; font-size: 14px; font-weight: 600; vertical-align: top;">${escapeHtml(
+    <td style="padding: 12px 0; color: #0F172A; font-size: 14px; font-weight: 700; vertical-align: top;">${escapeHtml(
       value || "N/A"
     )}</td>
   </tr>
 `;
 
-const createEmailShell = ({ preheader = "", title = "", subtitle = "", body = "" }) => `
-  <div style="margin: 0; padding: 0; background: #020617;">
+const createEmailShell = ({
+  preheader = "",
+  title = "",
+  subtitle = "",
+  body = "",
+  accentColor = "#2563EB",
+}) => `
+  <div style="margin: 0; padding: 0; background: #F1F5F9;">
     <span style="display: none; visibility: hidden; opacity: 0; color: transparent; height: 0; width: 0; overflow: hidden;">
       ${escapeHtml(preheader)}
     </span>
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background: #020617;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background: #F1F5F9;">
       <tr>
-        <td align="center" style="padding: 32px 14px;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width: 100%; max-width: 640px; border-collapse: collapse; background: #0F172A; border: 1px solid #1E293B; border-radius: 14px; overflow: hidden;">
+        <td align="center" style="padding: 34px 14px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width: 100%; max-width: 660px; border-collapse: collapse; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 48px rgba(15, 23, 42, 0.12);">
             <tr>
-              <td style="padding: 28px 28px 20px; border-bottom: 1px solid #1E293B;">
-                <p style="margin: 0 0 8px; color: #60A5FA; font-size: 12px; font-weight: 800; letter-spacing: 0; text-transform: uppercase;">Pirnav Bug Tracker</p>
-                <h1 style="margin: 0; color: #F8FAFC; font-size: 24px; line-height: 1.3; font-weight: 800;">${escapeHtml(
+              <td style="height: 6px; background: ${escapeHtml(accentColor)}; line-height: 6px; font-size: 0;">&nbsp;</td>
+            </tr>
+            <tr>
+              <td style="padding: 30px 30px 22px; border-bottom: 1px solid #E2E8F0;">
+                <p style="margin: 0 0 9px; color: ${escapeHtml(accentColor)}; font-size: 12px; font-weight: 800; letter-spacing: 0; text-transform: uppercase;">Pirnav Bug Tracker</p>
+                <h1 style="margin: 0; color: #0F172A; font-size: 24px; line-height: 1.3; font-weight: 800;">${escapeHtml(
                   title
                 )}</h1>
                 ${
                   subtitle
-                    ? `<p style="margin: 10px 0 0; color: #CBD5E1; font-size: 14px; line-height: 1.6;">${escapeHtml(
+                    ? `<p style="margin: 10px 0 0; color: #475569; font-size: 14px; line-height: 1.6;">${escapeHtml(
                         subtitle
                       )}</p>`
                     : ""
@@ -157,7 +175,7 @@ const createEmailShell = ({ preheader = "", title = "", subtitle = "", body = ""
               </td>
             </tr>
             <tr>
-              <td style="padding: 28px 28px 32px;">
+              <td style="padding: 28px 30px 34px;">
                 ${body}
               </td>
             </tr>
@@ -1273,12 +1291,15 @@ const sendIssueNotificationEmail = async ({
 };
 
 const sendIssueEmail = async (emails, issue, options = {}) => {
-  const issueUrl = generateIssueUrl(issue._id);
+  const displayIssueId = issue.displayBugId || issue._id;
+  const issueUrl = generateIssueRedirectUrl(displayIssueId);
   const priority = issue.priority || "Medium";
   const status = getStatusLabel(issue.status);
   const title = issue.title || "Untitled issue";
+  const accentColor = getProjectAccentColor(issue.projectName);
   const text = [
     `New Issue Created: ${title}`,
+    `Issue ID: ${displayIssueId}`,
     `Description: ${issue.description || "N/A"}`,
     `Project: ${issue.projectName || "N/A"}`,
     `Assigned To: ${issue.assigneeName || "Unassigned"}`,
@@ -1298,8 +1319,9 @@ const sendIssueEmail = async (emails, issue, options = {}) => {
       preheader: `New issue created: ${title}`,
       title: "New Issue Created",
       subtitle: title,
+      accentColor,
       body: `
-        <p style="margin: 0 0 18px; color: #CBD5E1; font-size: 14px; line-height: 1.7;">${escapeHtml(
+        <p style="margin: 0 0 18px; color: #475569; font-size: 14px; line-height: 1.7;">${escapeHtml(
           issue.description || "No description provided."
         )}</p>
         <div style="margin: 0 0 22px;">
@@ -1307,7 +1329,8 @@ const sendIssueEmail = async (emails, issue, options = {}) => {
           <span style="display: inline-block; width: 8px;"></span>
           ${createBadge(status, "blue")}
         </div>
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-top: 1px solid #1E293B; border-bottom: 1px solid #1E293B;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-top: 1px solid #E2E8F0; border-bottom: 1px solid #E2E8F0;">
+          ${createDetailRow("Issue ID", displayIssueId)}
           ${createDetailRow("Project", issue.projectName || "N/A")}
           ${createDetailRow("Assigned To", issue.assigneeName || "Unassigned")}
           ${createDetailRow("Created At", formatDateTime(issue.createdAt))}
@@ -1316,7 +1339,7 @@ const sendIssueEmail = async (emails, issue, options = {}) => {
         <p style="margin: 26px 0 0;">
           <a href="${escapeHtml(
             issueUrl
-          )}" style="display: inline-block; background: #2563EB; color: #FFFFFF; padding: 12px 18px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 800;">
+          )}" style="display: inline-block; background: ${escapeHtml(accentColor)}; color: #FFFFFF; padding: 12px 18px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 800;">
             View Issue
           </a>
         </p>
@@ -1327,13 +1350,14 @@ const sendIssueEmail = async (emails, issue, options = {}) => {
 };
 
 const sendBugAssignmentEmail = async (emails, bug, options = {}) => {
-  const bugUrl = generateIssueUrl(bug._id);
-  const bugId = String(bug._id || "");
+  const bugId = String(bug.displayBugId || bug._id || "");
+  const bugUrl = generateIssueRedirectUrl(bugId);
   const bugTitle = String(bug.title || "Untitled bug");
   const projectName = bug.projectName || "N/A";
   const severity = bug.severity || "N/A";
   const priority = bug.priority || "N/A";
   const description = bug.description || "N/A";
+  const accentColor = getProjectAccentColor(projectName);
   const createdDate = formatDateTime(bug.createdAt);
   const assignedByName =
     bug.assignedByName || options.assignedByName || "Tester";
@@ -1347,32 +1371,55 @@ const sendBugAssignmentEmail = async (emails, bug, options = {}) => {
     preheader: `Bug assigned: ${bugTitle}`,
     title: "Bug Assigned",
     subtitle: bugTitle,
+    accentColor,
     body: `
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; margin: 0 0 22px;">
+        <tr>
+          <td style="padding: 0 8px 8px 0;">
+            <div style="border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; background: #F8FAFC;">
+              <p style="margin: 0 0 6px; color: #64748B; font-size: 12px; font-weight: 700;">Bug ID</p>
+              <p style="margin: 0; color: #0F172A; font-size: 20px; font-weight: 800;">${escapeHtml(
+                bugId
+              )}</p>
+            </div>
+          </td>
+          <td style="padding: 0 0 8px 8px;">
+            <div style="border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; background: #F8FAFC;">
+              <p style="margin: 0 0 6px; color: #64748B; font-size: 12px; font-weight: 700;">Project</p>
+              <p style="margin: 0; color: #0F172A; font-size: 20px; font-weight: 800;">${escapeHtml(
+                projectName
+              )}</p>
+            </div>
+          </td>
+        </tr>
+      </table>
       <div style="margin: 0 0 22px;">
-        ${createBadge(severity, getSeverityBadgeColor(severity))}
+        ${createBadge(`Severity: ${severity}`, getSeverityBadgeColor(severity))}
         <span style="display: inline-block; width: 8px;"></span>
-        ${createBadge(priority, getPriorityBadgeColor(priority))}
+        ${createBadge(`Priority: ${priority}`, getPriorityBadgeColor(priority))}
       </div>
-      <p style="margin: 0 0 22px; color: #CBD5E1; font-size: 14px; line-height: 1.7;">${escapeHtml(
+      <p style="margin: 0 0 22px; color: #475569; font-size: 14px; line-height: 1.7;">${escapeHtml(
         description
       )}</p>
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-top: 1px solid #1E293B; border-bottom: 1px solid #1E293B;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-top: 1px solid #E2E8F0; border-bottom: 1px solid #E2E8F0;">
         ${createDetailRow("Bug ID", bugId)}
         ${createDetailRow("Project", projectName)}
-        ${createDetailRow("Assigned To", assignedToName)}
+        ${createDetailRow("Priority", priority)}
+        ${createDetailRow("Severity", severity)}
+        ${createDetailRow("Assigned User", assignedToName)}
         ${createDetailRow("Assigned By", assignedByText)}
         ${createDetailRow("Created Date", createdDate)}
       </table>
       <p style="margin: 26px 0 0;">
         <a href="${escapeHtml(
           bugUrl
-        )}" style="display: inline-block; background: #2563EB; color: #FFFFFF; padding: 12px 18px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 800;">
+        )}" style="display: inline-block; background: ${escapeHtml(accentColor)}; color: #FFFFFF; padding: 13px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 800;">
           View Bug Details
         </a>
       </p>
-      <p style="margin: 14px 0 0; color: #94A3B8; font-size: 12px; line-height: 1.6;">
+      <p style="margin: 14px 0 0; color: #64748B; font-size: 12px; line-height: 1.6;">
         If the button does not work, open this link:<br />
-        <a href="${escapeHtml(bugUrl)}" style="color: #60A5FA; text-decoration: underline; word-break: break-word;">${escapeHtml(
+        <a href="${escapeHtml(bugUrl)}" style="color: ${escapeHtml(accentColor)}; text-decoration: underline; word-break: break-word;">${escapeHtml(
           bugUrl
         )}</a>
       </p>

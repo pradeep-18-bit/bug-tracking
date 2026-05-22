@@ -26,6 +26,7 @@ const {
 const { attachMembersToTeams } = require("../utils/teamRelations");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 const { PLANNING_ORDER_INCREMENT } = require("../utils/planningOrder");
+const { createUniqueProjectShortCode } = require("../utils/displayIds");
 
 const projectPopulation = [
   { path: "createdBy", select: "name email role workspaceId" },
@@ -461,9 +462,16 @@ const createProject = asyncHandler(async (req, res) => {
     throw new Error(teamLeadResult.error.message);
   }
 
+  const shortCode = await createUniqueProjectShortCode({
+    Project,
+    name,
+    workspaceId,
+  });
+
   const project = await Project.create({
     name: name.trim(),
     description: typeof description === "string" ? description.trim() : "",
+    shortCode,
     epics: normalizeProjectEpics(epics),
     manager: managerResult.value,
     teamLead: teamLeadResult.value,

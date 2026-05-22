@@ -468,6 +468,13 @@ const buildAnalyticsMatch = async (req, res) => {
 };
 
 const getDisplayKey = (issue) => {
+  const displayBugId =
+    typeof issue?.displayBugId === "string" ? issue.displayBugId.trim() : "";
+
+  if (displayBugId) {
+    return displayBugId;
+  }
+
   const explicitKey = typeof issue?.issueKey === "string" ? issue.issueKey.trim() : "";
 
   if (explicitKey) {

@@ -53,6 +53,7 @@ const {
   hasAdminAccess,
 } = require("../utils/roles");
 const { normalizeWorkspaceId } = require("../utils/workspace");
+const { getNextIssueDisplayId } = require("../utils/displayIds");
 const { logProjectTeamsDebug } = require("../utils/projectTeamDiagnostics");
 const {
   BUG_ALLOWED_TRANSITIONS,
@@ -258,6 +259,7 @@ const resolveAssigneeFilterInput = (payload = {}) => {
 
 const buildIssueCreatedEmailPayload = (issue) => ({
   _id: String(issue._id),
+  displayBugId: issue.displayBugId || "",
   title: issue.title,
   description: issue.description || "",
   projectName: issue.projectId?.name || "Unknown project",
@@ -307,6 +309,7 @@ const buildBugAssignmentEmailPayload = (issue, actorUser) => {
 
   return {
     _id: String(issue._id),
+    displayBugId: issue.displayBugId || "",
     title: issue.title,
     description: issue.description || "N/A",
     projectName: issue.projectId?.name || "Unknown project",
@@ -391,7 +394,7 @@ const sendBugAssignmentNotification = async ({
   const receiverDeveloperEmail = getBugDeveloperEmail(issue);
   const senderUserId = getUserIdString(actorUser);
   const senderEmail = actorUser?.email || "";
-  const bugId = String(issue?._id || "");
+  const bugId = String(issue?.displayBugId || issue?._id || "");
 
   if (!receiverDeveloperEmail) {
     logBugAssignmentEmailEvent("info", {
@@ -1284,6 +1287,7 @@ const buildIssueQueryFromRequest = async (
 
     addAndCondition(query, {
       $or: [
+        { displayBugId: searchExpression },
         { title: searchExpression },
         { description: searchExpression },
       ],
@@ -1412,6 +1416,7 @@ const serializeActivityEntry = (entry) => {
       ? {
           _id: issue._id,
           issueKey: issue.issueKey,
+          displayBugId: issue.displayBugId,
           title: issue.title,
           type: issue.type,
           status: issue.status,
@@ -1448,7 +1453,7 @@ const getRecentIssueActivity = asyncHandler(async (req, res) => {
     .populate({
       path: "issueId",
       select:
-        "_id issueKey title type status priority projectId teamId assignee reporter bugDetails createdAt updatedAt",
+        "_id issueKey displayBugId title type status priority projectId teamId assignee reporter bugDetails createdAt updatedAt",
       populate: [
         { path: "projectId", select: "name" },
         { path: "teamId", select: "name" },
@@ -2054,10 +2059,16 @@ const createIssue = asyncHandler(async (req, res) => {
     projectId,
     sprintId: null,
   });
+  const displayBugId = await getNextIssueDisplayId({
+    Project,
+    Issue,
+    project,
+  });
 
   const issue = await Issue.create({
     title,
     description,
+    displayBugId,
     type: normalizedType,
     status: statusResult.value,
     priority: normalizedPriority || priority,

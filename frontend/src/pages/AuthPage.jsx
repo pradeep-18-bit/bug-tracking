@@ -12,7 +12,7 @@ import {
   User2,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import animeBugTreeImage from "@/assets/auth/anime-bug-tree.svg";
+import authWorkspaceImage from "@/assets/auth/anime-workspace.jpg";
 import pirnavLogo from "@/assets/pirnav-logo.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +28,7 @@ const initialForm = {
   role: "Developer",
 };
 
-const roleOptions = ["Admin", "Developer", "Tester"];
+const roleOptions = ["Admin", "Manager", "Developer", "Tester"];
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const passwordHasLetter = /[A-Za-z]/;
 const passwordHasNumber = /\d/;
@@ -37,13 +37,40 @@ const isAdminDefaultLoginEnabledOnClient =
   import.meta.env.VITE_ENABLE_ADMIN_DEFAULT_LOGIN !== "false";
 
 const inputClassName =
-  "auth-input h-11 rounded-[10px] border border-white/20 bg-slate-900/60 pl-11 pr-4 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-400/30 disabled:text-slate-50 disabled:opacity-100";
+  "auth-input h-11 rounded-xl border border-white/20 bg-slate-900/62 pl-11 pr-4 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-400/30 disabled:text-slate-50 disabled:opacity-100";
 
 const passwordInputClassName =
-  "auth-input h-11 rounded-[10px] border border-white/20 bg-slate-900/60 pl-11 pr-12 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-400/30 disabled:text-slate-50 disabled:opacity-100";
+  "auth-input h-11 rounded-xl border border-white/20 bg-slate-900/62 pl-11 pr-12 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-400/30 disabled:text-slate-50 disabled:opacity-100";
 
 const selectClassName =
-  "auth-select h-11 w-full appearance-none rounded-[10px] border border-white/20 bg-slate-900/60 pl-11 pr-11 text-sm text-slate-50 outline-none opacity-100 transition duration-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/30 disabled:text-slate-50 disabled:opacity-100";
+  "auth-select h-11 w-full appearance-none rounded-xl border border-white/20 bg-slate-900/62 pl-11 pr-11 text-sm text-slate-50 outline-none opacity-100 transition duration-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/30 disabled:text-slate-50 disabled:opacity-100";
+
+const getSafeRedirectPath = (search = "") => {
+  const redirect = new URLSearchParams(search).get("redirect") || "";
+
+  if (
+    !redirect ||
+    !redirect.startsWith("/") ||
+    redirect.startsWith("//") ||
+    redirect.includes("\\")
+  ) {
+    return "";
+  }
+
+  try {
+    const origin =
+      typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const parsedUrl = new URL(redirect, origin);
+
+    if (parsedUrl.origin !== origin || ["/login", "/auth", "/admin"].includes(parsedUrl.pathname)) {
+      return "";
+    }
+
+    return `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+  } catch (error) {
+    return "";
+  }
+};
 
 const getAuthErrorMessage = (error) => {
   const message = error?.response?.data?.message;
@@ -116,6 +143,7 @@ const AuthPage = () => {
   const [fieldErrors, setFieldErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [isBackgroundLoaded, setIsBackgroundLoaded] = useState(false);
   const [hasBackgroundError, setHasBackgroundError] = useState(false);
   const isAdminRoute = location.pathname === ADMIN_ROUTE_PATH;
@@ -127,7 +155,7 @@ const AuthPage = () => {
   const authMutation = useMutation({
     mutationFn: ({ currentMode, payload }) =>
       currentMode === "admin-default"
-        ? adminLoginRequest()
+        ? adminLoginRequest(payload)
         : currentMode === "login"
           ? loginRequest(payload)
           : registerRequest(payload),
@@ -136,8 +164,14 @@ const AuthPage = () => {
         variables.currentMode === "login" ||
         variables.currentMode === "admin-default"
       ) {
-        setAuthSession(data);
-        navigate(getDashboardPathByRole(data?.user?.role), { replace: true });
+        setAuthSession(data, {
+          rememberMe: Boolean(variables.payload?.rememberMe),
+        });
+        navigate(
+          getSafeRedirectPath(location.search) ||
+            getDashboardPathByRole(data?.user?.role),
+          { replace: true }
+        );
         return;
       }
 
@@ -163,6 +197,7 @@ const AuthPage = () => {
     setSuccessMessage(location.state.successMessage);
     setMode(location.state.mode === "register" ? "register" : "login");
     setShowPassword(false);
+    setRememberMe(false);
     setFormData({
       ...initialForm,
       email: location.state.email || "",
@@ -192,7 +227,7 @@ const AuthPage = () => {
       setIsBackgroundLoaded(false);
     };
 
-    image.src = animeBugTreeImage;
+    image.src = authWorkspaceImage;
 
     return () => {
       isMounted = false;
@@ -225,6 +260,7 @@ const AuthPage = () => {
     setSuccessMessage("");
     setMode(nextMode);
     setShowPassword(false);
+    setRememberMe(false);
     setFormData((current) => ({
       ...initialForm,
       email: current.email,
@@ -238,6 +274,9 @@ const AuthPage = () => {
 
     await authMutation.mutateAsync({
       currentMode: "admin-default",
+      payload: {
+        rememberMe,
+      },
     });
   };
 
@@ -262,6 +301,7 @@ const AuthPage = () => {
         ? {
             email: normalizedEmail,
             password: formData.password,
+            rememberMe,
           }
         : {
             name: formData.fullName.trim(),
@@ -296,7 +336,7 @@ const AuthPage = () => {
       <div className="auth-illustration-fallback absolute inset-0" aria-hidden="true" />
       {!hasBackgroundError ? (
         <img
-          src={animeBugTreeImage}
+          src={authWorkspaceImage}
           alt=""
           aria-hidden="true"
           className={cn(
@@ -313,23 +353,36 @@ const AuthPage = () => {
           }}
         />
       ) : null}
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,17,31,0.24),rgba(7,17,31,0.72))]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.24),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.18),transparent_32%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(7,17,31,0.92)_0%,rgba(7,17,31,0.72)_48%,rgba(7,17,31,0.42)_100%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(2,6,23,0.12)_0%,rgba(2,6,23,0.58)_100%)]" />
 
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-5 py-8 sm:px-8 md:justify-start md:pl-20 md:pr-10">
-        <div className="auth-fade-in w-full md:w-auto">
-          <div className="auth-card-float flex w-full max-w-[360px] flex-col rounded-2xl border border-white/20 bg-white/[0.08] p-8 shadow-[0_8px_40px_rgba(0,0,0,0.3)] backdrop-blur-[20px] md:w-[360px]">
-            <div className="space-y-2">
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-5 py-8 sm:px-8 lg:justify-start lg:px-20">
+        <div className="auth-fade-in grid w-full max-w-5xl gap-8 lg:grid-cols-[minmax(0,0.9fr)_420px] lg:items-center">
+          <div className="hidden max-w-xl space-y-5 lg:block">
+            <p className="text-sm font-semibold uppercase text-sky-200">
+              Pirnav Workspace
+            </p>
+            <h2 className="text-5xl font-semibold leading-tight text-white">
+              Track bugs, owners, and delivery decisions in one secure workspace.
+            </h2>
+            <p className="max-w-lg text-base leading-7 text-slate-200">
+              Sign in to continue exactly where your assignment, report, or dashboard
+              needs you.
+            </p>
+          </div>
+
+          <div className="flex w-full flex-col rounded-2xl border border-white/20 bg-white/[0.10] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.34)] backdrop-blur-[22px] sm:p-8">
+            <div className="space-y-2.5">
               <div className="flex items-center">
                 <img
                   src={pirnavLogo}
                   alt="Pirnav Software Solutions Pvt. Ltd."
-                  className="mb-4 h-9 w-auto object-contain"
+                  className="mb-3 h-9 w-auto object-contain"
                 />
               </div>
               <p className="text-sm font-medium text-white/72">{eyebrowCopy}</p>
               <h1
-                className="text-[30px] font-semibold leading-tight tracking-[-0.04em] text-white sm:text-[34px]"
+                className="text-[29px] font-semibold leading-tight text-white sm:text-[33px]"
                 style={{ fontFamily: '"Poppins", sans-serif' }}
               >
                 {titleCopy}
@@ -441,6 +494,22 @@ const AuthPage = () => {
                   <p className="text-sm text-rose-300">{fieldErrors.password}</p>
                 ) : null}
               </div>
+
+              {mode === "login" ? (
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.05] px-3.5 py-3 text-sm text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08]">
+                  <span className="flex min-w-0 items-center gap-3">
+                    <input
+                      checked={rememberMe}
+                      className="h-4 w-4 rounded border-white/30 bg-slate-950 text-sky-500 focus:ring-2 focus:ring-sky-400/30"
+                      disabled={authMutation.isPending}
+                      type="checkbox"
+                      onChange={(event) => setRememberMe(event.target.checked)}
+                    />
+                    <span className="font-medium">Remember me</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-slate-300">30 days</span>
+                </label>
+              ) : null}
 
               {canUseDefaultPassword ? (
                 <button

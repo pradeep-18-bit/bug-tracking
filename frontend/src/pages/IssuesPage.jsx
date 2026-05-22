@@ -13,6 +13,7 @@ import {
   ISSUE_TYPE_OPTIONS,
   ISSUE_STATUS,
   filterIssues,
+  getIssueDisplayKey,
   getIssueStatusLabel,
   sortIssues,
 } from "@/lib/issues";
@@ -434,7 +435,10 @@ const IssuesPage = () => {
     }
 
     const routedIssue = issues.find(
-      (issue) => String(issue._id) === String(routeIssueId)
+      (issue) =>
+        String(issue._id) === String(routeIssueId) ||
+        getIssueDisplayKey(issue).toLowerCase() ===
+          String(routeIssueId).trim().toLowerCase()
     );
 
     if (routedIssue && String(selectedIssue?._id || "") !== String(routedIssue._id)) {

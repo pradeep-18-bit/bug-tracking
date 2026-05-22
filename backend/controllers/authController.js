@@ -40,16 +40,26 @@ const getPasswordValidationMessage = (password) => {
   return "";
 };
 
-const buildAuthPayload = (user) => ({
-  token: generateToken(user._id, normalizeWorkspaceId(user.workspaceId)),
-  user: {
-    _id: user._id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    workspaceId: normalizeWorkspaceId(user.workspaceId),
-  },
-});
+const normalizeRememberMe = (value) =>
+  value === true || value === "true" || value === "1";
+
+const buildAuthPayload = (user, { rememberMe = false } = {}) => {
+  const normalizedWorkspaceId = normalizeWorkspaceId(user.workspaceId);
+  const maxAgeSeconds = generateToken.getTokenMaxAgeSeconds({ rememberMe });
+
+  return {
+    token: generateToken(user._id, normalizedWorkspaceId, { rememberMe }),
+    expiresAt: new Date(Date.now() + maxAgeSeconds * 1000).toISOString(),
+    rememberMe,
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      workspaceId: normalizedWorkspaceId,
+    },
+  };
+};
 
 const syncUserForAuth = async (user, password) => {
   let requiresSave = false;
@@ -128,6 +138,7 @@ const register = asyncHandler(async (req, res) => {
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   const normalizedEmail = email?.toLowerCase().trim();
+  const rememberMe = normalizeRememberMe(req.body?.rememberMe);
 
   console.log("[auth] Login request:", {
     email: normalizedEmail || null,
@@ -157,10 +168,12 @@ const login = asyncHandler(async (req, res) => {
   }
 
   await syncUserForAuth(user, password);
-  res.status(200).json(buildAuthPayload(user));
+  res.status(200).json(buildAuthPayload(user, { rememberMe }));
 });
 
 const adminLogin = asyncHandler(async (req, res) => {
+  const rememberMe = normalizeRememberMe(req.body?.rememberMe);
+
   if (!isAdminDefaultLoginAllowed()) {
     res.status(403);
     throw new Error("Admin default password access is disabled");
@@ -191,7 +204,7 @@ const adminLogin = asyncHandler(async (req, res) => {
   }
 
   await syncUserForAuth(user, adminDefaultPassword);
-  res.status(200).json(buildAuthPayload(user));
+  res.status(200).json(buildAuthPayload(user, { rememberMe }));
 });
 
 const getUsers = asyncHandler(async (req, res) => {

@@ -1,5 +1,9 @@
 import axios from "axios";
-import { readStoredSession } from "@/lib/session";
+import {
+  AUTH_SESSION_CLEARED_EVENT,
+  clearStoredSession,
+  readStoredSession,
+} from "@/lib/session";
 import { normalizeWorkspaceSenderResponse } from "@/lib/workspaceSender";
 import { CURRENT_WORKSPACE_SCOPE } from "@/lib/workspace";
 
@@ -24,6 +28,21 @@ api.interceptors.request.use((config) => {
 
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      clearStoredSession();
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event(AUTH_SESSION_CLEARED_EVENT));
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 const buildParams = (filters = {}) =>
   Object.fromEntries(
@@ -124,8 +143,8 @@ export const loginRequest = async (payload) => {
   return response.data;
 };
 
-export const adminLoginRequest = async () => {
-  const response = await api.post("/auth/admin-login");
+export const adminLoginRequest = async (payload = {}) => {
+  const response = await api.post("/auth/admin-login", payload);
   return response.data;
 };
 

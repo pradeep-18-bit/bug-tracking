@@ -6,11 +6,13 @@ import {
   Bug,
   CheckCircle2,
   ClipboardList,
+  Layers3,
   Link2,
+  ListChecks,
   LoaderCircle,
-  Plus,
   RotateCcw,
   Trash2,
+  Users,
   Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -32,34 +34,34 @@ import { memberSelectStyles } from "@/components/projects/memberSelectTheme";
 const TEAMS_NEW_MEETING_BASE_URL = "https://teams.microsoft.com/l/meeting/new";
 const PROJECT_CARD_PALETTES = [
   {
-    headerGradient: "linear-gradient(135deg, #2563eb 0%, #0f766e 100%)",
-    accentGradient: "linear-gradient(90deg, #bfdbfe 0%, #99f6e4 100%)",
-    glowColor: "rgba(125, 211, 252, 0.24)",
+    headerGradient: "linear-gradient(135deg, #1d4ed8 0%, #0f766e 100%)",
+    accentGradient: "linear-gradient(90deg, #dbeafe 0%, #ccfbf1 100%)",
+    glowColor: "rgba(219, 234, 254, 0.28)",
   },
   {
-    headerGradient: "linear-gradient(135deg, #ea580c 0%, #db2777 100%)",
-    accentGradient: "linear-gradient(90deg, #fed7aa 0%, #fbcfe8 100%)",
-    glowColor: "rgba(253, 186, 116, 0.26)",
+    headerGradient: "linear-gradient(135deg, #be123c 0%, #7c3aed 100%)",
+    accentGradient: "linear-gradient(90deg, #ffe4e6 0%, #ede9fe 100%)",
+    glowColor: "rgba(244, 114, 182, 0.18)",
   },
   {
-    headerGradient: "linear-gradient(135deg, #059669 0%, #0284c7 100%)",
-    accentGradient: "linear-gradient(90deg, #a7f3d0 0%, #bae6fd 100%)",
-    glowColor: "rgba(110, 231, 183, 0.24)",
+    headerGradient: "linear-gradient(135deg, #047857 0%, #0369a1 100%)",
+    accentGradient: "linear-gradient(90deg, #d1fae5 0%, #e0f2fe 100%)",
+    glowColor: "rgba(125, 211, 252, 0.18)",
   },
   {
-    headerGradient: "linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%)",
-    accentGradient: "linear-gradient(90deg, #cbd5e1 0%, #bfdbfe 100%)",
-    glowColor: "rgba(147, 197, 253, 0.22)",
+    headerGradient: "linear-gradient(135deg, #334155 0%, #2563eb 100%)",
+    accentGradient: "linear-gradient(90deg, #e2e8f0 0%, #dbeafe 100%)",
+    glowColor: "rgba(191, 219, 254, 0.2)",
   },
   {
-    headerGradient: "linear-gradient(135deg, #0891b2 0%, #4338ca 100%)",
-    accentGradient: "linear-gradient(90deg, #a5f3fc 0%, #c7d2fe 100%)",
-    glowColor: "rgba(103, 232, 249, 0.24)",
+    headerGradient: "linear-gradient(135deg, #0e7490 0%, #4338ca 100%)",
+    accentGradient: "linear-gradient(90deg, #cffafe 0%, #e0e7ff 100%)",
+    glowColor: "rgba(103, 232, 249, 0.18)",
   },
   {
-    headerGradient: "linear-gradient(135deg, #65a30d 0%, #0f766e 100%)",
-    accentGradient: "linear-gradient(90deg, #d9f99d 0%, #99f6e4 100%)",
-    glowColor: "rgba(190, 242, 100, 0.22)",
+    headerGradient: "linear-gradient(135deg, #4d7c0f 0%, #0f766e 100%)",
+    accentGradient: "linear-gradient(90deg, #ecfccb 0%, #ccfbf1 100%)",
+    glowColor: "rgba(190, 242, 100, 0.16)",
   },
 ];
 
@@ -99,8 +101,8 @@ const StatusBadge = ({ isCompleted }) => (
   <span
     className={
       isCompleted
-        ? "inline-flex h-9 items-center gap-2 rounded-full bg-emerald-400/20 px-3.5 text-xs font-semibold text-emerald-50 ring-1 ring-emerald-200/30 backdrop-blur"
-        : "inline-flex h-9 items-center gap-2 rounded-full bg-white/10 px-3.5 text-xs font-semibold text-white ring-1 ring-white/20 backdrop-blur"
+        ? "inline-flex h-8 items-center gap-2 rounded-full bg-emerald-400/20 px-3 text-xs font-semibold text-emerald-50 ring-1 ring-emerald-200/30 backdrop-blur"
+        : "inline-flex h-8 items-center gap-2 rounded-full bg-white/10 px-3 text-xs font-semibold text-white ring-1 ring-white/20 backdrop-blur"
     }
   >
     <span
@@ -137,12 +139,12 @@ const ProjectAssignmentsSummary = ({ managerName, teamLeadName }) => (
 );
 
 const ProjectTeamsPreview = ({ teams = [] }) => {
-  const visibleTeams = teams.slice(0, 3);
+  const visibleTeams = teams.slice(0, 2);
   const overflowTeams = Math.max(teams.length - visibleTeams.length, 0);
 
   return (
     <div className="flex w-full max-w-full flex-col gap-3 pt-1">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-white/70">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase text-white/70">
         <span>Attached Teams</span>
         <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/10 px-2 text-[10px] font-semibold text-white/90 ring-1 ring-white/10">
           {teams.length}
@@ -154,10 +156,16 @@ const ProjectTeamsPreview = ({ teams = [] }) => {
           visibleTeams.map((team) => (
             <span
               key={team._id}
-              className="inline-flex max-w-full items-center rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white/90 ring-1 ring-white/10 backdrop-blur"
+              className="inline-flex max-w-full items-center gap-2 rounded-full bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 ring-1 ring-white/10 backdrop-blur"
             >
-              <span className="truncate">
-                {team.name} ({team.memberCount || team.members?.length || 0})
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold text-white ring-1 ring-white/20">
+                {getInitials(team.name)}
+              </span>
+              <span className="max-w-[11rem] truncate">
+                {team.name}
+              </span>
+              <span className="text-white/55">
+                {team.memberCount || team.members?.length || 0}
               </span>
             </span>
           ))
@@ -165,8 +173,8 @@ const ProjectTeamsPreview = ({ teams = [] }) => {
           <span className="text-xs text-white/75">No teams attached</span>
         )}
         {overflowTeams ? (
-          <span className="inline-flex items-center rounded-full bg-white/20 px-2.5 py-1.5 text-xs font-semibold text-white ring-1 ring-white/10 backdrop-blur">
-            +{overflowTeams}
+          <span className="inline-flex h-9 items-center rounded-full bg-white/20 px-3 text-xs font-semibold text-white ring-1 ring-white/10 backdrop-blur">
+            +{overflowTeams} more
           </span>
         ) : null}
       </div>
@@ -201,6 +209,7 @@ const ProjectCard = ({
   const palette = PROJECT_CARD_PALETTES[index % PROJECT_CARD_PALETTES.length];
   const projectTitle = String(project?.name || "").trim() || "Untitled project";
   const projectCreatedAt = project?.createdAt ? formatDate(project.createdAt) : "Unknown";
+  const projectShortCode = String(project?.shortCode || "").trim().toUpperCase();
 
   const attachedTeams = useMemo(() => getProjectTeams(project), [project]);
   const attachedTeamIds = useMemo(
@@ -351,36 +360,43 @@ const ProjectCard = ({
   };
 
   const actionButtonClass =
-    "interactive-button h-10 w-full rounded-2xl border border-slate-200 bg-white/88 px-4 text-sm font-semibold text-slate-900 shadow-sm hover:border-slate-300 hover:bg-white sm:w-auto";
+    "interactive-button h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-800 shadow-sm hover:border-blue-200 hover:bg-blue-50 sm:w-auto";
   const isDeleteConfirmationValid =
     deleteConfirmationValue.trim() === String(project.name || "").trim();
+  const metricItems = [
+    { label: "Issues", value: project.issueCount || 0, icon: ListChecks },
+    { label: "Members", value: project.memberCount || 0, icon: Users },
+    { label: "Teams", value: project.teamCount || 0, icon: Layers3 },
+  ];
 
   return (
     <>
       <Card
-        className="page-shell-enter interactive-card flex h-full min-w-0 flex-col overflow-hidden border-white/60 bg-white/76 shadow-[0_28px_70px_-38px_rgba(15,23,42,0.34)] backdrop-blur-xl"
+        className="page-shell-enter interactive-card flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_22px_56px_-42px_rgba(15,23,42,0.42)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_30px_70px_-42px_rgba(15,23,42,0.5)]"
         style={{ animationDelay: `${index * 45}ms` }}
       >
         <div
-          className="relative min-h-[286px] overflow-hidden px-5 py-6 text-white backdrop-blur-xl sm:px-6 lg:min-h-[296px] 2xl:min-h-[276px]"
+          className="relative min-h-[238px] overflow-hidden px-5 py-5 text-white sm:px-6"
           style={{ backgroundImage: palette.headerGradient }}
         >
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.18),transparent_34%),radial-gradient(circle_at_bottom_left,_rgba(255,255,255,0.16),transparent_38%)]" />
-          <div
-            className="pointer-events-none absolute -right-16 top-0 h-36 w-36 rounded-full blur-3xl"
-            style={{ backgroundColor: palette.glowColor }}
-          />
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.13)_0%,rgba(255,255,255,0)_44%,rgba(15,23,42,0.13)_100%)]" />
 
-          <div className="relative flex h-full min-w-0 flex-col gap-6">
-            <div className="flex min-w-0 flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <div className="relative flex h-full min-w-0 flex-col gap-5">
+            <div className="flex min-w-0 items-start justify-between gap-4">
               <div className="flex min-w-0 flex-1 flex-col">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] uppercase tracking-[0.22em] text-white/70">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] uppercase text-white/70">
                   <span>Project</span>
+                  {projectShortCode ? (
+                    <>
+                      <span className="h-1 w-1 rounded-full bg-white/60" />
+                      <span>{projectShortCode}</span>
+                    </>
+                  ) : null}
                   <span className="h-1 w-1 rounded-full bg-white/60" />
                   <span>Created {projectCreatedAt}</span>
                 </div>
                 <h3
-                  className="mt-4 line-clamp-2 max-w-[32rem] text-2xl font-semibold leading-tight tracking-tight text-white sm:text-3xl"
+                  className="mt-3 line-clamp-2 max-w-[32rem] text-2xl font-semibold leading-tight text-white sm:text-[28px]"
                   title={projectTitle}
                 >
                   {projectTitle}
@@ -399,12 +415,15 @@ const ProjectCard = ({
                 />
               </div>
 
-              <div className="flex min-w-0 shrink-0 flex-col gap-3 xl:items-end">
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                <StatusBadge isCompleted={Boolean(project.isCompleted)} />
                 {canManageProject ? (
-                  <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                  <div className="flex items-center gap-1.5 rounded-2xl bg-white/10 p-1 ring-1 ring-white/20 backdrop-blur">
                     <Button
-                      className="interactive-button h-9 rounded-xl bg-white/10 px-3.5 text-xs font-semibold text-white ring-1 ring-white/20 backdrop-blur hover:bg-white/20"
+                      aria-label={project.isCompleted ? "Reopen Project" : "Mark as Completed"}
+                      className="interactive-button h-9 w-9 rounded-xl bg-white/10 p-0 text-white ring-1 ring-white/10 hover:bg-white/20"
                       disabled={isUpdatingStatus}
+                      title={project.isCompleted ? "Reopen Project" : "Mark as Completed"}
                       type="button"
                       onClick={handleStatusToggle}
                     >
@@ -415,7 +434,9 @@ const ProjectCard = ({
                       ) : (
                         <CheckCircle2 className="h-4 w-4" />
                       )}
-                      {project.isCompleted ? "Reopen Project" : "Mark as Completed"}
+                      <span className="sr-only">
+                        {project.isCompleted ? "Reopen Project" : "Mark as Completed"}
+                      </span>
                     </Button>
                     <Button
                       className="interactive-button h-9 w-9 rounded-xl bg-rose-500/20 p-0 text-rose-50 ring-1 ring-rose-200/30 shadow-[0_18px_36px_-24px_rgba(244,63,94,0.95)] backdrop-blur hover:bg-rose-500/30"
@@ -434,8 +455,6 @@ const ProjectCard = ({
                     </Button>
                   </div>
                 ) : null}
-
-                <StatusBadge isCompleted={Boolean(project.isCompleted)} />
               </div>
             </div>
 
@@ -459,31 +478,38 @@ const ProjectCard = ({
           ) : null}
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {[
-              { label: "Issues", value: project.issueCount || 0 },
-              { label: "Members", value: project.memberCount || 0 },
-              { label: "Teams", value: project.teamCount || 0 },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className="interactive-card rounded-[22px] border border-slate-200 bg-white/88 px-4 py-3 shadow-sm"
-              >
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  {item.label}
-                </p>
-                <p className="mt-1 text-2xl font-semibold text-slate-950">{item.value}</p>
-              </div>
-            ))}
+            {metricItems.map((item) => {
+              const MetricIcon = item.icon;
+
+              return (
+                <div
+                  key={item.label}
+                  className="interactive-card min-h-[88px] rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 shadow-sm transition duration-200 hover:border-blue-200 hover:bg-white hover:shadow-md"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-semibold uppercase text-slate-500">
+                      {item.label}
+                    </p>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-blue-600 shadow-sm ring-1 ring-slate-200">
+                      <MetricIcon className="h-4 w-4" />
+                    </span>
+                  </div>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">
+                    {item.value}
+                  </p>
+                </div>
+              );
+            })}
           </div>
 
-          <div className="mt-auto flex flex-wrap gap-2">
+          <div className="mt-auto flex flex-wrap gap-2 pt-1">
             <Button
-              className={actionButtonClass}
+              className={`${actionButtonClass} border-blue-500/20 bg-blue-600 text-white shadow-[0_18px_32px_-24px_rgba(37,99,235,0.95)] hover:border-blue-500/30 hover:bg-blue-700`}
               type="button"
               onClick={() => navigate(`/issues?projectId=${project._id}&compose=1`)}
             >
               <Bug className="h-4 w-4" />
-              + Create Issue
+              Create Issue
             </Button>
 
             <Button
@@ -494,7 +520,7 @@ const ProjectCard = ({
               }
             >
               <ClipboardList className="h-4 w-4" />
-              + Create Task
+              Create Task
             </Button>
 
             {canManageProject ? (
@@ -505,7 +531,7 @@ const ProjectCard = ({
                 onClick={() => handleTeamDialogChange(true)}
               >
                 <Link2 className="h-4 w-4" />
-                + Attach Team
+                Attach Team
               </Button>
             ) : null}
 
@@ -651,7 +677,7 @@ const ProjectCard = ({
             </div>
 
             <div className="rounded-[24px] border border-slate-200 bg-slate-50/85 p-4 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+              <p className="text-[11px] font-semibold uppercase text-slate-500">
                 Project Name
               </p>
               <p className="mt-2 break-words text-lg font-semibold text-slate-950">
