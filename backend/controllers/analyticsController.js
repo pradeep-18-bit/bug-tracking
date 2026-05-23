@@ -24,7 +24,7 @@ const {
   getProjectIdsForUserThroughTeams,
   mergeProjectTeamIds,
 } = require("../utils/projectRelations");
-const { ROLE_ADMIN, ROLE_MANAGER } = require("../utils/roles");
+const { ROLE_ADMIN, ROLE_DEVELOPER, ROLE_MANAGER, ROLE_TESTER } = require("../utils/roles");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
@@ -234,14 +234,37 @@ const getAccessibleProjectIds = async (user) => {
 };
 
 const addPersonalAccess = (match, user) => {
-  const personalAccessQuery = {
-    $or: [
-      { assignee: user._id },
-      { reporter: user._id },
-      { "bugDetails.testerOwner": user._id },
-      { "bugDetails.developerLead": user._id },
-    ],
-  };
+  const userObjectId = user._id || user.id;
+  let personalAccessQuery;
+
+  if (user.role === ROLE_TESTER) {
+    personalAccessQuery = {
+      $or: [
+        { assignee: userObjectId },
+        { reporter: userObjectId },
+      ],
+    };
+  } else if (user.role === ROLE_DEVELOPER) {
+    personalAccessQuery = {
+      $or: [
+        { assignee: userObjectId },
+        { "bugDetails.developerLead": userObjectId },
+      ],
+    };
+  } else {
+    personalAccessQuery = {
+      $or: [
+        { assignee: userObjectId },
+        { reporter: userObjectId },
+        { "bugDetails.testerOwner": userObjectId },
+        { "bugDetails.developerLead": userObjectId },
+      ],
+    };
+  }
+
+  if (!personalAccessQuery.$or.length) {
+    return;
+  }
 
   if (match.$or) {
     match.$and = [...(match.$and || []), { $or: match.$or }, personalAccessQuery];

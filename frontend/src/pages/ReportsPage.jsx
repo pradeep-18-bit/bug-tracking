@@ -35,6 +35,7 @@ import {
   YAxis,
 } from "recharts";
 import useAnalytics from "@/hooks/use-analytics";
+import { useAuth } from "@/hooks/use-auth";
 import { fetchEpics, fetchProjects, fetchSprints } from "@/lib/api";
 import {
   BUG_SEVERITY_OPTIONS,
@@ -50,6 +51,7 @@ import {
   resolveTeamId,
   resolveUserId,
 } from "@/lib/project-teams";
+import { ROLE_DEVELOPER, ROLE_TESTER } from "@/lib/roles";
 import {
   ANALYTICS_FIELD_CLASS,
   ANALYTICS_PANEL_CLASS,
@@ -331,7 +333,654 @@ const ReportsLoading = () => (
   </div>
 );
 
-const ReportsPage = () => {
+const TesterReportsDashboard = ({ user }) => {
+  const currentTesterId = user?._id || user?.id || "";
+  const [filters, setFilters] = useState({
+    projectId: "all",
+    severity: "all",
+    status: "all",
+    dateFrom: "",
+    dateTo: "",
+  });
+  const statusParts = getStatusParts(filters.status);
+  const sharedFilters = {
+    dateFrom: filters.dateFrom,
+    dateTo: filters.dateTo,
+    projectId: filters.projectId,
+    status: statusParts.status,
+    statusGroup: statusParts.statusGroup,
+  };
+  const bugAnalytics = useAnalytics(
+    {
+      ...sharedFilters,
+      type: ISSUE_TYPES.BUG,
+      testerId: currentTesterId,
+      severity: filters.severity,
+    },
+    { includeIssues: true, enabled: Boolean(currentTesterId) }
+  );
+  const taskAnalytics = useAnalytics(
+    {
+      ...sharedFilters,
+      excludeType: ISSUE_TYPES.BUG,
+      assigneeId: currentTesterId,
+    },
+    { includeIssues: true, enabled: Boolean(currentTesterId) }
+  );
+  const {
+    data: projects = [],
+    isLoading: isProjectsLoading,
+    error: projectsError,
+  } = useQuery({
+    queryKey: ["projects", "tester-reports-options"],
+    queryFn: fetchProjects,
+    staleTime: 60_000,
+  });
+
+  const updateFilter = (key, value) =>
+    setFilters((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  const resetFilters = () =>
+    setFilters({
+      projectId: "all",
+      severity: "all",
+      status: "all",
+      dateFrom: "",
+      dateTo: "",
+    });
+
+  const bugIssues = asArray(bugAnalytics.issues?.issues).filter(
+    (issue) => String(issue.reporter?._id || "") === String(currentTesterId)
+  );
+  const testingTasks = asArray(taskAnalytics.issues?.issues).filter(
+    (issue) => String(issue.assignee?._id || "") === String(currentTesterId)
+  );
+  const bugTrend = asArray(bugAnalytics.trends?.issueTrend);
+  const bugsVerified = bugIssues.filter((issue) => issue.status === ISSUE_STATUS.CLOSED).length;
+  const bugsReopened = bugIssues.filter(isReopened).length;
+  const readyForQa = bugIssues.filter(isReadyForQa).length;
+  const falsePositiveCount = bugIssues.filter((issue) => issue.status === ISSUE_STATUS.REJECTED).length;
+  const completedQaTasks = testingTasks.filter(isClosed).length;
+  const pendingQaTasks = testingTasks.filter((issue) => !isClosed(issue)).length;
+  const avgVerificationTime =
+    bugIssues
+      .map((issue) => toNumber(issue.resolutionTimeMs))
+      .filter((value) => value > 0)
+      .reduce((sum, value, _index, values) => sum + value / values.length, 0);
+  const qaAccuracy = percent(bugsVerified, bugsVerified + bugsReopened + falsePositiveCount);
+  const qaEfficiency = Math.round((qaAccuracy + percent(completedQaTasks, testingTasks.length) + percent(bugsVerified, bugIssues.length)) / 3);
+  const severityRows = BUG_SEVERITY_GROUPS.map((group) => ({
+    ...group,
+    count: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
+  }));
+  const priorityRows = BUG_PRIORITY_GROUPS.map((group) => ({
+    ...group,
+    count: bugIssues.filter((issue) => issue.priority === group.source).length,
+  }));
+  const timelineRows = bugTrend.slice(-30).map((row) => ({
+    label: row.label || row.date || row._id || "",
+    reported: toNumber(row.created),
+    verified: toNumber(row.resolved || row.closed),
+    reopened: toNumber(row.reopened),
+  }));
+  const error = projectsError || bugAnalytics.error || taskAnalytics.error;
+  const isLoading = isProjectsLoading || bugAnalytics.isLoading || taskAnalytics.isLoading;
+
+  if (error) {
+    return (
+      <Card className={ANALYTICS_PANEL_CLASS}>
+        <CardContent className="p-6 text-sm text-rose-700">
+          {error.response?.data?.message || error.message || "Unable to load your QA reports."}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isLoading) {
+    return <ReportsLoading />;
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card className="sticky top-24 z-20 overflow-hidden rounded-[16px] border-white/60 bg-white/88 shadow-[0_22px_60px_-36px_rgba(15,23,42,0.4)] backdrop-blur-2xl">
+        <CardContent className="space-y-3 p-3 sm:p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-600">My QA Dashboard</p>
+              <h1 className="mt-0.5 text-xl font-semibold text-slate-950 sm:text-2xl">My QA Analytics Dashboard</h1>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Track your reported bugs, QA verification flow, and testing productivity.
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={resetFilters}>Reset</Button>
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
+              <option value="all">All projects</option>
+              {projects.map((project) => (
+                <option key={project._id} value={project._id}>{project.name}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.severity} onChange={(event) => updateFilter("severity", event.target.value)}>
+              <option value="all">All severities</option>
+              {BUG_SEVERITY_OPTIONS.map((severity) => (
+                <option key={severity} value={severity}>{severity}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status.value} value={status.value}>{status.label}</option>
+              ))}
+            </select>
+            <div className="grid grid-cols-2 gap-2 md:col-span-2">
+              <DateField label="Date from" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
+              <DateField label="Date to" value={filters.dateTo} onChange={(event) => updateFilter("dateTo", event.target.value)} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard accent="rose" icon={Bug} label="Bugs Reported" value={formatCompactNumber(bugIssues.length)} helper="Created by you" />
+        <KpiCard accent="emerald" icon={ShieldCheck} label="Bugs Verified" value={bugsVerified} helper={`${qaAccuracy}% QA accuracy`} />
+        <KpiCard accent="amber" icon={RefreshCcw} label="Bugs Reopened" value={bugsReopened} helper="Your reopen flow" />
+        <KpiCard accent="violet" icon={TimerReset} label="Ready For QA" value={readyForQa} helper="Awaiting verification" />
+        <KpiCard accent="blue" icon={Gauge} label="Avg Verification" value={formatDuration(avgVerificationTime)} helper="Reported-to-close cycle" />
+        <KpiCard accent="slate" icon={CheckCircle2} label="QA Accuracy" value={`${qaAccuracy}%`} helper={`${falsePositiveCount} false positives`} />
+        <KpiCard accent="emerald" icon={Zap} label="QA Efficiency" value={`${qaEfficiency}%`} helper="Personal score" />
+        <KpiCard accent="blue" icon={Layers3} label="Testing Tasks" value={testingTasks.length} helper={`${pendingQaTasks} pending`} />
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <AnalyticsPanel title="My Bug Analytics" description="Only bugs reported by you are included.">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
+              <SectionTitle kicker="Severity" title="My Bugs by Severity" />
+              <ChartFrame className="h-[230px]">
+                {bugIssues.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={severityRows} dataKey="count" nameKey="key" innerRadius={54} outerRadius={84} paddingAngle={3}>
+                        {severityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
+                      </Pie>
+                      <Tooltip contentStyle={chartTooltipStyle} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Bug} title="No reported bugs" description="Your bug analytics appear after you report bugs." />}
+              </ChartFrame>
+            </div>
+            <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
+              <SectionTitle kicker="Priority" title="My Bugs by Priority" />
+              <ChartFrame className="h-[230px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={priorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
+                    <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="label" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={chartTooltipStyle} />
+                    <Bar dataKey="count" radius={[0, 8, 8, 0]}>
+                      {priorityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartFrame>
+            </div>
+            <div className="rounded-[16px] border border-white/55 bg-white/50 p-3 lg:col-span-2">
+              <SectionTitle kicker="Timeline" title="My Verification Timeline" />
+              <ChartFrame className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={timelineRows}>
+                    <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={chartTooltipStyle} />
+                    <Area type="monotone" dataKey="reported" stroke="#ef4444" fill="#fecdd3" fillOpacity={0.72} />
+                    <Area type="monotone" dataKey="verified" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} />
+                    <Line type="monotone" dataKey="reopened" stroke="#f97316" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </ChartFrame>
+            </div>
+          </div>
+        </AnalyticsPanel>
+
+        <AnalyticsPanel title="My QA Performance" description="Personal scorecard based on your own bug verification and testing task flow.">
+          <div className="grid gap-3 md:grid-cols-2">
+            <ProgressRow label="Verification accuracy" value={qaAccuracy} meta={`${bugsVerified} verified, ${falsePositiveCount} false positives`} tone="bg-emerald-500" />
+            <ProgressRow label="Reopen percentage" value={percent(bugsReopened, bugIssues.length)} meta={`${bugsReopened} reopened bugs`} tone="bg-rose-500" />
+            <ProgressRow label="Verification completion" value={percent(completedQaTasks, testingTasks.length)} meta={`${completedQaTasks} completed QA tasks`} tone="bg-blue-500" />
+            <ProgressRow label="QA efficiency score" value={qaEfficiency} meta={formatDuration(avgVerificationTime)} tone="bg-violet-500" />
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <MiniStat label="Completed QA tasks" tone="emerald" value={completedQaTasks} />
+            <MiniStat label="Pending QA tasks" tone="amber" value={pendingQaTasks} />
+            <MiniStat label="Avg testing time" tone="blue" value={formatDuration(avgVerificationTime)} />
+            <MiniStat label="My reopened bugs" tone="rose" value={bugsReopened} />
+          </div>
+        </AnalyticsPanel>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-2">
+        <AnalyticsPanel title="My Testing Task Analytics" description="Only QA and testing work assigned to you.">
+          <div className="grid gap-3 md:grid-cols-2">
+            {testingTasks.slice(0, 20).map((task) => (
+              <div key={task._id} className="rounded-[16px] border border-white/55 bg-white/58 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-950">{task.title}</p>
+                    <p className="mt-1 text-xs text-slate-500">{task.project?.name || "Unknown project"}</p>
+                  </div>
+                  <Badge variant={getIssueStatusVariant(task.status)}>{task.status}</Badge>
+                </div>
+              </div>
+            ))}
+            {!testingTasks.length ? (
+              <AnalyticsEmptyState className="md:col-span-2" icon={Layers3} title="No assigned testing tasks" description="Testing tasks assigned to you will appear here." />
+            ) : null}
+          </div>
+        </AnalyticsPanel>
+
+        <AnalyticsPanel title="My Recent Bug Activity" description="Only bugs created by you.">
+          <div className="max-h-[430px] overflow-auto pr-2 dashboard-scrollbar">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="sticky top-0 bg-white/95 text-xs uppercase tracking-[0.16em] text-slate-500 backdrop-blur">
+                <tr>
+                  <th className="px-3 py-3">Bug ID</th>
+                  <th className="px-3 py-3">Project</th>
+                  <th className="px-3 py-3">Severity</th>
+                  <th className="px-3 py-3">Status</th>
+                  <th className="px-3 py-3">Developer</th>
+                  <th className="px-3 py-3">Updated</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {bugIssues.slice(0, 80).map((bug) => (
+                  <tr key={bug._id} className="hover:bg-blue-50/50">
+                    <td className="px-3 py-3 font-mono text-xs font-semibold">{bug.issueId}</td>
+                    <td className="px-3 py-3">{bug.project?.name || "Unknown"}</td>
+                    <td className="px-3 py-3"><Badge variant="warning">{bug.severity || "Not set"}</Badge></td>
+                    <td className="px-3 py-3"><Badge variant={getIssueStatusVariant(bug.status)}>{bug.status}</Badge></td>
+                    <td className="px-3 py-3">{resolveUserLabel(bug.developerLead || bug.assignee, "Unassigned")}</td>
+                    <td className="px-3 py-3">{formatDateTime(bug.closedAt || bug.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!bugIssues.length ? (
+              <AnalyticsEmptyState icon={Bug} title="No bug activity" description="Your reported bugs will appear here." />
+            ) : null}
+          </div>
+        </AnalyticsPanel>
+      </section>
+    </div>
+  );
+};
+
+const DeveloperReportsDashboard = ({ user }) => {
+  const currentDeveloperId = user?._id || user?.id || "";
+  const [filters, setFilters] = useState({
+    projectId: "all",
+    sprintId: "all",
+    workView: "all",
+    priority: "all",
+    severity: "all",
+    status: "all",
+    dateFrom: "",
+    dateTo: "",
+  });
+  const selectedProjectId = filters.projectId !== "all" ? filters.projectId : "";
+  const statusParts = getStatusParts(filters.status);
+  const sharedFilters = {
+    dateFrom: filters.dateFrom,
+    dateTo: filters.dateTo,
+    projectId: filters.projectId,
+    sprintId: filters.sprintId,
+    priority: filters.priority,
+    status: statusParts.status,
+    statusGroup: statusParts.statusGroup,
+  };
+  const taskAnalytics = useAnalytics(
+    {
+      ...sharedFilters,
+      excludeType: ISSUE_TYPES.BUG,
+      assigneeId: currentDeveloperId,
+    },
+    { includeIssues: true, enabled: Boolean(currentDeveloperId) }
+  );
+  const bugAnalytics = useAnalytics(
+    {
+      ...sharedFilters,
+      type: ISSUE_TYPES.BUG,
+      developerId: currentDeveloperId,
+      severity: filters.severity,
+    },
+    { includeIssues: true, enabled: Boolean(currentDeveloperId) }
+  );
+  const {
+    data: projects = [],
+    isLoading: isProjectsLoading,
+    error: projectsError,
+  } = useQuery({
+    queryKey: ["projects", "developer-reports-options"],
+    queryFn: fetchProjects,
+    staleTime: 60_000,
+  });
+  const { data: sprints = [] } = useQuery({
+    queryKey: ["developer-reports", "sprints", selectedProjectId],
+    queryFn: () => fetchSprints({ projectId: selectedProjectId }),
+    enabled: Boolean(selectedProjectId),
+  });
+
+  const updateFilter = (key, value) =>
+    setFilters((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === "projectId" ? { sprintId: "all" } : {}),
+    }));
+  const resetFilters = () =>
+    setFilters({
+      projectId: "all",
+      sprintId: "all",
+      workView: "all",
+      priority: "all",
+      severity: "all",
+      status: "all",
+      dateFrom: "",
+      dateTo: "",
+    });
+
+  const taskIssues = asArray(taskAnalytics.issues?.issues).filter(
+    (issue) => String(issue.assignee?._id || "") === String(currentDeveloperId)
+  );
+  const bugIssues = asArray(bugAnalytics.issues?.issues).filter(
+    (issue) =>
+      String(issue.developerLead?._id || issue.assignee?._id || "") === String(currentDeveloperId)
+  );
+  const taskTrend = asArray(taskAnalytics.trends?.issueTrend);
+  const bugTrend = asArray(bugAnalytics.trends?.issueTrend);
+  const allWorkItems = useMemo(() => {
+    if (filters.workView === "tasks") {
+      return taskIssues;
+    }
+
+    if (filters.workView === "bugs") {
+      return bugIssues;
+    }
+
+    return [...taskIssues, ...bugIssues];
+  }, [bugIssues, filters.workView, taskIssues]);
+  const assignedTasks = taskIssues.length;
+  const openTasks = taskIssues.filter((issue) => !isClosed(issue)).length;
+  const inProgressTasks = taskIssues.filter(isActive).length;
+  const completedTasks = taskIssues.filter(isClosed).length;
+  const overdueTasks = taskIssues.filter(isOverdue).length;
+  const assignedBugs = bugIssues.length;
+  const fixedBugs = bugIssues.filter((issue) => [ISSUE_STATUS.FIXED, ISSUE_STATUS.CLOSED].includes(issue.status)).length;
+  const reopenedBugs = bugIssues.filter(isReopened).length;
+  const readyForQa = bugIssues.filter(isReadyForQa).length;
+  const criticalBugs = bugIssues.filter(isCriticalBug).length;
+  const closedWork = completedTasks + fixedBugs;
+  const productivity = percent(closedWork, assignedTasks + assignedBugs);
+  const reopenRate = percent(reopenedBugs, assignedBugs);
+  const avgResolutionTime =
+    [...taskIssues, ...bugIssues]
+      .map((issue) => toNumber(issue.resolutionTimeMs))
+      .filter((value) => value > 0)
+      .reduce((sum, value, _index, values) => sum + value / values.length, 0);
+  const deliveryEfficiency = Math.round((productivity + percent(fixedBugs, assignedBugs) + percent(completedTasks, assignedTasks)) / 3);
+  const taskStatusRows = buildRows(taskIssues, (issue) => issue.status, (issue) => getIssueStatusLabel(issue.status));
+  const taskPriorityRows = buildRows(taskIssues, (issue) => issue.priority, (issue) => issue.priority);
+  const severityRows = BUG_SEVERITY_GROUPS.map((group) => ({
+    ...group,
+    count: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
+  }));
+  const workloadRows = useMemo(() => {
+    const rows = new Map();
+    taskTrend.forEach((row) => {
+      const key = row.label || row.date || row._id || "";
+      rows.set(key, {
+        label: key,
+        tasks: toNumber(row.created),
+        completed: toNumber(row.resolved || row.closed),
+        bugs: 0,
+        fixed: 0,
+        reopened: 0,
+      });
+    });
+    bugTrend.forEach((row) => {
+      const key = row.label || row.date || row._id || "";
+      const existing = rows.get(key) || { label: key, tasks: 0, completed: 0, bugs: 0, fixed: 0, reopened: 0 };
+      existing.bugs = toNumber(row.created);
+      existing.fixed = toNumber(row.resolved || row.closed);
+      existing.reopened = toNumber(row.reopened);
+      rows.set(key, existing);
+    });
+    return Array.from(rows.values()).slice(-30);
+  }, [bugTrend, taskTrend]);
+  const error = projectsError || taskAnalytics.error || bugAnalytics.error;
+  const isLoading = isProjectsLoading || taskAnalytics.isLoading || bugAnalytics.isLoading;
+
+  if (error) {
+    return (
+      <Card className={ANALYTICS_PANEL_CLASS}>
+        <CardContent className="p-6 text-sm text-rose-700">
+          {error.response?.data?.message || error.message || "Unable to load your development reports."}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isLoading) {
+    return <ReportsLoading />;
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card className="sticky top-24 z-20 overflow-hidden rounded-[16px] border-white/60 bg-white/88 shadow-[0_22px_60px_-36px_rgba(15,23,42,0.4)] backdrop-blur-2xl">
+        <CardContent className="space-y-3 p-3 sm:p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-600">My Development Reports</p>
+              <h1 className="mt-0.5 text-xl font-semibold text-slate-950 sm:text-2xl">My Development Analytics Dashboard</h1>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Track your assigned tasks, bug fixes, sprint velocity, and delivery performance.
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={resetFilters}>Reset</Button>
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
+              <option value="all">My Projects</option>
+              {projects.map((project) => (
+                <option key={project._id} value={project._id}>{project.name}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.sprintId} disabled={!selectedProjectId} onChange={(event) => updateFilter("sprintId", event.target.value)}>
+              <option value="all">My Sprints</option>
+              <option value="backlog">Backlog</option>
+              {sprints.map((sprint) => (
+                <option key={sprint._id} value={sprint._id}>{sprint.name}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.workView} onChange={(event) => updateFilter("workView", event.target.value)}>
+              <option value="all">My Tasks + Bugs</option>
+              <option value="tasks">My Tasks</option>
+              <option value="bugs">My Bugs</option>
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.priority} onChange={(event) => updateFilter("priority", event.target.value)}>
+              <option value="all">All priorities</option>
+              {PRIORITIES.map((priority) => (
+                <option key={priority} value={priority}>{priority}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.severity} onChange={(event) => updateFilter("severity", event.target.value)}>
+              <option value="all">All severities</option>
+              {BUG_SEVERITY_OPTIONS.map((severity) => (
+                <option key={severity} value={severity}>{severity}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status.value} value={status.value}>{status.label}</option>
+              ))}
+            </select>
+            <div className="grid grid-cols-2 gap-2 md:col-span-2">
+              <DateField label="Date from" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
+              <DateField label="Date to" value={filters.dateTo} onChange={(event) => updateFilter("dateTo", event.target.value)} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <KpiCard accent="blue" icon={Layers3} label="Assigned Tasks" value={assignedTasks} helper={`${completedTasks} completed`} />
+        <KpiCard accent="amber" icon={TimerReset} label="Open Tasks" value={openTasks} helper={`${inProgressTasks} active`} />
+        <KpiCard accent="emerald" icon={CheckCircle2} label="Completed Tasks" value={completedTasks} helper={`${overdueTasks} overdue`} />
+        <KpiCard accent="rose" icon={Bug} label="Assigned Bugs" value={assignedBugs} helper={`${fixedBugs} fixed`} />
+        <KpiCard accent="violet" icon={ShieldCheck} label="Ready For QA" value={readyForQa} helper={`${criticalBugs} critical`} />
+        <KpiCard accent="rose" icon={RefreshCcw} label="Reopened Bugs" value={reopenedBugs} helper={`${reopenRate}% reopen rate`} />
+        <KpiCard accent="emerald" icon={Zap} label="Sprint Velocity" value={closedWork} helper="Tasks + bugs closed" />
+        <KpiCard accent="slate" icon={Gauge} label="Productivity" value={`${productivity}%`} helper={`${deliveryEfficiency}% delivery efficiency`} />
+        <KpiCard accent="blue" icon={TimerReset} label="Avg Resolution" value={formatDuration(avgResolutionTime)} helper="Personal turnaround" />
+        <KpiCard accent="rose" icon={AlertTriangle} label="Critical Bugs" value={criticalBugs} helper="My high-risk bugs" />
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-2">
+        <AnalyticsPanel title="My Task Analytics" description="Only tasks, stories, epics, and subtasks assigned to you.">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <SectionTitle kicker="Status" title="My Task Status Distribution" />
+              <ChartFrame>
+                {taskStatusRows.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={taskStatusRows} dataKey="count" nameKey="label" innerRadius={58} outerRadius={90}>
+                        {taskStatusRows.map((row, index) => <Cell key={row.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip contentStyle={chartTooltipStyle} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : <AnalyticsEmptyState icon={Layers3} title="No assigned tasks" description="Your assigned tasks will appear here." />}
+              </ChartFrame>
+            </div>
+            <div>
+              <SectionTitle kicker="Priority" title="Tasks by Priority" />
+              <div className="mt-4 space-y-3">
+                {taskPriorityRows.map((row) => (
+                  <ProgressRow key={row.key} label={row.label} value={percent(row.count, assignedTasks)} meta={`${row.count} tasks`} tone="bg-blue-500" />
+                ))}
+                {!taskPriorityRows.length ? (
+                  <AnalyticsEmptyState icon={Gauge} title="No task priority data" description="Priority breakdown appears when tasks are assigned." />
+                ) : null}
+              </div>
+            </div>
+            <div className="lg:col-span-2">
+              <SectionTitle kicker="Velocity" title="My Workload Trend" />
+              <ChartFrame className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={workloadRows}>
+                    <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={chartTooltipStyle} />
+                    <Area type="monotone" dataKey="tasks" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.7} />
+                    <Area type="monotone" dataKey="completed" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </ChartFrame>
+            </div>
+          </div>
+        </AnalyticsPanel>
+
+        <AnalyticsPanel title="My Bug Analytics" description="Only bugs assigned to you as developer owner.">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ProgressRow label="My fixed bugs" value={percent(fixedBugs, assignedBugs)} meta={`${fixedBugs} of ${assignedBugs} bugs`} tone="bg-emerald-500" />
+            <ProgressRow label="QA return rate" value={reopenRate} meta={`${reopenedBugs} reopened bugs`} tone="bg-rose-500" />
+            <div>
+              <SectionTitle kicker="Severity" title="Severity Breakdown" />
+              <ChartFrame className="h-[230px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={severityRows} dataKey="count" nameKey="key" innerRadius={54} outerRadius={84} paddingAngle={3}>
+                      {severityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
+                    </Pie>
+                    <Tooltip contentStyle={chartTooltipStyle} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartFrame>
+            </div>
+            <div>
+              <SectionTitle kicker="Resolution" title="My Reopen Trend" />
+              <ChartFrame className="h-[230px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={workloadRows}>
+                    <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={chartTooltipStyle} />
+                    <Bar dataKey="fixed" fill="#10b981" radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="reopened" fill="#f97316" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartFrame>
+            </div>
+          </div>
+        </AnalyticsPanel>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+        <AnalyticsPanel title="My Sprint Performance" description="Personal sprint completion, carry-forward, and contribution signals.">
+          <div className="space-y-3">
+            <ProgressRow label="Sprint completion" value={productivity} meta={`${closedWork} closed items`} tone="bg-emerald-500" />
+            <MiniStat label="Tasks completed" tone="emerald" value={completedTasks} />
+            <MiniStat label="Bugs resolved" tone="blue" value={fixedBugs} />
+            <MiniStat label="Carry-forward items" tone="amber" value={openTasks + assignedBugs - fixedBugs} />
+          </div>
+        </AnalyticsPanel>
+
+        <AnalyticsPanel title="My Recent Work" description="Only your assigned tasks, stories, subtasks, and bugs.">
+          <div className="max-h-[520px] overflow-auto dashboard-scrollbar">
+            <table className="w-full min-w-[920px] text-left text-sm">
+              <thead className="sticky top-0 bg-white/95 text-xs uppercase tracking-[0.16em] text-slate-500 backdrop-blur">
+                <tr>
+                  <th className="px-3 py-3">ID</th>
+                  <th className="px-3 py-3">Type</th>
+                  <th className="px-3 py-3">Title</th>
+                  <th className="px-3 py-3">Project</th>
+                  <th className="px-3 py-3">Status</th>
+                  <th className="px-3 py-3">Priority</th>
+                  <th className="px-3 py-3">Updated</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {allWorkItems.slice(0, 120).map((issue) => (
+                  <tr key={issue._id} className="hover:bg-blue-50/50">
+                    <td className="px-3 py-3 font-mono text-xs font-semibold">{issue.issueId}</td>
+                    <td className="px-3 py-3"><Badge variant={issue.type === ISSUE_TYPES.BUG ? "danger" : "default"}>{issue.type}</Badge></td>
+                    <td className="max-w-[300px] truncate px-3 py-3 font-semibold text-slate-950">{issue.title}</td>
+                    <td className="px-3 py-3">{issue.project?.name || "Unknown"}</td>
+                    <td className="px-3 py-3"><Badge variant={getIssueStatusVariant(issue.status)}>{issue.status}</Badge></td>
+                    <td className="px-3 py-3"><Badge variant={getIssuePriorityVariant(issue.priority)}>{issue.priority}</Badge></td>
+                    <td className="px-3 py-3">{formatDateTime(issue.closedAt || issue.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!allWorkItems.length ? (
+              <AnalyticsEmptyState icon={AreaChartIcon} title="No work items" description="Your assigned development work will appear here." />
+            ) : null}
+          </div>
+        </AnalyticsPanel>
+      </section>
+    </div>
+  );
+};
+
+const OrganizationReportsDashboard = () => {
   const queryClient = useQueryClient();
   const [workflowView, setWorkflowView] = useState("all");
   const [developerTeamFilter, setDeveloperTeamFilter] = useState("all");
@@ -1218,6 +1867,20 @@ const ReportsPage = () => {
       </AnalyticsPanel>
     </div>
   );
+};
+
+const ReportsPage = () => {
+  const { role, user } = useAuth();
+
+  if (role === ROLE_TESTER) {
+    return <TesterReportsDashboard user={user} />;
+  }
+
+  if (role === ROLE_DEVELOPER) {
+    return <DeveloperReportsDashboard user={user} />;
+  }
+
+  return <OrganizationReportsDashboard />;
 };
 
 export default ReportsPage;
