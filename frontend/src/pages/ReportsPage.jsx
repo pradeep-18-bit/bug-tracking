@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   AreaChart as AreaChartIcon,
   Bug,
+  CalendarDays,
   CheckCircle2,
   Download,
   FileText,
@@ -12,10 +13,8 @@ import {
   GitBranch,
   Layers3,
   RefreshCcw,
-  Search,
   ShieldCheck,
   TimerReset,
-  TrendingUp,
   UserCheck,
   Users2,
   Zap,
@@ -28,7 +27,6 @@ import {
   CartesianGrid,
   Cell,
   Line,
-  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -71,10 +69,28 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn, formatDateTime } from "@/lib/utils";
 
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
-const WORK_TYPE_OPTIONS = [
-  { value: "both", label: "Tasks + Bugs" },
-  { value: "tasks", label: "Tasks only" },
-  { value: "bugs", label: "Bugs only" },
+const WORKFLOW_VIEW_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "tasks", label: "Tasks" },
+  { value: "bugs", label: "Bugs" },
+];
+const TASK_ISSUE_TYPES = new Set([
+  ISSUE_TYPES.TASK,
+  ISSUE_TYPES.STORY,
+  ISSUE_TYPES.EPIC,
+  ISSUE_TYPES.SUB_TASK,
+]);
+const BUG_SEVERITY_GROUPS = [
+  { key: "Critical", labels: ["Blocker", "Critical"], color: "#dc2626" },
+  { key: "High", labels: ["Major", "High"], color: "#f97316" },
+  { key: "Medium", labels: ["Medium"], color: "#f59e0b" },
+  { key: "Low", labels: ["Minor", "Low"], color: "#10b981" },
+];
+const BUG_PRIORITY_GROUPS = [
+  { key: "P1", label: "P1 Critical", source: "Critical", color: "#dc2626" },
+  { key: "P2", label: "P2 High", source: "High", color: "#f97316" },
+  { key: "P3", label: "P3 Medium", source: "Medium", color: "#2563eb" },
+  { key: "P4", label: "P4 Low", source: "Low", color: "#10b981" },
 ];
 const STATUS_OPTIONS = [
   { value: "all", label: "All statuses" },
@@ -128,6 +144,10 @@ const isReadyForQa = (issue) =>
 const isReopened = (issue) => issue?.status === ISSUE_STATUS.REOPEN;
 const isOverdue = (issue) =>
   Boolean(issue?.dueAt) && !isClosed(issue) && new Date(issue.dueAt) < new Date();
+const getTeamKey = (issue) => issue?.team?._id || "unassigned";
+const getTeamName = (issue) => issue?.team?.name || "Unassigned team";
+const matchesTeam = (row, teamId) =>
+  teamId === "all" || row.teamIds?.has(teamId) || (!row.teamIds?.size && teamId === "unassigned");
 
 const buildRows = (rows = [], keyAccessor, labelAccessor) => {
   const buckets = new Map();
@@ -240,6 +260,60 @@ const ProgressRow = ({ label, meta, tone = "bg-blue-500", value }) => (
   </div>
 );
 
+const SegmentedToggle = ({ options, value, onChange }) => (
+  <div className="inline-flex rounded-2xl border border-white/70 bg-white/72 p-1 shadow-[0_14px_32px_-26px_rgba(15,23,42,0.45)] backdrop-blur-xl">
+    {options.map((option) => {
+      const active = option.value === value;
+
+      return (
+        <button
+          className={cn(
+            "h-8 rounded-xl px-4 text-xs font-semibold transition-all duration-200",
+            active
+              ? "bg-blue-600 text-white shadow-[0_10px_24px_-14px_rgba(37,99,235,0.75)]"
+              : "text-slate-600 hover:bg-white hover:text-slate-950"
+          )}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          type="button"
+        >
+          {option.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
+const DateField = ({ value, onChange, label }) => (
+  <div className="relative">
+    <Input
+      aria-label={label}
+      className={cn(ANALYTICS_FIELD_CLASS, "pr-10")}
+      type="date"
+      value={value}
+      onChange={onChange}
+    />
+    <CalendarDays className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+  </div>
+);
+
+const MiniStat = ({ label, tone = "slate", value }) => {
+  const tones = {
+    blue: "bg-blue-50 text-blue-700",
+    emerald: "bg-emerald-50 text-emerald-700",
+    rose: "bg-rose-50 text-rose-700",
+    amber: "bg-amber-50 text-amber-700",
+    slate: "bg-slate-50 text-slate-600",
+  };
+
+  return (
+    <div className={cn("rounded-xl px-2 py-2 text-center", tones[tone])}>
+      <p className="text-[11px] font-semibold">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold text-slate-950">{value}</p>
+    </div>
+  );
+};
+
 const ReportsLoading = () => (
   <div className="space-y-5">
     <Skeleton className="h-[170px] rounded-[16px]" />
@@ -259,6 +333,9 @@ const ReportsLoading = () => (
 
 const ReportsPage = () => {
   const queryClient = useQueryClient();
+  const [workflowView, setWorkflowView] = useState("all");
+  const [developerTeamFilter, setDeveloperTeamFilter] = useState("all");
+  const [qaTeamFilter, setQaTeamFilter] = useState("all");
   const [filters, setFilters] = useState({
     projectId: "all",
     teamId: "all",
@@ -272,11 +349,7 @@ const ReportsPage = () => {
     status: "all",
     dateFrom: "",
     dateTo: "",
-    search: "",
-    workType: "both",
   });
-  const showTasks = filters.workType !== "bugs";
-  const showBugs = filters.workType !== "tasks";
   const statusParts = getStatusParts(filters.status);
   const analyticsFilters = {
     dateFrom: filters.dateFrom,
@@ -290,7 +363,6 @@ const ReportsPage = () => {
     severity: filters.severity,
     sprintId: filters.sprintId,
     epicId: filters.epicId,
-    search: filters.search,
     ...statusParts,
   };
   const taskAnalytics = useAnalytics(
@@ -298,14 +370,14 @@ const ReportsPage = () => {
       ...analyticsFilters,
       excludeType: ISSUE_TYPES.BUG,
     },
-    { includeIssues: true, enabled: showTasks }
+    { includeIssues: true }
   );
   const bugAnalytics = useAnalytics(
     {
       ...analyticsFilters,
       type: ISSUE_TYPES.BUG,
     },
-    { includeIssues: true, enabled: showBugs }
+    { includeIssues: true }
   );
   const {
     data: projects = [],
@@ -382,7 +454,20 @@ const ReportsPage = () => {
   const bugProjects = asArray(bugAnalytics.projects?.projects);
   const taskTeams = asArray(taskAnalytics.teams?.teams);
   const bugTeams = asArray(bugAnalytics.teams?.teams);
-  const allVisibleIssues = [...(showTasks ? taskIssues : []), ...(showBugs ? bugIssues : [])];
+  const allVisibleIssues = useMemo(() => [...taskIssues, ...bugIssues], [bugIssues, taskIssues]);
+  const workflowIssues = useMemo(() => {
+    if (workflowView === "tasks") {
+      return allVisibleIssues.filter((issue) => TASK_ISSUE_TYPES.has(issue.type));
+    }
+
+    if (workflowView === "bugs") {
+      return allVisibleIssues.filter((issue) => issue.type === ISSUE_TYPES.BUG);
+    }
+
+    return allVisibleIssues.filter(
+      (issue) => TASK_ISSUE_TYPES.has(issue.type) || issue.type === ISSUE_TYPES.BUG
+    );
+  }, [allVisibleIssues, workflowView]);
   const taskMetrics = {
     total: toNumber(taskSummary.totalIssues),
     open: taskIssues.filter((issue) => !isClosed(issue)).length,
@@ -410,26 +495,71 @@ const ReportsPage = () => {
     reopenRate: percent(bugMetrics.reopened, bugMetrics.total),
   };
   const taskStatusRows = buildRows(taskIssues, (issue) => issue.status, (issue) => getIssueStatusLabel(issue.status));
-  const bugSeverityRows = buildRows(bugIssues, (issue) => issue.severity || "Not set", (issue) => issue.severity || "Not set");
+  const bugSeverityRows = BUG_SEVERITY_GROUPS.map((group) => ({
+    ...group,
+    count: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
+  }));
   const taskAssigneeRows = buildRows(taskIssues, (issue) => issue.assignee?._id, (issue) => resolveUserLabel(issue.assignee));
   const bugDeveloperRows = buildRows(bugIssues, (issue) => issue.developerLead?._id || issue.assignee?._id, (issue) => resolveUserLabel(issue.developerLead || issue.assignee));
-  const bugPriorityRows = buildRows(bugIssues, (issue) => issue.priority, (issue) => issue.priority);
+  const bugPriorityRows = BUG_PRIORITY_GROUPS.map((group) => ({
+    ...group,
+    count: bugIssues.filter((issue) => issue.priority === group.source).length,
+  }));
   const taskTypeRows = buildRows(taskIssues, (issue) => issue.type, (issue) => issue.type);
   const trendRows = useMemo(() => {
     const rows = new Map();
     taskTrend.forEach((row) => {
       const key = row.label || row.date || row._id || "";
-      rows.set(key, { label: key, tasks: toNumber(row.created), bugs: 0, resolved: toNumber(row.resolved || row.closed) });
+      rows.set(key, {
+        label: key,
+        tasks: toNumber(row.created),
+        bugs: 0,
+        fixed: 0,
+        reopened: 0,
+        pending: toNumber(row.pending),
+        resolved: toNumber(row.resolved || row.closed),
+      });
     });
     bugTrend.forEach((row) => {
       const key = row.label || row.date || row._id || "";
-      const existing = rows.get(key) || { label: key, tasks: 0, bugs: 0, resolved: 0 };
+      const existing = rows.get(key) || {
+        label: key,
+        tasks: 0,
+        bugs: 0,
+        fixed: 0,
+        reopened: 0,
+        pending: 0,
+        resolved: 0,
+      };
       existing.bugs = toNumber(row.created);
-      existing.resolved += toNumber(row.resolved || row.closed);
+      existing.fixed = toNumber(row.resolved || row.closed);
+      existing.reopened = toNumber(row.reopened);
+      existing.pending = Math.max(existing.pending, toNumber(row.pending));
+      existing.resolved += existing.fixed;
       rows.set(key, existing);
     });
     return Array.from(rows.values()).slice(-14);
   }, [bugTrend, taskTrend]);
+  const bugTimelineRows = useMemo(
+    () =>
+      bugTrend.slice(-30).map((row) => ({
+        label: row.label || row.date || row._id || "",
+        created: toNumber(row.created),
+        fixed: toNumber(row.resolved || row.closed),
+        reopened: toNumber(row.reopened),
+        pending: toNumber(row.pending),
+      })),
+    [bugTrend]
+  );
+  const reopenHeatmapRows = useMemo(
+    () =>
+      bugTrend.slice(-35).map((row) => ({
+        key: row.key || row.label || row.date || row._id || "",
+        label: row.label || row.date || row._id || "",
+        reopened: toNumber(row.reopened),
+      })),
+    [bugTrend]
+  );
   const teamPerformance = useMemo(() => {
     const rows = new Map();
     const ensureRow = (team) => {
@@ -496,7 +626,15 @@ const ReportsPage = () => {
     });
     return Array.from(rows.values()).sort((left, right) => right.tasks + right.bugs - (left.tasks + left.bugs));
   }, [bugProjects, taskProjects]);
-  const qaRows = buildRows(bugIssues, (issue) => issue.reporter?._id || issue.testerOwner?._id, (issue) => resolveUserLabel(issue.reporter || issue.testerOwner, "Unknown QA"));
+  const qaRows = useMemo(
+    () =>
+      buildRows(
+        bugIssues,
+        (issue) => issue.reporter?._id || issue.testerOwner?._id,
+        (issue) => resolveUserLabel(issue.reporter || issue.testerOwner, "Unknown QA")
+      ),
+    [bugIssues]
+  );
   const developerProductivity = useMemo(() => {
     const rows = new Map();
     [...taskIssues, ...bugIssues].forEach((issue) => {
@@ -510,7 +648,11 @@ const ReportsPage = () => {
         bugsFixed: 0,
         reopened: 0,
         total: 0,
+        teamIds: new Set(),
+        teamNames: new Set(),
       };
+      row.teamIds.add(getTeamKey(issue));
+      row.teamNames.add(getTeamName(issue));
       if (issue.type === ISSUE_TYPES.BUG) {
         row.bugsFixed += issue.status === ISSUE_STATUS.CLOSED ? 1 : 0;
         row.reopened += isReopened(issue) ? 1 : 0;
@@ -529,7 +671,37 @@ const ReportsPage = () => {
       }))
       .sort((left, right) => right.velocity - left.velocity);
   }, [bugIssues, taskIssues]);
-  const isLoading = isProjectsLoading || (showTasks && taskAnalytics.isLoading) || (showBugs && bugAnalytics.isLoading);
+  const filteredDeveloperProductivity = useMemo(
+    () => developerProductivity.filter((developer) => matchesTeam(developer, developerTeamFilter)),
+    [developerProductivity, developerTeamFilter]
+  );
+  const qaPerformanceRows = useMemo(
+    () =>
+      qaRows
+        .map((qa) => {
+          const qaIssues = bugIssues.filter(
+            (issue) => (issue.reporter?._id || issue.testerOwner?._id || "unassigned") === qa.key
+          );
+          const teamIds = new Set(qaIssues.map(getTeamKey));
+          const teamNames = new Set(qaIssues.map(getTeamName));
+          const verified = qaIssues.filter((issue) => issue.status === ISSUE_STATUS.CLOSED).length;
+          const reopened = qaIssues.filter(isReopened).length;
+          const rejected = qaIssues.filter((issue) => issue.status === ISSUE_STATUS.REJECTED).length;
+
+          return {
+            ...qa,
+            teamIds,
+            teamNames,
+            verified,
+            reopened,
+            rejected,
+            efficiency: percent(verified, qaIssues.length),
+          };
+        })
+        .filter((qa) => matchesTeam(qa, qaTeamFilter)),
+    [bugIssues, qaRows, qaTeamFilter]
+  );
+  const isLoading = isProjectsLoading || taskAnalytics.isLoading || bugAnalytics.isLoading;
   const error = projectsError || taskAnalytics.error || bugAnalytics.error;
 
   const updateFilter = (key, value) => {
@@ -541,7 +713,10 @@ const ReportsPage = () => {
         : {}),
     }));
   };
-  const resetFilters = () =>
+  const resetFilters = () => {
+    setWorkflowView("all");
+    setDeveloperTeamFilter("all");
+    setQaTeamFilter("all");
     setFilters({
       projectId: "all",
       teamId: "all",
@@ -555,14 +730,13 @@ const ReportsPage = () => {
       status: "all",
       dateFrom: "",
       dateTo: "",
-      search: "",
-      workType: "both",
     });
+  };
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["analytics"] });
   const exportAnalytics = () =>
     exportCsv([
       ["Workflow", "ID", "Title", "Project", "Team", "Owner", "Status", "Priority", "Severity", "Created", "Resolution ms"],
-      ...allVisibleIssues.map((issue) => [
+      ...workflowIssues.map((issue) => [
         issue.type === ISSUE_TYPES.BUG ? "Bug" : "Task",
         issue.issueId,
         issue.title,
@@ -593,33 +767,34 @@ const ReportsPage = () => {
 
   return (
     <div className="space-y-5">
-      <Card className="sticky top-24 z-20 overflow-hidden rounded-[16px] border-white/60 bg-white/86 shadow-[0_22px_60px_-36px_rgba(15,23,42,0.4)] backdrop-blur-2xl">
-        <CardContent className="space-y-4 p-4 sm:p-5">
+      <Card className="sticky top-24 z-20 overflow-hidden rounded-[16px] border-white/60 bg-white/88 shadow-[0_22px_60px_-36px_rgba(15,23,42,0.4)] backdrop-blur-2xl">
+        <CardContent className="space-y-3 p-3 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-600">Reports Dashboard</p>
-              <h1 className="mt-1 text-2xl font-semibold text-slate-950">Workflow Analytics Command Center</h1>
-              <p className="mt-1 text-sm text-slate-500">
+              <h1 className="mt-0.5 text-xl font-semibold text-slate-950 sm:text-2xl">Workflow Analytics Command Center</h1>
+              <p className="mt-0.5 text-sm text-slate-500">
                 Task flow and bug flow are measured independently with a combined executive view.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={exportAnalytics}>
+              <Button type="button" variant="outline" size="sm" onClick={exportAnalytics}>
                 <Download className="h-4 w-4" />
                 Export CSV
               </Button>
-              <Button type="button" variant="outline" onClick={() => window.print()}>
+              <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
                 <FileText className="h-4 w-4" />
                 Export PDF
               </Button>
-              <Button type="button" onClick={refresh}>
+              <Button type="button" variant="outline" size="sm" onClick={refresh}>
                 <RefreshCcw className="h-4 w-4" />
                 Refresh
               </Button>
+              <Button type="button" variant="outline" size="sm" onClick={resetFilters}>Reset</Button>
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
             <select className={ANALYTICS_SELECT_CLASS} value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
               <option value="all">All projects</option>
               {projects.map((project) => (
@@ -681,20 +856,10 @@ const ReportsPage = () => {
                 <option key={status.value} value={status.value}>{status.label}</option>
               ))}
             </select>
-            <select className={ANALYTICS_SELECT_CLASS} value={filters.workType} onChange={(event) => updateFilter("workType", event.target.value)}>
-              {WORK_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <div className="grid grid-cols-2 gap-2">
-              <Input className={ANALYTICS_FIELD_CLASS} type="date" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
-              <Input className={ANALYTICS_FIELD_CLASS} type="date" value={filters.dateTo} onChange={(event) => updateFilter("dateTo", event.target.value)} />
+            <div className="grid grid-cols-2 gap-2 md:col-span-2 xl:col-span-1">
+              <DateField label="Date from" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
+              <DateField label="Date to" value={filters.dateTo} onChange={(event) => updateFilter("dateTo", event.target.value)} />
             </div>
-            <div className="relative md:col-span-2 xl:col-span-5">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input className={cn(ANALYTICS_FIELD_CLASS, "pl-11")} placeholder="Search reports by ID, title, project, priority, or status" value={filters.search} onChange={(event) => updateFilter("search", event.target.value)} />
-            </div>
-            <Button type="button" variant="outline" onClick={resetFilters}>Reset</Button>
           </div>
         </CardContent>
       </Card>
@@ -780,60 +945,89 @@ const ReportsPage = () => {
         </AnalyticsPanel>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+      <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
         <AnalyticsPanel title="Bug Analytics" description="Bug lifecycle only: tester report, developer fix, QA verification, close.">
           <div className="grid gap-4 lg:grid-cols-2">
-            <div>
+            <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Severity" title="Bugs By Severity" />
-              <ChartFrame>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={bugSeverityRows} layout="vertical">
-                    <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
-                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <YAxis type="category" dataKey="label" width={90} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                    <Bar dataKey="count" radius={[0, 8, 8, 0]} fill="#ef4444" />
-                  </BarChart>
-                </ResponsiveContainer>
+              <ChartFrame className="h-[230px]">
+                {bugMetrics.total ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={bugSeverityRows} dataKey="count" nameKey="key" innerRadius={54} outerRadius={84} paddingAngle={3}>
+                        {bugSeverityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
+                      </Pie>
+                      <Tooltip contentStyle={chartTooltipStyle} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Bug} title="No severity data" description="Bug severity appears when bugs exist in scope." />}
               </ChartFrame>
             </div>
-            <div>
+            <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Priority" title="Bugs By Priority" />
-              <ChartFrame>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={bugPriorityRows} dataKey="count" nameKey="label" outerRadius={92}>
-                      {bugPriorityRows.map((row, index) => <Cell key={row.key} fill={CHART_COLORS[(index + 2) % CHART_COLORS.length]} />)}
-                    </Pie>
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                  </PieChart>
-                </ResponsiveContainer>
+              <ChartFrame className="h-[230px]">
+                {bugMetrics.total ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={bugPriorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
+                      <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
+                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="label" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={chartTooltipStyle} />
+                      <Bar dataKey="count" radius={[0, 8, 8, 0]}>
+                        {bugPriorityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Gauge} title="No priority data" description="Bug priority appears when bugs exist in scope." />}
               </ChartFrame>
             </div>
-            <div className="lg:col-span-2">
-              <SectionTitle kicker="Reopen Heatmap" title="Developer Fix Rate" />
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {bugDeveloperRows.slice(0, 6).map((row) => (
-                  <ProgressRow key={row.key} label={row.label} value={percent(row.count, bugMetrics.total)} meta={`${row.count} assigned/fixed bugs`} tone="bg-rose-500" />
+            <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
+              <SectionTitle kicker="Reopen Heatmap" title="Weekly Reopen Trends" />
+              <div className="mt-4 grid grid-cols-7 gap-1.5">
+                {reopenHeatmapRows.length ? reopenHeatmapRows.map((row) => (
+                  <div
+                    className={cn(
+                      "h-8 rounded-lg border border-white/60 transition-all duration-200",
+                      row.reopened >= 4 ? "bg-rose-600" : row.reopened >= 2 ? "bg-rose-400" : row.reopened === 1 ? "bg-rose-200" : "bg-slate-100"
+                    )}
+                    key={row.key}
+                    title={`${row.label}: ${row.reopened} reopened`}
+                  />
+                )) : (
+                  <AnalyticsEmptyState className="col-span-7 min-h-[180px]" icon={RefreshCcw} title="No reopen trend" description="Reopen spikes appear after bug status changes." />
+                )}
+              </div>
+            </div>
+            <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
+              <SectionTitle kicker="Fix Rate" title="Developer Fix Rate" />
+              <div className="mt-4 max-h-[220px] space-y-3 overflow-y-auto pr-2 dashboard-scrollbar">
+                {bugDeveloperRows.slice(0, 8).map((row) => (
+                  <ProgressRow key={row.key} label={row.label} value={percent(row.count, Math.max(bugMetrics.total, 1))} meta={`${row.count} assigned/fixed bugs`} tone="bg-rose-500" />
                 ))}
+                {!bugDeveloperRows.length ? (
+                  <AnalyticsEmptyState className="min-h-[180px]" icon={UserCheck} title="No developer data" description="Fix ownership appears once bugs are assigned." />
+                ) : null}
               </div>
             </div>
           </div>
         </AnalyticsPanel>
 
-        <AnalyticsPanel title="Bug Resolution Timeline" description="Created task and bug trend with resolved throughput over time.">
-          <ChartFrame className="h-[380px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trendRows}>
-                <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={chartTooltipStyle} />
-                <Line type="monotone" dataKey="tasks" stroke="#2563eb" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="bugs" stroke="#ef4444" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="resolved" stroke="#10b981" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+        <AnalyticsPanel title="Bug Resolution Timeline" description="Created vs fixed bugs, throughput, reopen spikes, and QA verification flow.">
+          <ChartFrame className="h-[430px]">
+            {bugTimelineRows.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={bugTimelineRows}>
+                  <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={chartTooltipStyle} />
+                  <Area type="monotone" dataKey="created" name="Created" stroke="#ef4444" fill="#fecdd3" fillOpacity={0.72} />
+                  <Area type="monotone" dataKey="fixed" name="Fixed" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} />
+                  <Line type="monotone" dataKey="reopened" name="Reopen spikes" stroke="#f97316" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="pending" name="Pending QA flow" stroke="#2563eb" strokeWidth={2} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : <AnalyticsEmptyState icon={AreaChartIcon} title="No bug timeline" description="Created, fixed, and reopened bug trends appear after bug activity." />}
           </ChartFrame>
         </AnalyticsPanel>
       </section>
@@ -898,61 +1092,95 @@ const ReportsPage = () => {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2">
-        <AnalyticsPanel title="Developer Productivity" description="Assigned tasks, completed work, bugs fixed, reopen rate, and velocity score.">
-          <div className="grid gap-3 md:grid-cols-2">
-            {developerProductivity.slice(0, 8).map((developer) => (
-              <div key={developer.key} className="rounded-[16px] border border-white/55 bg-white/58 p-4">
+        <AnalyticsPanel
+          title="Developer Productivity"
+          description="Assigned tasks, completed work, bugs fixed, reopen rate, and velocity score."
+          action={(
+            <select className={cn(ANALYTICS_SELECT_CLASS, "h-9 min-w-[180px] rounded-xl px-3")} value={developerTeamFilter} onChange={(event) => setDeveloperTeamFilter(event.target.value)}>
+              <option value="all">All Teams</option>
+              {teams.map((team) => (
+                <option key={resolveTeamId(team)} value={resolveTeamId(team)}>{team.name}</option>
+              ))}
+            </select>
+          )}
+        >
+          <div className="max-h-[650px] overflow-y-auto pr-2 dashboard-scrollbar">
+            <div className="grid gap-3 md:grid-cols-2">
+              {filteredDeveloperProductivity.slice(0, 60).map((developer) => (
+              <div key={developer.key} className="rounded-[16px] border border-white/55 bg-white/58 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-950">{developer.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">{developer.assignedTasks} tasks, {developer.bugsFixed} bugs fixed</p>
+                    <p className="mt-1 truncate text-xs text-slate-500">
+                      {developer.assignedTasks} tasks, {developer.bugsFixed} bugs fixed
+                    </p>
                   </div>
                   <Badge variant={developer.reopenRate > 20 ? "danger" : "success"}>{developer.velocity}% velocity</Badge>
                 </div>
-                <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                  <div className="rounded-xl bg-slate-50 px-2 py-2"><p className="text-xs text-slate-500">Done</p><p className="font-semibold">{developer.completedTasks}</p></div>
-                  <div className="rounded-xl bg-emerald-50 px-2 py-2"><p className="text-xs text-emerald-700">Fixed</p><p className="font-semibold text-emerald-900">{developer.bugsFixed}</p></div>
-                  <div className="rounded-xl bg-rose-50 px-2 py-2"><p className="text-xs text-rose-700">Reopen</p><p className="font-semibold text-rose-900">{developer.reopenRate}%</p></div>
+                <p className="mt-2 truncate text-[11px] font-semibold uppercase text-slate-400">{Array.from(developer.teamNames).join(", ")}</p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <MiniStat label="Done" value={developer.completedTasks} />
+                  <MiniStat label="Fixed" tone="emerald" value={developer.bugsFixed} />
+                  <MiniStat label="Reopen" tone="rose" value={`${developer.reopenRate}%`} />
                 </div>
               </div>
-            ))}
+              ))}
+              {!filteredDeveloperProductivity.length ? (
+                <AnalyticsEmptyState className="md:col-span-2" icon={Users2} title="No developers in scope" description="Adjust team or project filters to show developer productivity." />
+              ) : null}
+            </div>
           </div>
         </AnalyticsPanel>
 
-        <AnalyticsPanel title="QA Performance Analytics" description="Bugs reported, verified fixes, reopened bugs, verification rate, efficiency, and false-positive signals.">
-          <div className="space-y-3">
-            {qaRows.slice(0, 8).map((qa) => {
-              const qaIssues = bugIssues.filter((issue) => (issue.reporter?._id || issue.testerOwner?._id || "unassigned") === qa.key);
-              const verified = qaIssues.filter((issue) => issue.status === ISSUE_STATUS.CLOSED).length;
-              const reopened = qaIssues.filter(isReopened).length;
-              const rejected = qaIssues.filter((issue) => issue.status === ISSUE_STATUS.REJECTED).length;
-              const efficiency = percent(verified, qaIssues.length);
-
-              return (
-                <div key={qa.key} className="rounded-[16px] border border-white/55 bg-white/58 p-4">
+        <AnalyticsPanel
+          title="QA Performance Analytics"
+          description="Bugs reported, verified fixes, reopened bugs, verification rate, efficiency, and false-positive signals."
+          action={(
+            <select className={cn(ANALYTICS_SELECT_CLASS, "h-9 min-w-[180px] rounded-xl px-3")} value={qaTeamFilter} onChange={(event) => setQaTeamFilter(event.target.value)}>
+              <option value="all">All Teams</option>
+              {teams.map((team) => (
+                <option key={resolveTeamId(team)} value={resolveTeamId(team)}>{team.name}</option>
+              ))}
+            </select>
+          )}
+        >
+          <div className="max-h-[650px] overflow-y-auto pr-2 dashboard-scrollbar">
+            <div className="space-y-3">
+            {qaPerformanceRows.slice(0, 60).map((qa) => (
+                <div key={qa.key} className="rounded-[16px] border border-white/55 bg-white/58 p-3">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-950">{qa.label}</p>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-950">{qa.label}</p>
                       <p className="mt-1 text-xs text-slate-500">{qa.count} bugs reported</p>
                     </div>
-                    <Badge variant={efficiency >= 70 ? "success" : "warning"}>{efficiency}% efficiency</Badge>
+                    <Badge variant={qa.efficiency >= 70 ? "success" : "warning"}>{qa.efficiency}% efficiency</Badge>
                   </div>
-                  <div className="mt-4 grid grid-cols-4 gap-2 text-center">
-                    <div className="rounded-xl bg-blue-50 px-2 py-2"><p className="text-xs text-blue-700">Reported</p><p className="font-semibold">{qa.count}</p></div>
-                    <div className="rounded-xl bg-emerald-50 px-2 py-2"><p className="text-xs text-emerald-700">Verified</p><p className="font-semibold">{verified}</p></div>
-                    <div className="rounded-xl bg-rose-50 px-2 py-2"><p className="text-xs text-rose-700">Reopened</p><p className="font-semibold">{reopened}</p></div>
-                    <div className="rounded-xl bg-amber-50 px-2 py-2"><p className="text-xs text-amber-700">False +</p><p className="font-semibold">{rejected}</p></div>
+                  <p className="mt-2 truncate text-[11px] font-semibold uppercase text-slate-400">{Array.from(qa.teamNames).join(", ")}</p>
+                  <div className="mt-3 grid grid-cols-4 gap-2">
+                    <MiniStat label="Reported" tone="blue" value={qa.count} />
+                    <MiniStat label="Verified" tone="emerald" value={qa.verified} />
+                    <MiniStat label="Reopened" tone="rose" value={qa.reopened} />
+                    <MiniStat label="False +" tone="amber" value={qa.rejected} />
                   </div>
                 </div>
-              );
-            })}
+            ))}
+            {!qaPerformanceRows.length ? (
+              <AnalyticsEmptyState icon={UserCheck} title="No QA users in scope" description="Adjust team or tester filters to show QA performance." />
+            ) : null}
+            </div>
           </div>
         </AnalyticsPanel>
       </section>
 
       <AnalyticsPanel title="Detailed Workflow Analytics" description="Separated task and bug rows for audit, export, and operational review.">
-        {allVisibleIssues.length ? (
-          <div className="max-h-[520px] overflow-auto">
+        <div className="sticky top-0 z-10 mb-3 flex flex-col gap-2 rounded-2xl border border-white/60 bg-white/82 p-2 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
+          <SegmentedToggle options={WORKFLOW_VIEW_OPTIONS} value={workflowView} onChange={setWorkflowView} />
+          <p className="px-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            {workflowIssues.length} rows in view
+          </p>
+        </div>
+        {workflowIssues.length ? (
+          <div className="max-h-[560px] overflow-auto dashboard-scrollbar">
             <table className="w-full min-w-[1120px] text-left text-sm">
               <thead className="sticky top-0 bg-white/95 text-xs uppercase tracking-[0.16em] text-slate-500 backdrop-blur">
                 <tr>
@@ -968,7 +1196,7 @@ const ReportsPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {allVisibleIssues.slice(0, 80).map((issue) => (
+                {workflowIssues.slice(0, 250).map((issue) => (
                   <tr key={issue._id} className="hover:bg-blue-50/50">
                     <td className="px-3 py-3"><Badge variant={issue.type === ISSUE_TYPES.BUG ? "danger" : "default"}>{issue.type === ISSUE_TYPES.BUG ? "Bug" : "Task"}</Badge></td>
                     <td className="px-3 py-3 font-mono text-xs font-semibold">{issue.issueId}</td>
