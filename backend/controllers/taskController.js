@@ -24,14 +24,25 @@ const normalizeTaskStatusInput = (value) =>
     .toUpperCase()
     .replace(/[\s-]+/g, "_");
 
-const updateTaskStatus = (req, res, next) => {
+const updateTaskStatus = asyncHandler(async (req, res, next) => {
   const requestedStatus = normalizeTaskStatusInput(req.body?.status);
   const issueStatus = TASK_STATUS_TO_ISSUE_STATUS[requestedStatus];
 
   if (!issueStatus) {
     res.status(400);
-    next(new Error("Status must be OPEN, IN_PROGRESS, or DONE"));
-    return undefined;
+    throw new Error("Status must be OPEN, IN_PROGRESS, or DONE");
+  }
+
+  const task = await Issue.findById(req.params.id).select("_id type").lean();
+
+  if (!task) {
+    res.status(404);
+    throw new Error("Task not found");
+  }
+
+  if (task.type !== ISSUE_TYPES.TASK) {
+    res.status(400);
+    throw new Error("Only Task work items can be updated from the task board");
   }
 
   req.body = {
@@ -39,7 +50,7 @@ const updateTaskStatus = (req, res, next) => {
   };
 
   return updateIssue(req, res, next);
-};
+});
 
 const getRecentTasks = asyncHandler(async (req, res) => {
   if (req.user.role !== ROLE_TESTER) {
