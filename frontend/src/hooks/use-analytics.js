@@ -21,6 +21,12 @@ const createAnalyticsFilters = (filters = {}) => ({
   priority: filters.priority || "all",
   priorityGroup: filters.priorityGroup || "all",
   type: filters.type || "all",
+  excludeType: filters.excludeType || "all",
+  sprintId: filters.sprintId || "all",
+  epicId: filters.epicId || "all",
+  developerId: filters.developerId || "all",
+  testerId: filters.testerId || "all",
+  severity: filters.severity || "all",
   search: filters.search || "",
 });
 

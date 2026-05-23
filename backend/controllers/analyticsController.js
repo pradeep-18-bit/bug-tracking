@@ -411,6 +411,91 @@ const buildAnalyticsMatch = async (req, res) => {
     match.type = normalizedType;
   }
 
+  if (req.query.excludeType && req.query.excludeType !== "all") {
+    const normalizedExcludedType = getCanonicalIssueType(req.query.excludeType, "");
+
+    if (!isValidIssueType(normalizedExcludedType)) {
+      res.status(400);
+      throw new Error(`Excluded type must be ${ISSUE_TYPE_VALUES.join(", ")}`);
+    }
+
+    if (match.type) {
+      if (match.type === normalizedExcludedType) {
+        match._id = {
+          $in: [],
+        };
+      }
+    } else {
+      match.type = {
+        $ne: normalizedExcludedType,
+      };
+    }
+  }
+
+  if (req.query.sprintId && req.query.sprintId !== "all") {
+    if (req.query.sprintId === "backlog") {
+      match.sprintId = null;
+    } else if (mongoose.isValidObjectId(req.query.sprintId)) {
+      match.sprintId = new mongoose.Types.ObjectId(req.query.sprintId);
+    } else {
+      res.status(400);
+      throw new Error("Invalid sprint filter");
+    }
+  }
+
+  if (req.query.epicId && req.query.epicId !== "all") {
+    if (req.query.epicId === "unassigned") {
+      match.epicId = null;
+    } else if (mongoose.isValidObjectId(req.query.epicId)) {
+      match.epicId = new mongoose.Types.ObjectId(req.query.epicId);
+    } else {
+      res.status(400);
+      throw new Error("Invalid epic filter");
+    }
+  }
+
+  if (req.query.severity && req.query.severity !== "all") {
+    match["bugDetails.severity"] = req.query.severity;
+  }
+
+  if (req.query.developerId && req.query.developerId !== "all") {
+    if (!mongoose.isValidObjectId(req.query.developerId)) {
+      res.status(400);
+      throw new Error("Invalid developer filter");
+    }
+
+    const developerObjectId = new mongoose.Types.ObjectId(req.query.developerId);
+    addAndCondition(match, {
+      $or: [
+        {
+          assignee: developerObjectId,
+        },
+        {
+          "bugDetails.developerLead": developerObjectId,
+        },
+      ],
+    });
+  }
+
+  if (req.query.testerId && req.query.testerId !== "all") {
+    if (!mongoose.isValidObjectId(req.query.testerId)) {
+      res.status(400);
+      throw new Error("Invalid tester filter");
+    }
+
+    const testerObjectId = new mongoose.Types.ObjectId(req.query.testerId);
+    addAndCondition(match, {
+      $or: [
+        {
+          reporter: testerObjectId,
+        },
+        {
+          "bugDetails.testerOwner": testerObjectId,
+        },
+      ],
+    });
+  }
+
   if (req.query.search?.trim()) {
     const searchExpression = new RegExp(escapeRegExp(req.query.search.trim()), "i");
     addAndCondition(match, {
@@ -505,6 +590,34 @@ const serializeIssueRef = (issue, extra = {}) => {
           role: issue.assignee.role,
         }
       : null;
+  const reporter =
+    issue?.reporter && typeof issue.reporter === "object"
+      ? {
+          _id: issue.reporter._id,
+          name: issue.reporter.name,
+          email: issue.reporter.email,
+          role: issue.reporter.role,
+        }
+      : null;
+  const developerLead =
+    issue?.bugDetails?.developerLead &&
+    typeof issue.bugDetails.developerLead === "object"
+      ? {
+          _id: issue.bugDetails.developerLead._id,
+          name: issue.bugDetails.developerLead.name,
+          email: issue.bugDetails.developerLead.email,
+          role: issue.bugDetails.developerLead.role,
+        }
+      : null;
+  const testerOwner =
+    issue?.bugDetails?.testerOwner && typeof issue.bugDetails.testerOwner === "object"
+      ? {
+          _id: issue.bugDetails.testerOwner._id,
+          name: issue.bugDetails.testerOwner.name,
+          email: issue.bugDetails.testerOwner.email,
+          role: issue.bugDetails.testerOwner.role,
+        }
+      : null;
 
   return {
     _id: issue._id,
@@ -527,7 +640,24 @@ const serializeIssueRef = (issue, extra = {}) => {
         }
       : null,
     assignee,
+    reporter,
+    developerLead,
+    testerOwner,
+    epic: issue.epicId
+      ? {
+          _id: resolveObjectId(issue.epicId),
+          name: issue.epicId.name || "Untitled epic",
+        }
+      : null,
+    sprint: issue.sprintId
+      ? {
+          _id: resolveObjectId(issue.sprintId),
+          name: issue.sprintId.name || "Untitled sprint",
+          state: issue.sprintId.state || "",
+        }
+      : null,
     createdAt: issue.createdAt,
+    dueAt: issue.dueAt || null,
     startedAt: issue.startedAt,
     severity: issue.bugDetails?.severity || null,
     tags: [
@@ -1807,6 +1937,11 @@ const getIssueAnalyticsRows = asyncHandler(async (req, res) => {
     .populate("projectId", "name")
     .populate("teamId", "name")
     .populate("assignee", "name email role")
+    .populate("reporter", "name email role")
+    .populate("bugDetails.developerLead", "name email role")
+    .populate("bugDetails.testerOwner", "name email role")
+    .populate("epicId", "name")
+    .populate("sprintId", "name state")
     .lean();
   const { closureByIssueId } = await loadClosureMetrics(issues);
 

@@ -1,28 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Activity,
   AlertTriangle,
-  ArrowUpDown,
-  BarChart3,
+  AreaChart as AreaChartIcon,
   Bug,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
-  FileSpreadsheet,
+  Download,
   FileText,
-  Filter,
-  FolderKanban,
+  Flame,
+  Gauge,
+  GitBranch,
   Layers3,
-  RotateCcw,
+  RefreshCcw,
   Search,
-  ShieldAlert,
-  Sparkles,
-  Timer,
+  ShieldCheck,
+  TimerReset,
+  TrendingUp,
+  UserCheck,
   Users2,
-  X,
   Zap,
 } from "lucide-react";
 import {
@@ -42,7 +37,15 @@ import {
   YAxis,
 } from "recharts";
 import useAnalytics from "@/hooks/use-analytics";
-import { fetchProjects } from "@/lib/api";
+import { fetchEpics, fetchProjects, fetchSprints } from "@/lib/api";
+import {
+  BUG_SEVERITY_OPTIONS,
+  ISSUE_STATUS,
+  ISSUE_TYPES,
+  getIssuePriorityVariant,
+  getIssueStatusLabel,
+  getIssueStatusVariant,
+} from "@/lib/issues";
 import {
   getProjectMembers,
   getProjectTeams,
@@ -53,12 +56,9 @@ import {
   ANALYTICS_FIELD_CLASS,
   ANALYTICS_PANEL_CLASS,
   ANALYTICS_SELECT_CLASS,
-  ANALYTICS_SUBPANEL_CLASS,
   CHART_GRID_COLOR,
   AnalyticsEmptyState,
-  AnalyticsKpiCard,
   AnalyticsPanel,
-  AnalyticsSkeletonGrid,
   chartTooltipStyle,
   formatCompactNumber,
   formatDuration,
@@ -68,76 +68,82 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import ToastNotice from "@/components/shared/ToastNotice";
-import {
-  ISSUE_STATUS_OPTIONS,
-  getIssuePriorityVariant,
-  getIssueStatusVariant,
-} from "@/lib/issues";
-import { cn, formatDate, getInitials } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 
-const PAGE_SIZE = 9;
-const PRIORITY_ORDER = ["Critical", "High", "Medium", "Low"];
-const PRIORITY_COLORS = {
-  Critical: "#be123c",
-  High: "#ef4444",
-  Medium: "#f59e0b",
-  Low: "#3b82f6",
-};
+const PRIORITIES = ["Critical", "High", "Medium", "Low"];
+const WORK_TYPE_OPTIONS = [
+  { value: "both", label: "Tasks + Bugs" },
+  { value: "tasks", label: "Tasks only" },
+  { value: "bugs", label: "Bugs only" },
+];
+const STATUS_OPTIONS = [
+  { value: "all", label: "All statuses" },
+  { value: "open", label: "Open group", statusGroup: "open" },
+  { value: "closed", label: "Closed group", statusGroup: "closed" },
+  { value: ISSUE_STATUS.TODO, label: "To Do" },
+  { value: ISSUE_STATUS.IN_PROGRESS, label: "In Progress" },
+  { value: ISSUE_STATUS.REVIEW, label: "Review" },
+  { value: ISSUE_STATUS.QA, label: "Ready for QA" },
+  { value: ISSUE_STATUS.DONE, label: "Done" },
+  { value: ISSUE_STATUS.NEW, label: "New" },
+  { value: ISSUE_STATUS.OPEN, label: "Open" },
+  { value: ISSUE_STATUS.ASSIGNED, label: "Assigned" },
+  { value: ISSUE_STATUS.FIXED, label: "Fixed" },
+  { value: ISSUE_STATUS.REOPEN, label: "Reopened" },
+  { value: ISSUE_STATUS.CLOSED, label: "Closed" },
+  { value: ISSUE_STATUS.REJECTED, label: "Rejected" },
+];
+const CHART_COLORS = ["#2563eb", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"];
+const CLOSED_STATUSES = new Set([
+  ISSUE_STATUS.DONE,
+  ISSUE_STATUS.CLOSED,
+  ISSUE_STATUS.REJECTED,
+  ISSUE_STATUS.DEFERRED,
+]);
+const ACTIVE_STATUSES = new Set([
+  ISSUE_STATUS.IN_PROGRESS,
+  ISSUE_STATUS.REVIEW,
+  ISSUE_STATUS.QA,
+  ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.ASSIGNED,
+  ISSUE_STATUS.FIXED,
+  ISSUE_STATUS.REOPEN,
+]);
+
+const asArray = (value) => (Array.isArray(value) ? value : []);
 const toNumber = (value) => {
   const number = Number(value);
-
   return Number.isFinite(number) ? number : 0;
 };
-const asArray = (value) => (Array.isArray(value) ? value : []);
-const STATUS_FILTERS = [
-  { value: "all", label: "All statuses", status: "all", statusGroup: "all" },
-  {
-    value: "group:open",
-    label: "Active / Pending / Reopened",
-    status: "all",
-    statusGroup: "open",
-  },
-  {
-    value: "group:closed",
-    label: "Closed / Resolved / Done",
-    status: "all",
-    statusGroup: "closed",
-  },
-  ...ISSUE_STATUS_OPTIONS.filter((option) => option.value !== "all"),
-];
+const percent = (part, total) => (total ? Math.round((part / total) * 100) : 0);
+const resolveUserLabel = (user, fallback = "Unassigned") =>
+  user?.name || user?.email || fallback;
+const isClosed = (issue) => CLOSED_STATUSES.has(issue?.status);
+const isActive = (issue) => ACTIVE_STATUSES.has(issue?.status);
+const isCriticalBug = (issue) =>
+  ["Blocker", "Critical"].includes(issue?.severity) ||
+  ["Critical", "High"].includes(issue?.priority);
+const isReadyForQa = (issue) =>
+  [ISSUE_STATUS.QA, ISSUE_STATUS.FIXED].includes(issue?.status);
+const isReopened = (issue) => issue?.status === ISSUE_STATUS.REOPEN;
+const isOverdue = (issue) =>
+  Boolean(issue?.dueAt) && !isClosed(issue) && new Date(issue.dueAt) < new Date();
 
-const getStatusFilterValue = (filters) =>
-  filters.statusGroup && filters.statusGroup !== "all"
-    ? `group:${filters.statusGroup}`
-    : filters.status || "all";
+const buildRows = (rows = [], keyAccessor, labelAccessor) => {
+  const buckets = new Map();
 
-const getStatusFilterParts = (value) => {
-  if (String(value || "").startsWith("group:")) {
-    return {
-      status: "all",
-      statusGroup: String(value).replace("group:", "") || "all",
-    };
-  }
+  rows.forEach((row) => {
+    const key = keyAccessor(row) || "unassigned";
+    const label = labelAccessor(row) || "Unassigned";
+    const bucket = buckets.get(key) || { key, label, count: 0 };
+    bucket.count += 1;
+    buckets.set(key, bucket);
+  });
 
-  return {
-    status: value || "all",
-    statusGroup: "all",
-  };
+  return Array.from(buckets.values()).sort((left, right) => right.count - left.count);
 };
 
-const emptyOverview = {
-  totalIssues: 0,
-  openIssues: 0,
-  closedIssues: 0,
-  highPriorityIssues: 0,
-  activeTeams: 0,
-  resolutionRate: 0,
-  teamProductivity: 0,
-  avgResolutionTimeMs: null,
-};
-
-const exportRowsToCsv = (rows) => {
+const exportCsv = (rows) => {
   if (typeof document === "undefined") {
     return;
   }
@@ -147,1666 +153,841 @@ const exportRowsToCsv = (rows) => {
     return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   const csv = rows.map((row) => row.map(escapeValue).join(",")).join("\n");
-  const blob = new Blob([csv], {
-    type: "text/csv;charset=utf-8;",
-  });
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-
   link.href = url;
-  link.download = `analytics-report-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.download = `workflow-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 };
 
-const SortHeader = ({ activeSort, children, onSort, sortKey }) => (
-  <button
-    type="button"
-    className={cn(
-      "inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100",
-      activeSort.key === sortKey ? "text-blue-700 dark:text-blue-300" : ""
-    )}
-    onClick={() => onSort(sortKey)}
-  >
-    {children}
-    <ArrowUpDown className="h-3.5 w-3.5" />
-  </button>
+const getStatusParts = (statusFilter) => {
+  const match = STATUS_OPTIONS.find((option) => option.value === statusFilter);
+
+  if (match?.statusGroup) {
+    return { status: "all", statusGroup: match.statusGroup };
+  }
+
+  return { status: statusFilter || "all", statusGroup: "all" };
+};
+
+const ChartFrame = ({ children, className }) => (
+  <div className={cn("h-[260px] w-full", className)}>{children}</div>
 );
 
-const ChartCard = ({ title, description, children }) => (
-  <AnalyticsPanel title={title} description={description}>
-    {children}
-  </AnalyticsPanel>
+const KpiCard = ({ accent = "blue", helper, icon: Icon, label, trend, value }) => {
+  const tones = {
+    blue: "from-blue-600 to-cyan-400 text-white",
+    emerald: "from-emerald-600 to-teal-400 text-white",
+    amber: "from-amber-500 to-orange-500 text-white",
+    rose: "from-rose-600 to-pink-500 text-white",
+    violet: "from-violet-600 to-fuchsia-500 text-white",
+    slate: "from-slate-800 to-slate-600 text-white",
+  };
+
+  return (
+    <Card className={cn("overflow-hidden rounded-[16px] border-white/10 bg-gradient-to-br shadow-[0_20px_48px_-30px_rgba(15,23,42,0.55)]", tones[accent])}>
+      <CardContent className="relative p-4">
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(155deg,rgba(255,255,255,0.24),transparent_46%,rgba(255,255,255,0.12))]" />
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/72">{label}</p>
+            <p className="mt-2 text-3xl font-semibold text-white">{value}</p>
+            <p className="mt-1 truncate text-xs text-white/74">{helper}</p>
+          </div>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/16">
+            <Icon className="h-5 w-5" />
+          </span>
+        </div>
+        <div className="relative mt-3 flex items-center gap-1">
+          {[32, 54, 42, 68, 56, 78, 62].map((height, index) => (
+            <span
+              key={`${label}-spark-${index}`}
+              className="w-full rounded-full bg-white/28"
+              style={{ height: `${height / 6}px` }}
+            />
+          ))}
+        </div>
+        {trend ? (
+          <p className="relative mt-2 text-[11px] font-semibold text-white/82">{trend}</p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+};
+
+const SectionTitle = ({ kicker, title, description }) => (
+  <div className="flex flex-col gap-1">
+    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">{kicker}</p>
+    <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-100">{title}</h2>
+    {description ? <p className="text-sm text-slate-500">{description}</p> : null}
+  </div>
+);
+
+const ProgressRow = ({ label, meta, tone = "bg-blue-500", value }) => (
+  <div className="rounded-[16px] border border-white/55 bg-white/58 p-3 shadow-[0_14px_34px_-28px_rgba(15,23,42,0.34)] backdrop-blur-xl">
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-slate-950">{label}</p>
+        {meta ? <p className="mt-1 truncate text-xs text-slate-500">{meta}</p> : null}
+      </div>
+      <span className="text-sm font-semibold text-slate-700">{value}%</span>
+    </div>
+    <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80">
+      <div className={cn("h-full rounded-full", tone)} style={{ width: `${Math.max(value, 4)}%` }} />
+    </div>
+  </div>
 );
 
 const ReportsLoading = () => (
   <div className="space-y-5">
-    <Skeleton className="h-[220px] rounded-[16px] bg-gradient-to-r from-slate-200/70 via-white/80 to-slate-200/70" />
-    <AnalyticsSkeletonGrid />
-    <div className="grid gap-5 xl:grid-cols-2">
-      <Skeleton className="h-[340px] rounded-[16px]" />
-      <Skeleton className="h-[340px] rounded-[16px]" />
-      <Skeleton className="h-[340px] rounded-[16px]" />
-      <Skeleton className="h-[340px] rounded-[16px]" />
+    <Skeleton className="h-[170px] rounded-[16px]" />
+    <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <Skeleton key={`report-kpi-${index}`} className="h-[132px] rounded-[16px]" />
+      ))}
     </div>
-    <Skeleton className="h-[480px] rounded-[16px]" />
+    <div className="grid gap-5 xl:grid-cols-2">
+      <Skeleton className="h-[360px] rounded-[16px]" />
+      <Skeleton className="h-[360px] rounded-[16px]" />
+      <Skeleton className="h-[360px] rounded-[16px]" />
+      <Skeleton className="h-[360px] rounded-[16px]" />
+    </div>
   </div>
 );
 
 const ReportsPage = () => {
-  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [filters, setFilters] = useState({
-    dateFrom: "",
-    dateTo: "",
     projectId: "all",
     teamId: "all",
+    sprintId: "all",
+    epicId: "all",
     assigneeId: "all",
+    developerId: "all",
+    testerId: "all",
     priority: "all",
-    priorityGroup: "all",
+    severity: "all",
     status: "all",
-    statusGroup: "all",
+    dateFrom: "",
+    dateTo: "",
     search: "",
+    workType: "both",
   });
-  const [sortConfig, setSortConfig] = useState({
-    key: "createdAt",
-    direction: "desc",
-  });
-  const [currentPage, setCurrentPage] = useState(1);
-  const [toast, setToast] = useState(null);
-  const analytics = useAnalytics(filters, {
-    includeIssues: true,
-  });
+  const showTasks = filters.workType !== "bugs";
+  const showBugs = filters.workType !== "tasks";
+  const statusParts = getStatusParts(filters.status);
+  const analyticsFilters = {
+    dateFrom: filters.dateFrom,
+    dateTo: filters.dateTo,
+    projectId: filters.projectId,
+    teamId: filters.teamId,
+    assigneeId: filters.assigneeId,
+    developerId: filters.developerId,
+    testerId: filters.testerId,
+    priority: filters.priority,
+    severity: filters.severity,
+    sprintId: filters.sprintId,
+    epicId: filters.epicId,
+    search: filters.search,
+    ...statusParts,
+  };
+  const taskAnalytics = useAnalytics(
+    {
+      ...analyticsFilters,
+      excludeType: ISSUE_TYPES.BUG,
+    },
+    { includeIssues: true, enabled: showTasks }
+  );
+  const bugAnalytics = useAnalytics(
+    {
+      ...analyticsFilters,
+      type: ISSUE_TYPES.BUG,
+    },
+    { includeIssues: true, enabled: showBugs }
+  );
   const {
-    data: projectOptions = [],
-    error: projectsError,
+    data: projects = [],
     isLoading: isProjectsLoading,
+    error: projectsError,
   } = useQuery({
-    queryKey: ["projects", "analytics-filter-options"],
+    queryKey: ["projects", "reports-v2-options"],
     queryFn: fetchProjects,
     staleTime: 60_000,
   });
-  const teamOptions = useMemo(() => {
-    const uniqueTeams = new Map();
+  const selectedProjectId = filters.projectId !== "all" ? filters.projectId : "";
+  const { data: epics = [] } = useQuery({
+    queryKey: ["reports-v2", "epics", selectedProjectId],
+    queryFn: () => fetchEpics({ projectId: selectedProjectId }),
+    enabled: Boolean(selectedProjectId),
+  });
+  const { data: sprints = [] } = useQuery({
+    queryKey: ["reports-v2", "sprints", selectedProjectId],
+    queryFn: () => fetchSprints({ projectId: selectedProjectId }),
+    enabled: Boolean(selectedProjectId),
+  });
 
-    projectOptions.forEach((project) => {
+  const teams = useMemo(() => {
+    const rows = new Map();
+
+    projects.forEach((project) => {
       if (filters.projectId !== "all" && String(project._id) !== String(filters.projectId)) {
         return;
       }
 
       getProjectTeams(project).forEach((team) => {
         const teamId = resolveTeamId(team);
-
-        if (teamId && !uniqueTeams.has(teamId)) {
-          uniqueTeams.set(teamId, team);
+        if (teamId && !rows.has(teamId)) {
+          rows.set(teamId, team);
         }
       });
     });
 
-    return Array.from(uniqueTeams.values()).sort((left, right) =>
+    return Array.from(rows.values()).sort((left, right) =>
       (left.name || "").localeCompare(right.name || "")
     );
-  }, [filters.projectId, projectOptions]);
-  const assigneeOptions = useMemo(() => {
-    const uniqueAssignees = new Map();
+  }, [filters.projectId, projects]);
 
-    projectOptions.forEach((project) => {
+  const members = useMemo(() => {
+    const rows = new Map();
+
+    projects.forEach((project) => {
       if (filters.projectId !== "all" && String(project._id) !== String(filters.projectId)) {
         return;
       }
 
       getProjectMembers(project).forEach((member) => {
         const userId = resolveUserId(member);
-
-        if (userId && !uniqueAssignees.has(userId)) {
-          uniqueAssignees.set(userId, member);
+        if (userId && !rows.has(userId)) {
+          rows.set(userId, member);
         }
       });
     });
 
-    return Array.from(uniqueAssignees.values()).sort((left, right) =>
+    return Array.from(rows.values()).sort((left, right) =>
       (left.name || "").localeCompare(right.name || "")
     );
-  }, [filters.projectId, projectOptions]);
-  const summary = analytics.overview?.summary || emptyOverview;
-  const trends = analytics.overview?.trends || {};
-  const issueTrend = useMemo(
-    () =>
-      asArray(analytics.trends?.issueTrend).map((row) => ({
-        ...row,
-        created: toNumber(row?.created),
-        resolved: toNumber(row?.resolved ?? row?.closed),
-        closed: toNumber(row?.resolved ?? row?.closed),
-        reopened: toNumber(row?.reopened),
-        pending: toNumber(row?.pending),
-      })),
-    [analytics.trends]
-  );
-  const weeklyResolution = useMemo(
-    () =>
-      asArray(analytics.trends?.weeklyResolution).map((row) => ({
-        ...row,
-        opened: toNumber(row?.opened),
-        resolved: toNumber(row?.resolved),
-        resolutionRate: toNumber(row?.resolutionRate),
-      })),
-    [analytics.trends]
-  );
-  const monthlyGrowth = useMemo(
-    () =>
-      asArray(analytics.trends?.monthlyGrowth).map((row) => ({
-        ...row,
-        issues: toNumber(row?.issues),
-        previousIssues: toNumber(row?.previousIssues),
-        difference: toNumber(row?.difference),
-        percentChange: toNumber(row?.percentChange),
-      })),
-    [analytics.trends]
-  );
-  const priorityRows =
-    analytics.priorities?.priorities || analytics.overview?.priorityDistribution || [];
-  const projectRows = useMemo(
-    () =>
-      asArray(analytics.projects?.projects).map((project) => ({
-        ...project,
-        totalIssues: toNumber(project?.totalIssues),
-        openIssues: toNumber(project?.openIssues),
-        closedIssues: toNumber(project?.closedIssues),
-        highPriorityIssues: toNumber(project?.highPriorityIssues),
-        completionRate: toNumber(project?.completionRate),
-      })),
-    [analytics.projects]
-  );
-  const teamRows = useMemo(
-    () =>
-      asArray(analytics.teams?.teams).map((team) => ({
-        ...team,
-        assignedIssues: toNumber(team?.assignedIssues),
-        closedIssues: toNumber(team?.closedIssues),
-        resolvedIssues: toNumber(team?.resolvedIssues ?? team?.closedIssues),
-        openIssues: toNumber(team?.openIssues),
-        pendingIssues: toNumber(team?.pendingIssues ?? team?.pendingWorkload),
-        pendingWorkload: toNumber(team?.pendingWorkload ?? team?.pendingIssues),
-        totalIssues: toNumber(team?.totalIssues),
-        productivity: toNumber(team?.productivity ?? team?.completionRate),
-        completionRate: toNumber(team?.completionRate ?? team?.productivity),
-        memberCount: toNumber(team?.memberCount),
-      })),
-    [analytics.teams]
-  );
-  const issueRows = asArray(analytics.issues?.issues);
-  const activityRows = asArray(analytics.recentActivity?.activity);
-  const totalPages = Math.max(Math.ceil(issueRows.length / PAGE_SIZE), 1);
-  const chartKey = [
-    filters.projectId,
-    filters.teamId,
-    filters.assigneeId,
-    filters.dateFrom,
-    filters.dateTo,
-    filters.status,
-    filters.statusGroup,
-    filters.priority,
-    filters.priorityGroup,
-  ].join("|");
+  }, [filters.projectId, projects]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [filters, sortConfig]);
-
-  useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages));
-  }, [totalPages]);
-
-  useEffect(() => {
-    setFilters((current) => {
-      const nextTeamId =
-        current.teamId === "all" ||
-        teamOptions.some((team) => resolveTeamId(team) === String(current.teamId))
-          ? current.teamId
-          : "all";
-      const nextAssigneeId =
-        current.assigneeId === "all" ||
-        assigneeOptions.some(
-          (assignee) => resolveUserId(assignee) === String(current.assigneeId)
-        )
-          ? current.assigneeId
-          : "all";
-
-      if (current.teamId === nextTeamId && current.assigneeId === nextAssigneeId) {
-        return current;
-      }
-
-      return {
-        ...current,
-        teamId: nextTeamId,
-        assigneeId: nextAssigneeId,
+  const developers = members.filter((member) => member.role === "Developer");
+  const testers = members.filter((member) => member.role === "Tester");
+  const taskIssues = asArray(taskAnalytics.issues?.issues);
+  const bugIssues = asArray(bugAnalytics.issues?.issues);
+  const taskSummary = taskAnalytics.overview?.summary || {};
+  const bugSummary = bugAnalytics.overview?.summary || {};
+  const taskTrend = asArray(taskAnalytics.trends?.issueTrend);
+  const bugTrend = asArray(bugAnalytics.trends?.issueTrend);
+  const taskProjects = asArray(taskAnalytics.projects?.projects);
+  const bugProjects = asArray(bugAnalytics.projects?.projects);
+  const taskTeams = asArray(taskAnalytics.teams?.teams);
+  const bugTeams = asArray(bugAnalytics.teams?.teams);
+  const allVisibleIssues = [...(showTasks ? taskIssues : []), ...(showBugs ? bugIssues : [])];
+  const taskMetrics = {
+    total: toNumber(taskSummary.totalIssues),
+    open: taskIssues.filter((issue) => !isClosed(issue)).length,
+    active: taskIssues.filter(isActive).length,
+    completed: taskIssues.filter(isClosed).length,
+    overdue: taskIssues.filter(isOverdue).length,
+    sprintCompletion: percent(taskIssues.filter(isClosed).length, taskIssues.length),
+  };
+  const bugMetrics = {
+    total: toNumber(bugSummary.totalIssues),
+    open: bugIssues.filter((issue) => !isClosed(issue)).length,
+    critical: bugIssues.filter(isCriticalBug).length,
+    reopened: bugIssues.filter(isReopened).length,
+    readyForQa: bugIssues.filter(isReadyForQa).length,
+    closed: bugIssues.filter((issue) => issue.status === ISSUE_STATUS.CLOSED).length,
+  };
+  const teamMetrics = {
+    productivity: percent(taskMetrics.completed + bugMetrics.closed, taskMetrics.total + bugMetrics.total),
+    avgResolution: Math.max(
+      toNumber(taskSummary.avgResolutionTimeMs),
+      toNumber(bugSummary.avgResolutionTimeMs)
+    ),
+    velocity: taskMetrics.completed + bugMetrics.closed,
+    qaRate: percent(bugMetrics.closed, bugMetrics.readyForQa + bugMetrics.closed),
+    reopenRate: percent(bugMetrics.reopened, bugMetrics.total),
+  };
+  const taskStatusRows = buildRows(taskIssues, (issue) => issue.status, (issue) => getIssueStatusLabel(issue.status));
+  const bugSeverityRows = buildRows(bugIssues, (issue) => issue.severity || "Not set", (issue) => issue.severity || "Not set");
+  const taskAssigneeRows = buildRows(taskIssues, (issue) => issue.assignee?._id, (issue) => resolveUserLabel(issue.assignee));
+  const bugDeveloperRows = buildRows(bugIssues, (issue) => issue.developerLead?._id || issue.assignee?._id, (issue) => resolveUserLabel(issue.developerLead || issue.assignee));
+  const bugPriorityRows = buildRows(bugIssues, (issue) => issue.priority, (issue) => issue.priority);
+  const taskTypeRows = buildRows(taskIssues, (issue) => issue.type, (issue) => issue.type);
+  const trendRows = useMemo(() => {
+    const rows = new Map();
+    taskTrend.forEach((row) => {
+      const key = row.label || row.date || row._id || "";
+      rows.set(key, { label: key, tasks: toNumber(row.created), bugs: 0, resolved: toNumber(row.resolved || row.closed) });
+    });
+    bugTrend.forEach((row) => {
+      const key = row.label || row.date || row._id || "";
+      const existing = rows.get(key) || { label: key, tasks: 0, bugs: 0, resolved: 0 };
+      existing.bugs = toNumber(row.created);
+      existing.resolved += toNumber(row.resolved || row.closed);
+      rows.set(key, existing);
+    });
+    return Array.from(rows.values()).slice(-14);
+  }, [bugTrend, taskTrend]);
+  const teamPerformance = useMemo(() => {
+    const rows = new Map();
+    const ensureRow = (team) => {
+      const key = team.teamId || team.name;
+      const row = rows.get(key) || {
+        key,
+        name: team.name || "Unassigned team",
+        productivity: 0,
+        tasks: 0,
+        bugsFixed: 0,
+        total: 0,
+        reopened: 0,
       };
-    });
-  }, [assigneeOptions, teamOptions]);
-
-  const reportsErrorMessage =
-    analytics.error?.response?.data?.message ||
-    analytics.error?.message ||
-    "";
-  const projectsErrorMessage =
-    projectsError?.response?.data?.message ||
-    projectsError?.message ||
-    "";
-
-  useEffect(() => {
-    const message = reportsErrorMessage || projectsErrorMessage;
-
-    if (!message) {
-      return;
-    }
-
-    setToast({
-      id: `${Date.now()}-${message}`,
-      type: "error",
-      title: reportsErrorMessage ? "Reports unavailable" : "Filter data unavailable",
-      message,
-    });
-  }, [projectsErrorMessage, reportsErrorMessage]);
-
-  useEffect(() => {
-    if (!toast?.id) {
-      return undefined;
-    }
-
-    const timeoutId = window.setTimeout(() => setToast(null), 5000);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [toast?.id]);
-
-  const sortedIssues = useMemo(() => {
-    const accessors = {
-      issueId: (issue) => issue.issueId || "",
-      project: (issue) => issue.project?.name || "",
-      assignee: (issue) => issue.assignee?.name || "",
-      priority: (issue) => PRIORITY_ORDER.indexOf(issue.priority),
-      status: (issue) => issue.status || "",
-      createdAt: (issue) => new Date(issue.createdAt || 0).getTime(),
-      resolutionTime: (issue) => issue.resolutionTimeMs || 0,
-      tags: (issue) => (issue.tags || []).join(" "),
+      rows.set(key, row);
+      return row;
     };
-    const getValue = accessors[sortConfig.key] || accessors.createdAt;
-
-    return [...issueRows].sort((left, right) => {
-      const leftValue = getValue(left);
-      const rightValue = getValue(right);
-
-      if (typeof leftValue === "number" && typeof rightValue === "number") {
-        return sortConfig.direction === "asc"
-          ? leftValue - rightValue
-          : rightValue - leftValue;
-      }
-
-      return sortConfig.direction === "asc"
-        ? String(leftValue).localeCompare(String(rightValue))
-        : String(rightValue).localeCompare(String(leftValue));
+    taskTeams.forEach((team) => {
+      const row = ensureRow(team);
+      row.tasks += toNumber(team.closedIssues);
+      row.total += toNumber(team.totalIssues);
+      row.productivity = Math.max(row.productivity, toNumber(team.productivity || team.completionRate));
     });
-  }, [issueRows, sortConfig]);
-  const pagedIssues = sortedIssues.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
-  );
-  const hasAnalytics = summary.totalIssues > 0;
-  const trendTotals = useMemo(() => {
-    const backendTotals = analytics.trends?.trendTotals || {};
-
-    return {
-      created:
-        toNumber(backendTotals.created) ||
-        issueTrend.reduce((sum, row) => sum + toNumber(row.created), 0),
-      resolved:
-        toNumber(backendTotals.resolved ?? backendTotals.closed) ||
-        issueTrend.reduce((sum, row) => sum + toNumber(row.resolved), 0),
-      reopened:
-        toNumber(backendTotals.reopened) ||
-        issueTrend.reduce((sum, row) => sum + toNumber(row.reopened), 0),
-      pending:
-        toNumber(backendTotals.pending) ||
-        toNumber(summary.openIssues) ||
-        issueTrend.reduce((sum, row) => sum + toNumber(row.pending), 0),
-    };
-  }, [analytics.trends, issueTrend, summary.openIssues]);
-  const monthlyGrowthSummary = useMemo(() => {
-    const backendSummary = analytics.trends?.monthlyGrowthSummary;
-
-    if (backendSummary) {
-      return {
-        currentMonth: toNumber(backendSummary.currentMonth),
-        previousMonth: toNumber(backendSummary.previousMonth),
-        difference: toNumber(backendSummary.difference),
-        percentChange: toNumber(backendSummary.percentChange),
-        direction: backendSummary.direction || "flat",
+    bugTeams.forEach((team) => {
+      const row = ensureRow(team);
+      row.bugsFixed += toNumber(team.closedIssues);
+      row.total += toNumber(team.totalIssues);
+      row.productivity = Math.max(row.productivity, toNumber(team.productivity || team.completionRate));
+    });
+    return Array.from(rows.values()).sort((left, right) => right.productivity - left.productivity);
+  }, [bugTeams, taskTeams]);
+  const projectRows = useMemo(() => {
+    const rows = new Map();
+    taskProjects.forEach((project) => {
+      rows.set(project.projectId, {
+        key: project.projectId,
+        name: project.name,
+        tasks: toNumber(project.totalIssues),
+        bugs: 0,
+        openBugs: 0,
+        closedBugs: 0,
+        teamCount: toNumber(project.teamCount),
+        developers: toNumber(project.teamCount),
+        completion: toNumber(project.completionRate),
+      });
+    });
+    bugProjects.forEach((project) => {
+      const row = rows.get(project.projectId) || {
+        key: project.projectId,
+        name: project.name,
+        tasks: 0,
+        bugs: 0,
+        openBugs: 0,
+        closedBugs: 0,
+        teamCount: toNumber(project.teamCount),
+        developers: toNumber(project.teamCount),
+        completion: 0,
       };
-    }
+      row.bugs = toNumber(project.totalIssues);
+      row.openBugs = toNumber(project.openIssues);
+      row.closedBugs = toNumber(project.closedIssues);
+      row.teamCount = Math.max(row.teamCount, toNumber(project.teamCount));
+      row.completion = Math.max(row.completion, toNumber(project.completionRate));
+      rows.set(project.projectId, row);
+    });
+    return Array.from(rows.values()).sort((left, right) => right.tasks + right.bugs - (left.tasks + left.bugs));
+  }, [bugProjects, taskProjects]);
+  const qaRows = buildRows(bugIssues, (issue) => issue.reporter?._id || issue.testerOwner?._id, (issue) => resolveUserLabel(issue.reporter || issue.testerOwner, "Unknown QA"));
+  const developerProductivity = useMemo(() => {
+    const rows = new Map();
+    [...taskIssues, ...bugIssues].forEach((issue) => {
+      const user = issue.developerLead || issue.assignee;
+      const key = user?._id || "unassigned";
+      const row = rows.get(key) || {
+        key,
+        name: resolveUserLabel(user),
+        assignedTasks: 0,
+        completedTasks: 0,
+        bugsFixed: 0,
+        reopened: 0,
+        total: 0,
+      };
+      if (issue.type === ISSUE_TYPES.BUG) {
+        row.bugsFixed += issue.status === ISSUE_STATUS.CLOSED ? 1 : 0;
+        row.reopened += isReopened(issue) ? 1 : 0;
+      } else {
+        row.assignedTasks += 1;
+        row.completedTasks += isClosed(issue) ? 1 : 0;
+      }
+      row.total += 1;
+      rows.set(key, row);
+    });
+    return Array.from(rows.values())
+      .map((row) => ({
+        ...row,
+        velocity: percent(row.completedTasks + row.bugsFixed, row.total),
+        reopenRate: percent(row.reopened, row.total),
+      }))
+      .sort((left, right) => right.velocity - left.velocity);
+  }, [bugIssues, taskIssues]);
+  const isLoading = isProjectsLoading || (showTasks && taskAnalytics.isLoading) || (showBugs && bugAnalytics.isLoading);
+  const error = projectsError || taskAnalytics.error || bugAnalytics.error;
 
-    const currentMonth = monthlyGrowth[monthlyGrowth.length - 1]?.issues || 0;
-    const previousMonth = monthlyGrowth[monthlyGrowth.length - 2]?.issues || 0;
-    const difference = currentMonth - previousMonth;
-    const percentChange = previousMonth
-      ? Math.round((difference / previousMonth) * 100)
-      : currentMonth
-        ? 100
-        : 0;
-
-    return {
-      currentMonth,
-      previousMonth,
-      difference,
-      percentChange,
-      direction: difference > 0 ? "up" : difference < 0 ? "down" : "flat",
-    };
-  }, [analytics.trends, monthlyGrowth]);
-  const trendTileCards = [
-    {
-      label: "Created",
-      value: trendTotals.created,
-      icon: Layers3,
-      tone: "border-blue-200 bg-blue-50 text-blue-700",
-      onClick: () => openIssueList(),
-    },
-    {
-      label: "Resolved",
-      value: trendTotals.resolved,
-      icon: CheckCircle2,
-      tone: "border-emerald-200 bg-emerald-50 text-emerald-700",
-      onClick: () => openIssueList({ status: "all", statusGroup: "closed" }),
-    },
-    {
-      label: "Reopened",
-      value: trendTotals.reopened,
-      icon: RotateCcw,
-      tone: "border-rose-200 bg-rose-50 text-rose-700",
-      onClick: () => openIssueList({ status: "REOPEN" }),
-    },
-    {
-      label: "Pending",
-      value: trendTotals.pending,
-      icon: Clock3,
-      tone: "border-amber-200 bg-amber-50 text-amber-700",
-      onClick: () => openIssueList({ status: "all", statusGroup: "open" }),
-    },
-  ];
-  const hasIssueTrendData = issueTrend.some(
-    (row) => row.created || row.resolved || row.reopened || row.pending
-  );
-  const hasWeeklyResolutionData = weeklyResolution.some(
-    (row) => row.opened || row.resolved
-  );
-  const hasMonthlyGrowthData = monthlyGrowth.some((row) => row.issues);
-  const hasProjectData = projectRows.some(
-    (row) =>
-      row.totalIssues ||
-      row.openIssues ||
-      row.closedIssues ||
-      row.highPriorityIssues
-  );
-  const hasTeamData = teamRows.some(
-    (row) =>
-      row.assignedIssues ||
-      row.resolvedIssues ||
-      row.pendingIssues ||
-      row.totalIssues
-  );
-  const strongestTeam = useMemo(
-    () =>
-      [...teamRows].sort(
-        (left, right) =>
-          right.productivity - left.productivity ||
-          right.closedIssues - left.closedIssues
-      )[0] || null,
-    [teamRows]
-  );
-  const riskiestProject = useMemo(
-    () =>
-      [...projectRows].sort(
-        (left, right) =>
-          right.openIssues - left.openIssues ||
-          right.highPriorityIssues - left.highPriorityIssues
-      )[0] || null,
-    [projectRows]
-  );
-  const bugHotspot = useMemo(
-    () =>
-      [...issueRows]
-        .filter((issue) => issue.type === "Bug")
-        .reduce((map, issue) => {
-          const key = issue.project?.name || "Unknown project";
-          map.set(key, (map.get(key) || 0) + 1);
-          return map;
-        }, new Map()),
-    [issueRows]
-  );
-  const bugHotspotEntry = useMemo(
-    () =>
-      Array.from(bugHotspot.entries()).sort((left, right) => right[1] - left[1])[0] ||
-      null,
-    [bugHotspot]
-  );
-  const insightCards = [
-    {
-      key: "open-trend",
-      icon: Activity,
-      tone: trends.openIssues?.direction === "up" ? "amber" : "emerald",
-      title:
-        trends.openIssues?.difference === 0
-          ? "Open issue intake is stable this week"
-          : `Open issues ${trends.openIssues?.direction === "up" ? "increased" : "decreased"} by ${Math.abs(
-              trends.openIssues?.percent || 0
-            )}% this week`,
-      helper: trends.openIssues?.label || "No weekly comparison available",
-    },
-    {
-      key: "bug-density",
-      icon: Bug,
-      tone: "rose",
-      title: bugHotspotEntry
-        ? `${bugHotspotEntry[0]} has the highest bug density`
-        : "Bug density is clear in this scope",
-      helper: bugHotspotEntry
-        ? `${bugHotspotEntry[1]} bug${bugHotspotEntry[1] === 1 ? "" : "s"} in filtered data`
-        : "No bug issues match the selected filters",
-    },
-    {
-      key: "team-speed",
-      icon: Zap,
-      tone: "cyan",
-      title: strongestTeam
-        ? `${strongestTeam.name} resolves fastest`
-        : "Team speed insights need issue activity",
-      helper: strongestTeam
-        ? `${strongestTeam.productivity}% completion across ${strongestTeam.totalIssues} issues`
-        : "Assign issues to teams to compare throughput",
-    },
-    {
-      key: "risk",
-      icon: ShieldAlert,
-      tone: "amber",
-      title: riskiestProject
-        ? `${riskiestProject.name} carries the largest open workload`
-        : "Project risk is balanced",
-      helper: riskiestProject
-        ? `${riskiestProject.openIssues} open issues, ${riskiestProject.highPriorityIssues} high priority`
-        : "No active project risk in this scope",
-    },
-  ];
-  const kpiCards = [
-    {
-      title: "Total Issues",
-      value: formatCompactNumber(summary.totalIssues),
-      helper: "Analytics scope",
-      icon: Layers3,
-      tone: "blue",
-      trend: trends.totalIssues,
-      onClick: () => openIssueList(),
-    },
-    {
-      title: "Open",
-      value: formatCompactNumber(summary.openIssues),
-      helper: "Active workload",
-      icon: AlertTriangle,
-      tone: "amber",
-      trend: trends.openIssues,
-      onClick: () => openIssueList({ status: "all", statusGroup: "open" }),
-    },
-    {
-      title: "Closed",
-      value: formatCompactNumber(summary.closedIssues),
-      helper: "Resolved work",
-      icon: CheckCircle2,
-      tone: "emerald",
-      trend: trends.closedIssues,
-      onClick: () => openIssueList({ status: "all", statusGroup: "closed" }),
-    },
-    {
-      title: "High Priority",
-      value: formatCompactNumber(summary.highPriorityIssues),
-      helper: "Open risks",
-      icon: ShieldAlert,
-      tone: "rose",
-      trend: trends.highPriorityIssues,
-      onClick: () => openIssueList({ priority: "all", priorityGroup: "high" }),
-    },
-    {
-      title: "Avg Resolution Time",
-      value: formatDuration(summary.avgResolutionTimeMs),
-      helper: "Status history",
-      icon: Timer,
-      tone: "violet",
-      trend: {
-        direction: "flat",
-        label: `${summary.resolutionRate || 0}% closed`,
-      },
-      onClick: () => openIssueList({ status: "all", statusGroup: "closed" }),
-    },
-    {
-      title: "Team Productivity",
-      value: `${summary.teamProductivity || 0}%`,
-      helper: "Completion ratio",
-      icon: Users2,
-      tone: "cyan",
-      trend: {
-        direction: "flat",
-        label: `${summary.activeTeams || 0} active teams`,
-      },
-      onClick: () => openIssueList(),
-    },
-  ];
-
-  const updateSort = (key) => {
-    setSortConfig((current) => ({
-      key,
-      direction:
-        current.key === key && current.direction === "asc" ? "desc" : "asc",
+  const updateFilter = (key, value) => {
+    setFilters((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === "projectId"
+        ? { teamId: "all", assigneeId: "all", developerId: "all", testerId: "all", sprintId: "all", epicId: "all" }
+        : {}),
     }));
   };
-
-  const clearFilters = () => {
+  const resetFilters = () =>
     setFilters({
-      dateFrom: "",
-      dateTo: "",
       projectId: "all",
       teamId: "all",
+      sprintId: "all",
+      epicId: "all",
       assigneeId: "all",
+      developerId: "all",
+      testerId: "all",
       priority: "all",
-      priorityGroup: "all",
+      severity: "all",
       status: "all",
-      statusGroup: "all",
+      dateFrom: "",
+      dateTo: "",
       search: "",
+      workType: "both",
     });
-  };
-
-  function openIssueList(overrides = {}) {
-    const params = new URLSearchParams();
-    const definedOverrides = Object.fromEntries(
-      Object.entries(overrides).filter(
-        ([, value]) => value !== undefined && value !== null && value !== ""
-      )
-    );
-    const mergedFilters = {
-      ...filters,
-      ...definedOverrides,
-    };
-
-    [
-      "dateFrom",
-      "dateTo",
-      "projectId",
-      "teamId",
-      "assigneeId",
-      "priority",
-      "priorityGroup",
-      "status",
-      "statusGroup",
-      "search",
-    ].forEach((key) => {
-      const value = mergedFilters[key];
-
-      if (value && value !== "all") {
-        params.set(key, value);
-      }
-    });
-
-    navigate(`/issues${params.toString() ? `?${params}` : ""}`);
-  }
-
-  const exportCsv = () => {
-    exportRowsToCsv([
-      [
-        "Issue ID",
-        "Project",
-        "Assignee",
-        "Priority",
-        "Status",
-        "Created Date",
-        "Resolution Time",
-        "Tags",
-      ],
-      ...sortedIssues.map((issue) => [
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["analytics"] });
+  const exportAnalytics = () =>
+    exportCsv([
+      ["Workflow", "ID", "Title", "Project", "Team", "Owner", "Status", "Priority", "Severity", "Created", "Resolution ms"],
+      ...allVisibleIssues.map((issue) => [
+        issue.type === ISSUE_TYPES.BUG ? "Bug" : "Task",
         issue.issueId,
-        issue.project?.name || "Unknown project",
-        issue.assignee?.name || "Unassigned",
-        issue.priority,
+        issue.title,
+        issue.project?.name || "",
+        issue.team?.name || "",
+        resolveUserLabel(issue.developerLead || issue.assignee || issue.reporter, ""),
         issue.status,
-        issue.createdAt ? formatDate(issue.createdAt) : "N/A",
-        formatDuration(issue.resolutionTimeMs),
-        (issue.tags || []).join(", "),
+        issue.priority,
+        issue.severity || "",
+        issue.createdAt || "",
+        issue.resolutionTimeMs || "",
       ]),
     ]);
-  };
 
-  const openDatePoint = (chartState) => {
-    const key = chartState?.activePayload?.[0]?.payload?.key;
-
-    if (key) {
-      openIssueList({ dateFrom: key, dateTo: key });
-    } else {
-      openIssueList();
-    }
-  };
-
-  if (analytics.isLoading) {
+  if (error) {
     return (
-      <>
-        <ReportsLoading />
-        <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
-      </>
+      <Card className={ANALYTICS_PANEL_CLASS}>
+        <CardContent className="p-6 text-sm text-rose-700">
+          {error.response?.data?.message || error.message || "Unable to load reports analytics."}
+        </CardContent>
+      </Card>
     );
   }
 
-  if (analytics.error) {
-    return (
-      <>
-        <Card className={ANALYTICS_PANEL_CLASS}>
-          <CardContent className="p-6 text-sm text-rose-700">
-            {reportsErrorMessage || "Unable to load analytics reports right now."}
-          </CardContent>
-        </Card>
-        <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
-      </>
-    );
+  if (isLoading) {
+    return <ReportsLoading />;
   }
 
   return (
-    <div className="space-y-5 page-shell-enter">
-      <Card className="overflow-hidden rounded-[16px] border-white/60 bg-[linear-gradient(135deg,rgba(255,255,255,0.84),rgba(239,246,255,0.74),rgba(238,242,255,0.66))] shadow-[0_24px_70px_-36px_rgba(15,23,42,0.42)] backdrop-blur-2xl dark:border-white/10 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.88),rgba(30,41,59,0.76),rgba(15,23,42,0.82))]">
-        <CardContent className="relative p-4 sm:p-5">
-          <div className="space-y-5">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/65 bg-white/72 px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm backdrop-blur-xl">
-                  <Sparkles className="h-3.5 w-3.5 text-blue-600" />
-                  Management Insights Center
-                </div>
-                <h1 className="mt-3 text-2xl font-semibold text-slate-950 dark:text-slate-100">
-                  Reports & Analytics
-                </h1>
-              </div>
-              {analytics.isFetching ? (
-                <div className="flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-500 shadow-sm">
-                  <Skeleton className="h-2 w-2 rounded-full" />
-                  Refreshing reports
-                </div>
-              ) : null}
+    <div className="space-y-5">
+      <Card className="sticky top-24 z-20 overflow-hidden rounded-[16px] border-white/60 bg-white/86 shadow-[0_22px_60px_-36px_rgba(15,23,42,0.4)] backdrop-blur-2xl">
+        <CardContent className="space-y-4 p-4 sm:p-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-600">Reports Dashboard</p>
+              <h1 className="mt-1 text-2xl font-semibold text-slate-950">Workflow Analytics Command Center</h1>
+              <p className="mt-1 text-sm text-slate-500">
+                Task flow and bug flow are measured independently with a combined executive view.
+              </p>
             </div>
-
-            <div className="flex flex-wrap items-end gap-3 rounded-[20px] border border-white/50 bg-white/38 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] dark:border-white/10 dark:bg-slate-950/22">
-              <select
-                aria-label="Project filter"
-                className={cn(
-                  ANALYTICS_SELECT_CLASS,
-                  "min-w-[11.5rem] flex-1 sm:flex-[1_1_12rem] xl:flex-[1_1_11.5rem]"
-                )}
-                disabled={isProjectsLoading}
-                value={filters.projectId}
-                onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
-                    projectId: event.target.value,
-                    teamId: "all",
-                    assigneeId: "all",
-                  }))
-                }
-              >
-                <option value="all">All projects</option>
-                {projectOptions.map((project) => (
-                  <option key={project._id} value={project._id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Team filter"
-                className={cn(
-                  ANALYTICS_SELECT_CLASS,
-                  "min-w-[11rem] flex-1 sm:flex-[1_1_11rem] xl:flex-[1_1_11rem]"
-                )}
-                value={filters.teamId}
-                onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
-                    teamId: event.target.value,
-                  }))
-                }
-              >
-                <option value="all">All teams</option>
-                {teamOptions.map((team) => (
-                  <option key={resolveTeamId(team)} value={resolveTeamId(team)}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Assignee filter"
-                className={cn(
-                  ANALYTICS_SELECT_CLASS,
-                  "min-w-[12rem] flex-1 sm:flex-[1_1_12rem] xl:flex-[1_1_12rem]"
-                )}
-                value={filters.assigneeId}
-                onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
-                    assigneeId: event.target.value,
-                  }))
-                }
-              >
-                <option value="all">All assignees</option>
-                {assigneeOptions.map((assignee) => (
-                  <option key={resolveUserId(assignee)} value={resolveUserId(assignee)}>
-                    {assignee.name}
-                  </option>
-                ))}
-              </select>
-              <div className="grid min-w-0 w-full flex-[2_1_18rem] grid-cols-1 gap-2 sm:w-auto sm:min-w-[18rem] sm:grid-cols-2 xl:min-w-[19.5rem] xl:flex-[1.4_1_19.5rem]">
-                <Input
-                  aria-label="Start date"
-                  type="date"
-                  className={ANALYTICS_FIELD_CLASS}
-                  value={filters.dateFrom}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      dateFrom: event.target.value,
-                    }))
-                  }
-                />
-                <Input
-                  aria-label="End date"
-                  type="date"
-                  className={ANALYTICS_FIELD_CLASS}
-                  min={filters.dateFrom || undefined}
-                  value={filters.dateTo}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      dateTo: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="min-w-[8.75rem] flex-1 rounded-full border-white/60 bg-white/72 text-slate-700 shadow-sm sm:flex-none"
-                onClick={() => window.print()}
-              >
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={exportAnalytics}>
+                <Download className="h-4 w-4" />
+                Export CSV
+              </Button>
+              <Button type="button" variant="outline" onClick={() => window.print()}>
                 <FileText className="h-4 w-4" />
                 Export PDF
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="min-w-[8.75rem] flex-1 rounded-full border-white/60 bg-white/72 text-slate-700 shadow-sm sm:flex-none"
-                onClick={exportCsv}
-              >
-                <FileSpreadsheet className="h-4 w-4" />
-                Export CSV
+              <Button type="button" onClick={refresh}>
+                <RefreshCcw className="h-4 w-4" />
+                Refresh
               </Button>
             </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
+              <option value="all">All projects</option>
+              {projects.map((project) => (
+                <option key={project._id} value={project._id}>{project.name}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.teamId} onChange={(event) => updateFilter("teamId", event.target.value)}>
+              <option value="all">All teams</option>
+              {teams.map((team) => (
+                <option key={resolveTeamId(team)} value={resolveTeamId(team)}>{team.name}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.sprintId} disabled={!selectedProjectId} onChange={(event) => updateFilter("sprintId", event.target.value)}>
+              <option value="all">All sprints</option>
+              <option value="backlog">Backlog</option>
+              {sprints.map((sprint) => (
+                <option key={sprint._id} value={sprint._id}>{sprint.name}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.epicId} disabled={!selectedProjectId} onChange={(event) => updateFilter("epicId", event.target.value)}>
+              <option value="all">All epics</option>
+              <option value="unassigned">No epic</option>
+              {epics.map((epic) => (
+                <option key={epic._id} value={epic._id}>{epic.name}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.assigneeId} onChange={(event) => updateFilter("assigneeId", event.target.value)}>
+              <option value="all">All assignees</option>
+              {members.map((member) => (
+                <option key={resolveUserId(member)} value={resolveUserId(member)}>{member.name}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.developerId} onChange={(event) => updateFilter("developerId", event.target.value)}>
+              <option value="all">All developers</option>
+              {developers.map((developer) => (
+                <option key={resolveUserId(developer)} value={resolveUserId(developer)}>{developer.name}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.testerId} onChange={(event) => updateFilter("testerId", event.target.value)}>
+              <option value="all">All testers</option>
+              {testers.map((tester) => (
+                <option key={resolveUserId(tester)} value={resolveUserId(tester)}>{tester.name}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.priority} onChange={(event) => updateFilter("priority", event.target.value)}>
+              <option value="all">All priorities</option>
+              {PRIORITIES.map((priority) => (
+                <option key={priority} value={priority}>{priority}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.severity} onChange={(event) => updateFilter("severity", event.target.value)}>
+              <option value="all">All severities</option>
+              {BUG_SEVERITY_OPTIONS.map((severity) => (
+                <option key={severity} value={severity}>{severity}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status.value} value={status.value}>{status.label}</option>
+              ))}
+            </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={filters.workType} onChange={(event) => updateFilter("workType", event.target.value)}>
+              {WORK_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <div className="grid grid-cols-2 gap-2">
+              <Input className={ANALYTICS_FIELD_CLASS} type="date" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
+              <Input className={ANALYTICS_FIELD_CLASS} type="date" value={filters.dateTo} onChange={(event) => updateFilter("dateTo", event.target.value)} />
+            </div>
+            <div className="relative md:col-span-2 xl:col-span-5">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input className={cn(ANALYTICS_FIELD_CLASS, "pl-11")} placeholder="Search reports by ID, title, project, priority, or status" value={filters.search} onChange={(event) => updateFilter("search", event.target.value)} />
+            </div>
+            <Button type="button" variant="outline" onClick={resetFilters}>Reset</Button>
           </div>
         </CardContent>
       </Card>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        {kpiCards.map((card) => (
-          <AnalyticsKpiCard key={card.title} {...card} />
-        ))}
+      <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <KpiCard accent="blue" icon={Layers3} label="Total Tasks" value={formatCompactNumber(taskMetrics.total)} helper={`${taskMetrics.completed} completed`} trend="Task flow" />
+        <KpiCard accent="amber" icon={TimerReset} label="Open Tasks" value={formatCompactNumber(taskMetrics.open)} helper={`${taskMetrics.active} in progress`} />
+        <KpiCard accent="emerald" icon={CheckCircle2} label="Completed Tasks" value={formatCompactNumber(taskMetrics.completed)} helper={`${taskMetrics.sprintCompletion}% sprint completion`} />
+        <KpiCard accent="rose" icon={Bug} label="Total Bugs" value={formatCompactNumber(bugMetrics.total)} helper={`${bugMetrics.open} open`} trend="Bug flow" />
+        <KpiCard accent="violet" icon={ShieldCheck} label="Ready For QA" value={formatCompactNumber(bugMetrics.readyForQa)} helper={`${teamMetrics.qaRate}% QA verification`} />
+        <KpiCard accent="slate" icon={Gauge} label="Productivity" value={`${teamMetrics.productivity}%`} helper={`${teamMetrics.reopenRate}% reopen rate`} />
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {trendTileCards.map((tile) => {
-          const Icon = tile.icon;
-
-          return (
-            <button
-              key={tile.label}
-              type="button"
-              className={cn(
-                ANALYTICS_SUBPANEL_CLASS,
-                "flex min-h-[104px] items-center justify-between gap-4 p-4 text-left"
-              )}
-              onClick={tile.onClick}
-            >
-              <div>
-                <p className="text-xs font-semibold uppercase text-slate-500">
-                  {tile.label}
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950 dark:text-slate-100">
-                  {formatCompactNumber(tile.value)}
-                </p>
-              </div>
-              <span
-                className={cn(
-                  "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border",
-                  tile.tone
-                )}
-              >
-                <Icon className="h-5 w-5" />
-              </span>
-            </button>
-          );
-        })}
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <KpiCard accent="amber" icon={Flame} label="Overdue Tasks" value={taskMetrics.overdue} helper="Due date risk" />
+        <KpiCard accent="rose" icon={AlertTriangle} label="Critical Bugs" value={bugMetrics.critical} helper="Severity or high priority" />
+        <KpiCard accent="rose" icon={RefreshCcw} label="Reopened Bugs" value={bugMetrics.reopened} helper={`${teamMetrics.reopenRate}% of bugs`} />
+        <KpiCard accent="emerald" icon={Zap} label="Velocity" value={teamMetrics.velocity} helper="Closed tasks + bugs" />
+        <KpiCard accent="blue" icon={TimerReset} label="Avg Resolution" value={formatDuration(teamMetrics.avgResolution)} helper="Cycle time signal" />
       </section>
 
-      {!hasAnalytics ? (
-        <AnalyticsEmptyState
-          icon={BarChart3}
-          title="No analytics found"
-          description="Widen the date range or clear filters to restore report data."
-        />
-      ) : null}
-
-      <section className="grid gap-5 xl:grid-cols-2">
-        <ChartCard
-          title="Issue Trend"
-          description="Created and closed issue movement in the selected scope."
-        >
-          {hasIssueTrendData ? (
-            <div
-              className="h-[290px] cursor-pointer"
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openIssueList();
-                }
-              }}
-            >
-              <ResponsiveContainer height="100%" width="100%">
-                <LineChart
-                  key={`issue-trend-${chartKey}`}
-                  data={issueTrend}
-                  margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
-                  onClick={openDatePoint}
-                >
-                  <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={chartTooltipStyle} />
-                  <Line type="monotone" dataKey="created" stroke="#2563eb" strokeWidth={3} dot={false} />
-                  <Line type="monotone" dataKey="resolved" stroke="#10b981" strokeWidth={3} dot={false} />
-                  <Line type="monotone" dataKey="reopened" stroke="#e11d48" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+      <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <AnalyticsPanel title="Task Analytics" description="Task, story, epic, and sub-task workflow only. Bugs are excluded from this section.">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <SectionTitle kicker="Task Metrics" title="Task Status Distribution" />
+              <ChartFrame>
+                {taskStatusRows.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={taskStatusRows} dataKey="count" nameKey="label" innerRadius={58} outerRadius={90}>
+                        {taskStatusRows.map((row, index) => <Cell key={row.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip contentStyle={chartTooltipStyle} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : <AnalyticsEmptyState icon={Layers3} title="No task data" description="Task analytics appear when non-bug work exists." />}
+              </ChartFrame>
             </div>
-          ) : (
-            <AnalyticsEmptyState
-              icon={Activity}
-              title="No Data Available"
-              description="Issue trend data appears when the scope contains issue movement."
-              className="min-h-[290px]"
-            />
-          )}
-        </ChartCard>
+            <div>
+              <SectionTitle kicker="Sprint Burndown" title="Created vs Resolved Trend" />
+              <ChartFrame>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trendRows}>
+                    <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={chartTooltipStyle} />
+                    <Area type="monotone" dataKey="tasks" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.75} />
+                    <Area type="monotone" dataKey="resolved" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </ChartFrame>
+            </div>
+            <div>
+              <SectionTitle kicker="Ownership" title="Tasks By Assignee" />
+              <div className="mt-4 space-y-3">
+                {taskAssigneeRows.slice(0, 6).map((row) => (
+                  <ProgressRow key={row.key} label={row.label} value={percent(row.count, taskMetrics.total)} meta={`${row.count} tasks`} tone="bg-blue-500" />
+                ))}
+              </div>
+            </div>
+            <div>
+              <SectionTitle kicker="Breakdown" title="Story vs Task Mix" />
+              <div className="mt-4 space-y-3">
+                {taskTypeRows.map((row) => (
+                  <ProgressRow key={row.key} label={row.label} value={percent(row.count, taskMetrics.total)} meta={`${row.count} items`} tone="bg-violet-500" />
+                ))}
+              </div>
+            </div>
+          </div>
+        </AnalyticsPanel>
 
-        <ChartCard
-          title="Priority Distribution"
-          description="Critical, high, medium, and low priority workload split."
-        >
-          {priorityRows.some((row) => row.count > 0) ? (
-            <div className="grid gap-5 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-center">
-              <div className="relative h-[250px]">
-                <ResponsiveContainer height="100%" width="100%">
+        <AnalyticsPanel title="Sprint / Epic Analytics" description="Progress signals for sprint forecasting, burnup, and epic delivery.">
+          <div className="space-y-3">
+            {projectRows.slice(0, 7).map((project) => (
+              <ProgressRow key={project.key} label={project.name} value={project.completion} meta={`${project.tasks} tasks, ${project.bugs} bugs, ${project.teamCount} teams`} tone="bg-cyan-500" />
+            ))}
+            {!projectRows.length ? (
+              <AnalyticsEmptyState icon={GitBranch} title="No project analytics" description="Project and epic analytics appear once work exists in scope." />
+            ) : null}
+          </div>
+        </AnalyticsPanel>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <AnalyticsPanel title="Bug Analytics" description="Bug lifecycle only: tester report, developer fix, QA verification, close.">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <SectionTitle kicker="Severity" title="Bugs By Severity" />
+              <ChartFrame>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={bugSeverityRows} layout="vertical">
+                    <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="label" width={90} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={chartTooltipStyle} />
+                    <Bar dataKey="count" radius={[0, 8, 8, 0]} fill="#ef4444" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartFrame>
+            </div>
+            <div>
+              <SectionTitle kicker="Priority" title="Bugs By Priority" />
+              <ChartFrame>
+                <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie
-                      data={priorityRows}
-                      dataKey="count"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={68}
-                      outerRadius={98}
-                      paddingAngle={4}
-                      stroke="rgba(255,255,255,0.94)"
-                      strokeWidth={4}
-                    >
-                      {priorityRows.map((row) => (
-                        <Cell
-                          fill={PRIORITY_COLORS[row.key] || "#64748b"}
-                          key={row.key}
-                        />
-                      ))}
+                    <Pie data={bugPriorityRows} dataKey="count" nameKey="label" outerRadius={92}>
+                      {bugPriorityRows.map((row, index) => <Cell key={row.key} fill={CHART_COLORS[(index + 2) % CHART_COLORS.length]} />)}
                     </Pie>
                     <Tooltip contentStyle={chartTooltipStyle} />
                   </PieChart>
                 </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <span className="text-xs font-semibold text-slate-400">Total</span>
-                  <span className="mt-1 text-3xl font-semibold text-slate-950">
-                    {summary.totalIssues}
-                  </span>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {priorityRows.map((row) => (
-                  <button
-                    type="button"
-                    key={row.key}
-                    className={cn(
-                      ANALYTICS_SUBPANEL_CLASS,
-                      "flex w-full items-center justify-between gap-3 px-4 py-3 text-left",
-                      filters.priority === row.key
-                        ? "border-blue-200 bg-blue-50/80"
-                        : ""
-                    )}
-                    onClick={() => openIssueList({ priority: row.key })}
-                  >
-                    <span className="flex items-center gap-3">
-                      <span
-                        className="h-3 w-3 rounded-full"
-                        style={{ backgroundColor: PRIORITY_COLORS[row.key] }}
-                      />
-                      <span className="text-sm font-semibold text-slate-800">
-                        {row.label}
-                      </span>
-                    </span>
-                    <span className="text-sm font-semibold text-slate-950">
-                      {row.count}
-                      <span className="ml-2 text-xs text-slate-400">
-                        {row.percentage}%
-                      </span>
-                    </span>
-                  </button>
+              </ChartFrame>
+            </div>
+            <div className="lg:col-span-2">
+              <SectionTitle kicker="Reopen Heatmap" title="Developer Fix Rate" />
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {bugDeveloperRows.slice(0, 6).map((row) => (
+                  <ProgressRow key={row.key} label={row.label} value={percent(row.count, bugMetrics.total)} meta={`${row.count} assigned/fixed bugs`} tone="bg-rose-500" />
                 ))}
               </div>
             </div>
-          ) : (
-            <AnalyticsEmptyState
-              icon={Filter}
-              title="No priority distribution"
-              description="Priority analytics appear when matching issues exist."
-              className="min-h-[290px]"
-            />
-          )}
-        </ChartCard>
+          </div>
+        </AnalyticsPanel>
 
-        <ChartCard
-          title="Team Performance"
-          description="Assigned, resolved, pending, and resolution rate by team."
-        >
-          {hasTeamData ? (
-            <div
-              className="h-[300px] cursor-pointer"
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openIssueList();
-                }
-              }}
-            >
-              <ResponsiveContainer height="100%" width="100%">
-                <BarChart
-                  key={`team-performance-${chartKey}`}
-                  data={teamRows.slice(0, 8)}
-                  margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
-                  onClick={(chartState) => {
-                    const teamId = chartState?.activePayload?.[0]?.payload?.teamId;
-
-                    openIssueList(teamId ? { teamId } : {});
-                  }}
-                >
-                  <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={chartTooltipStyle} />
-                  <Bar
-                    dataKey="assignedIssues"
-                    fill="#2563eb"
-                    radius={[10, 10, 0, 0]}
-                  />
-                  <Bar
-                    dataKey="resolvedIssues"
-                    fill="#10b981"
-                    radius={[10, 10, 0, 0]}
-                  />
-                  <Bar
-                    dataKey="pendingIssues"
-                    fill="#f59e0b"
-                    radius={[10, 10, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <AnalyticsEmptyState
-              icon={Users2}
-              title="No Data Available"
-              description="Assign issues to teams to compare delivery performance."
-              className="min-h-[300px]"
-            />
-          )}
-        </ChartCard>
-
-        <ChartCard
-          title="Weekly Resolution Trend"
-          description="Opened versus resolved work over the latest weeks."
-        >
-          {hasWeeklyResolutionData ? (
-            <div
-              className="h-[300px] cursor-pointer"
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openIssueList();
-                }
-              }}
-            >
-              <ResponsiveContainer height="100%" width="100%">
-                <AreaChart
-                  key={`weekly-resolution-${chartKey}`}
-                  data={weeklyResolution}
-                  margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
-                  onClick={openDatePoint}
-                >
-                  <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={chartTooltipStyle} />
-                  <Area type="monotone" dataKey="opened" stroke="#2563eb" strokeWidth={2} fill="#bfdbfe" fillOpacity={0.72} />
-                  <Area type="monotone" dataKey="resolved" stroke="#10b981" strokeWidth={2} fill="#bbf7d0" fillOpacity={0.72} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <AnalyticsEmptyState
-              icon={Clock3}
-              title="No Data Available"
-              description="Resolution trend appears once issue history is available."
-              className="min-h-[300px]"
-            />
-          )}
-        </ChartCard>
-
-        <ChartCard
-          title="Issues by Projects"
-          description="Project-level total, open, closed, and high-priority workload."
-        >
-          {hasProjectData ? (
-            <div
-              className="h-[300px] cursor-pointer"
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openIssueList();
-                }
-              }}
-            >
-              <ResponsiveContainer height="100%" width="100%">
-                <BarChart
-                  key={`issues-by-project-${chartKey}`}
-                  data={projectRows.slice(0, 8)}
-                  layout="vertical"
-                  margin={{ top: 8, right: 18, left: 12, bottom: 0 }}
-                  onClick={(chartState) => {
-                    const projectId = chartState?.activePayload?.[0]?.payload?.projectId;
-
-                    openIssueList(projectId ? { projectId } : {});
-                  }}
-                >
-                  <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" horizontal={false} />
-                  <XAxis allowDecimals={false} type="number" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <YAxis dataKey="name" type="category" width={108} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={chartTooltipStyle} />
-                  <Bar
-                    dataKey="totalIssues"
-                    fill="#2563eb"
-                    radius={[0, 10, 10, 0]}
-                  />
-                  <Bar
-                    dataKey="openIssues"
-                    fill="#f59e0b"
-                    radius={[0, 10, 10, 0]}
-                  />
-                  <Bar
-                    dataKey="closedIssues"
-                    fill="#10b981"
-                    radius={[0, 10, 10, 0]}
-                  />
-                  <Bar
-                    dataKey="highPriorityIssues"
-                    fill="#ef4444"
-                    radius={[0, 10, 10, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <AnalyticsEmptyState
-              icon={FolderKanban}
-              title="No Data Available"
-              description="Project issue volume appears once matching issues exist."
-              className="min-h-[300px]"
-            />
-          )}
-        </ChartCard>
-
-        <ChartCard
-          title="Monthly Growth Metrics"
-          description="Issue growth over the latest six months."
-        >
-          {hasMonthlyGrowthData ? (
-            <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className={cn(ANALYTICS_SUBPANEL_CLASS, "p-3")}>
-                  <p className="text-xs font-semibold text-slate-500">Current month</p>
-                  <p className="mt-1 text-xl font-semibold text-slate-950 dark:text-slate-100">
-                    {formatCompactNumber(monthlyGrowthSummary.currentMonth)}
-                  </p>
-                </div>
-                <div className={cn(ANALYTICS_SUBPANEL_CLASS, "p-3")}>
-                  <p className="text-xs font-semibold text-slate-500">Previous month</p>
-                  <p className="mt-1 text-xl font-semibold text-slate-950 dark:text-slate-100">
-                    {formatCompactNumber(monthlyGrowthSummary.previousMonth)}
-                  </p>
-                </div>
-                <div className={cn(ANALYTICS_SUBPANEL_CLASS, "p-3")}>
-                  <p className="text-xs font-semibold text-slate-500">Change</p>
-                  <p
-                    className={cn(
-                      "mt-1 text-xl font-semibold",
-                      monthlyGrowthSummary.direction === "up"
-                        ? "text-emerald-700"
-                        : monthlyGrowthSummary.direction === "down"
-                          ? "text-rose-700"
-                          : "text-slate-950 dark:text-slate-100"
-                    )}
-                  >
-                    {monthlyGrowthSummary.percentChange > 0 ? "+" : ""}
-                    {monthlyGrowthSummary.percentChange}%
-                  </p>
-                </div>
-              </div>
-              <div
-                className="h-[240px] cursor-pointer"
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    openIssueList();
-                  }
-                }}
-              >
-                <ResponsiveContainer height="100%" width="100%">
-                  <AreaChart
-                    key={`monthly-growth-${chartKey}`}
-                    data={monthlyGrowth}
-                    margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
-                    onClick={(chartState) => {
-                      const key = chartState?.activePayload?.[0]?.payload?.key;
-
-                      if (key) {
-                        const [year, month] = key.split("-").map(Number);
-                        const monthEndDay = new Date(year, month, 0).getDate();
-                        const monthEnd = `${key}-${String(monthEndDay).padStart(2, "0")}`;
-
-                        openIssueList({
-                          dateFrom: `${key}-01`,
-                          dateTo: monthEnd,
-                        });
-                      } else {
-                        openIssueList();
-                      }
-                    }}
-                  >
-                    <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                    <Area type="monotone" dataKey="issues" stroke="#8b5cf6" strokeWidth={2} fill="#ddd6fe" fillOpacity={0.75} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          ) : (
-            <AnalyticsEmptyState
-              icon={BarChart3}
-              title="No Data Available"
-              description="Growth metrics appear as issues are created over time."
-              className="min-h-[300px]"
-            />
-          )}
-        </ChartCard>
+        <AnalyticsPanel title="Bug Resolution Timeline" description="Created task and bug trend with resolved throughput over time.">
+          <ChartFrame className="h-[380px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendRows}>
+                <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={chartTooltipStyle} />
+                <Line type="monotone" dataKey="tasks" stroke="#2563eb" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="bugs" stroke="#ef4444" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="resolved" stroke="#10b981" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartFrame>
+        </AnalyticsPanel>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[0.82fr_1.18fr]">
-        <AnalyticsPanel
-          title="Reports Insights Panel"
-          description="Operational signals generated from live analytics data."
-        >
-          <div className="grid gap-3">
-            {insightCards.map((insight) => {
-              const Icon = insight.icon;
-              const toneClass = {
-                amber: "border-amber-200 bg-amber-50 text-amber-700",
-                emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
-                rose: "border-rose-200 bg-rose-50 text-rose-700",
-                cyan: "border-cyan-200 bg-cyan-50 text-cyan-700",
-              }[insight.tone];
+      <section className="grid gap-5 xl:grid-cols-2">
+        <AnalyticsPanel title="Team Performance" description="Leaderboard across task completion, bug fixes, QA pass rate, reopen rate, and contribution.">
+          <div className="space-y-3">
+            {teamPerformance.slice(0, 8).map((team, index) => (
+              <div key={team.key} className="grid gap-3 rounded-[16px] border border-white/55 bg-white/58 p-3 md:grid-cols-[42px_1fr_90px_90px_120px] md:items-center">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-sm font-semibold text-blue-700">{index + 1}</span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-950">{team.name}</p>
+                  <p className="text-xs text-slate-500">Productivity {team.productivity}%</p>
+                </div>
+                <span className="text-sm font-semibold text-slate-700">{team.tasks} tasks</span>
+                <span className="text-sm font-semibold text-slate-700">{team.bugsFixed} bugs</span>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.max(team.productivity, 4)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </AnalyticsPanel>
+
+        <AnalyticsPanel title="Issues By Projects" description="Project-wise split of tasks and bugs with team count, developers, and completion percentage.">
+          <div className="max-h-[430px] overflow-auto pr-2">
+            <table className="w-full min-w-[780px] text-left text-sm">
+              <thead className="sticky top-0 bg-white/95 text-xs uppercase tracking-[0.16em] text-slate-500 backdrop-blur">
+                <tr>
+                  <th className="px-3 py-3">Project</th>
+                  <th className="px-3 py-3">Tasks</th>
+                  <th className="px-3 py-3">Bugs</th>
+                  <th className="px-3 py-3">Open Bugs</th>
+                  <th className="px-3 py-3">Closed Bugs</th>
+                  <th className="px-3 py-3">Teams</th>
+                  <th className="px-3 py-3">Completion</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {projectRows.map((project) => (
+                  <tr key={project.key} className="hover:bg-blue-50/50">
+                    <td className="px-3 py-3 font-semibold text-slate-950">{project.name}</td>
+                    <td className="px-3 py-3">{project.tasks}</td>
+                    <td className="px-3 py-3">{project.bugs}</td>
+                    <td className="px-3 py-3">{project.openBugs}</td>
+                    <td className="px-3 py-3">{project.closedBugs}</td>
+                    <td className="px-3 py-3">{project.teamCount}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200">
+                          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(project.completion, 4)}%` }} />
+                        </div>
+                        <span className="text-xs font-semibold">{project.completion}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </AnalyticsPanel>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-2">
+        <AnalyticsPanel title="Developer Productivity" description="Assigned tasks, completed work, bugs fixed, reopen rate, and velocity score.">
+          <div className="grid gap-3 md:grid-cols-2">
+            {developerProductivity.slice(0, 8).map((developer) => (
+              <div key={developer.key} className="rounded-[16px] border border-white/55 bg-white/58 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-950">{developer.name}</p>
+                    <p className="mt-1 text-xs text-slate-500">{developer.assignedTasks} tasks, {developer.bugsFixed} bugs fixed</p>
+                  </div>
+                  <Badge variant={developer.reopenRate > 20 ? "danger" : "success"}>{developer.velocity}% velocity</Badge>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-xl bg-slate-50 px-2 py-2"><p className="text-xs text-slate-500">Done</p><p className="font-semibold">{developer.completedTasks}</p></div>
+                  <div className="rounded-xl bg-emerald-50 px-2 py-2"><p className="text-xs text-emerald-700">Fixed</p><p className="font-semibold text-emerald-900">{developer.bugsFixed}</p></div>
+                  <div className="rounded-xl bg-rose-50 px-2 py-2"><p className="text-xs text-rose-700">Reopen</p><p className="font-semibold text-rose-900">{developer.reopenRate}%</p></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </AnalyticsPanel>
+
+        <AnalyticsPanel title="QA Performance Analytics" description="Bugs reported, verified fixes, reopened bugs, verification rate, efficiency, and false-positive signals.">
+          <div className="space-y-3">
+            {qaRows.slice(0, 8).map((qa) => {
+              const qaIssues = bugIssues.filter((issue) => (issue.reporter?._id || issue.testerOwner?._id || "unassigned") === qa.key);
+              const verified = qaIssues.filter((issue) => issue.status === ISSUE_STATUS.CLOSED).length;
+              const reopened = qaIssues.filter(isReopened).length;
+              const rejected = qaIssues.filter((issue) => issue.status === ISSUE_STATUS.REJECTED).length;
+              const efficiency = percent(verified, qaIssues.length);
 
               return (
-                <div
-                  key={insight.key}
-                  className={cn(ANALYTICS_SUBPANEL_CLASS, "flex gap-3 p-4")}
-                >
-                  <span
-                    className={cn(
-                      "flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border",
-                      toneClass
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-950 dark:text-slate-100">
-                      {insight.title}
-                    </p>
-                    <p className="mt-1 text-sm leading-6 text-slate-500">
-                      {insight.helper}
-                    </p>
+                <div key={qa.key} className="rounded-[16px] border border-white/55 bg-white/58 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">{qa.label}</p>
+                      <p className="mt-1 text-xs text-slate-500">{qa.count} bugs reported</p>
+                    </div>
+                    <Badge variant={efficiency >= 70 ? "success" : "warning"}>{efficiency}% efficiency</Badge>
+                  </div>
+                  <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+                    <div className="rounded-xl bg-blue-50 px-2 py-2"><p className="text-xs text-blue-700">Reported</p><p className="font-semibold">{qa.count}</p></div>
+                    <div className="rounded-xl bg-emerald-50 px-2 py-2"><p className="text-xs text-emerald-700">Verified</p><p className="font-semibold">{verified}</p></div>
+                    <div className="rounded-xl bg-rose-50 px-2 py-2"><p className="text-xs text-rose-700">Reopened</p><p className="font-semibold">{reopened}</p></div>
+                    <div className="rounded-xl bg-amber-50 px-2 py-2"><p className="text-xs text-amber-700">False +</p><p className="font-semibold">{rejected}</p></div>
                   </div>
                 </div>
               );
             })}
           </div>
         </AnalyticsPanel>
-
-        <AnalyticsPanel
-          title="Team Productivity Analytics"
-          description="Completion ratios, workload balance, and pending work by team."
-        >
-          {hasTeamData ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              {teamRows.slice(0, 6).map((team) => (
-                <button
-                  key={team.teamId}
-                  type="button"
-                  className={cn(ANALYTICS_SUBPANEL_CLASS, "p-4 text-left")}
-                  onClick={() => openIssueList({ teamId: team.teamId })}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
-                        {team.name}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {team.memberCount} members
-                      </p>
-                    </div>
-                    <Badge className="border-cyan-200 bg-cyan-50 text-cyan-700">
-                      {team.completionRate}%
-                    </Badge>
-                  </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    <div className="rounded-[14px] bg-slate-950/[0.03] px-3 py-2">
-                      <p className="text-xs text-slate-500">Assigned</p>
-                      <p className="text-lg font-semibold">{team.assignedIssues}</p>
-                    </div>
-                    <div className="rounded-[14px] bg-amber-50 px-3 py-2">
-                      <p className="text-xs text-amber-700">Pending</p>
-                      <p className="text-lg font-semibold text-amber-900">
-                        {team.pendingIssues}
-                      </p>
-                    </div>
-                    <div className="rounded-[14px] bg-emerald-50 px-3 py-2">
-                      <p className="text-xs text-emerald-700">Resolved</p>
-                      <p className="text-lg font-semibold text-emerald-900">
-                        {team.resolvedIssues}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-200/70">
-                    <div
-                      className="h-full rounded-full bg-[linear-gradient(90deg,#06b6d4,#3b82f6)]"
-                      style={{ width: `${Math.max(team.completionRate, team.totalIssues ? 5 : 0)}%` }}
-                    />
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <AnalyticsEmptyState
-              icon={Users2}
-              title="No Data Available"
-              description="Team productivity analytics appear once teams own issues."
-            />
-          )}
-        </AnalyticsPanel>
       </section>
 
-      <AnalyticsPanel
-        title="Detailed Issues Analytics Table"
-        description="Search, filter, sort, and paginate live issue analytics rows."
-        action={
-          <span className="inline-flex items-center rounded-full border border-white/55 bg-white/68 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
-            {issueRows.length} rows
-          </span>
-        }
-      >
-        <div className="space-y-4">
-          <div className="grid gap-3 xl:grid-cols-[1.4fr_0.75fr_0.85fr_0.85fr_0.85fr_0.9fr_auto]">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                className={cn(ANALYTICS_FIELD_CLASS, "pl-11")}
-                placeholder="Search issues, projects, assignees"
-                value={filters.search}
-                onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
-                    search: event.target.value,
-                  }))
-                }
-              />
-            </div>
-            <select
-              className={ANALYTICS_SELECT_CLASS}
-              value={filters.priority}
-              onChange={(event) =>
-                setFilters((current) => ({
-                  ...current,
-                  priority: event.target.value,
-                }))
-              }
-            >
-              <option value="all">All priorities</option>
-              {PRIORITY_ORDER.map((priority) => (
-                <option key={priority} value={priority}>
-                  {priority}
-                </option>
-              ))}
-            </select>
-            <select
-              className={ANALYTICS_SELECT_CLASS}
-              value={getStatusFilterValue(filters)}
-              onChange={(event) => {
-                const statusParts = getStatusFilterParts(event.target.value);
-
-                setFilters((current) => ({
-                  ...current,
-                  ...statusParts,
-                }));
-              }}
-            >
-              {STATUS_FILTERS.map((status) => (
-                <option key={status.value} value={status.value}>
-                  {status.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className={ANALYTICS_SELECT_CLASS}
-              value={filters.projectId}
-              onChange={(event) =>
-                setFilters((current) => ({
-                  ...current,
-                  projectId: event.target.value,
-                  teamId: "all",
-                  assigneeId: "all",
-                }))
-              }
-            >
-              <option value="all">All projects</option>
-              {projectOptions.map((project) => (
-                <option key={project._id} value={project._id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className={ANALYTICS_SELECT_CLASS}
-              value={filters.teamId}
-              onChange={(event) =>
-                setFilters((current) => ({
-                  ...current,
-                  teamId: event.target.value,
-                }))
-              }
-            >
-              <option value="all">All teams</option>
-              {teamOptions.map((team) => (
-                <option key={resolveTeamId(team)} value={resolveTeamId(team)}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className={ANALYTICS_SELECT_CLASS}
-              value={filters.assigneeId}
-              onChange={(event) =>
-                setFilters((current) => ({
-                  ...current,
-                  assigneeId: event.target.value,
-                }))
-              }
-            >
-              <option value="all">All assignees</option>
-              {assigneeOptions.map((assignee) => (
-                <option key={resolveUserId(assignee)} value={resolveUserId(assignee)}>
-                  {assignee.name}
-                </option>
-              ))}
-            </select>
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full border-white/60 bg-white/72 text-slate-700 shadow-sm"
-              onClick={clearFilters}
-            >
-              <X className="h-4 w-4" />
-              Reset
-            </Button>
-          </div>
-
-          {pagedIssues.length ? (
-            <>
-              <div className="overflow-x-auto rounded-[16px] border border-white/55 bg-white/48 shadow-[0_16px_36px_-30px_rgba(15,23,42,0.36)] dark:border-white/10 dark:bg-slate-950/30">
-                <table className="w-full min-w-[1060px] text-left text-sm">
-                  <thead className="bg-white/70 text-slate-500 backdrop-blur-xl dark:bg-slate-900/72 dark:text-slate-400">
-                    <tr>
-                      <th className="px-4 py-3">
-                        <SortHeader activeSort={sortConfig} onSort={updateSort} sortKey="issueId">
-                          Issue ID
-                        </SortHeader>
-                      </th>
-                      <th className="px-4 py-3">
-                        <SortHeader activeSort={sortConfig} onSort={updateSort} sortKey="project">
-                          Project
-                        </SortHeader>
-                      </th>
-                      <th className="px-4 py-3">
-                        <SortHeader activeSort={sortConfig} onSort={updateSort} sortKey="assignee">
-                          Assignee
-                        </SortHeader>
-                      </th>
-                      <th className="px-4 py-3">
-                        <SortHeader activeSort={sortConfig} onSort={updateSort} sortKey="priority">
-                          Priority
-                        </SortHeader>
-                      </th>
-                      <th className="px-4 py-3">
-                        <SortHeader activeSort={sortConfig} onSort={updateSort} sortKey="status">
-                          Status
-                        </SortHeader>
-                      </th>
-                      <th className="px-4 py-3">
-                        <SortHeader activeSort={sortConfig} onSort={updateSort} sortKey="createdAt">
-                          Created Date
-                        </SortHeader>
-                      </th>
-                      <th className="px-4 py-3">
-                        <SortHeader activeSort={sortConfig} onSort={updateSort} sortKey="resolutionTime">
-                          Resolution Time
-                        </SortHeader>
-                      </th>
-                      <th className="px-4 py-3">
-                        <SortHeader activeSort={sortConfig} onSort={updateSort} sortKey="tags">
-                          Tags
-                        </SortHeader>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/55 dark:divide-white/10">
-                    {pagedIssues.map((issue) => (
-                      <tr
-                        key={issue._id}
-                        className="bg-white/40 transition hover:bg-blue-50/58 dark:bg-slate-950/20 dark:hover:bg-slate-900/70"
-                      >
-                        <td className="px-4 py-4 font-semibold text-slate-800">
-                          <div className="max-w-[190px]">
-                            <p>{issue.issueId}</p>
-                            <p className="mt-1 truncate text-xs font-normal text-slate-500">
-                              {issue.title}
-                            </p>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-slate-700">
-                          {issue.project?.name || "Unknown project"}
-                        </td>
-                        <td className="px-4 py-4">
-                          {issue.assignee ? (
-                            <div className="flex items-center gap-2.5">
-                              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/76 text-xs font-semibold text-slate-600 shadow-sm">
-                                {getInitials(issue.assignee.name)}
-                              </span>
-                              <span className="max-w-[140px] truncate font-semibold text-slate-700">
-                                {issue.assignee.name}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-500">
-                              Unassigned
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-4">
-                          <Badge variant={getIssuePriorityVariant(issue.priority)}>
-                            {issue.priority}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-4">
-                          <Badge variant={getIssueStatusVariant(issue.status)}>
-                            {issue.status}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-4 text-slate-600">
-                          {issue.createdAt ? formatDate(issue.createdAt) : "N/A"}
-                        </td>
-                        <td className="px-4 py-4 font-semibold text-slate-800">
-                          {formatDuration(issue.resolutionTimeMs)}
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex max-w-[230px] flex-wrap gap-1.5">
-                            {(issue.tags || []).slice(0, 3).map((tag) => (
-                              <span
-                                key={tag}
-                                className="rounded-full border border-white/60 bg-white/72 px-2.5 py-1 text-xs font-semibold text-slate-500"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-slate-500">
-                  Showing {(currentPage - 1) * PAGE_SIZE + 1}-
-                  {Math.min(currentPage * PAGE_SIZE, sortedIssues.length)} of{" "}
-                  {sortedIssues.length}
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-full border-white/60 bg-white/72"
-                    disabled={currentPage === 1}
-                    onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                    Prev
-                  </Button>
-                  <span className="rounded-full border border-white/60 bg-white/72 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
-                    {currentPage} / {totalPages}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-full border-white/60 bg-white/72"
-                    disabled={currentPage === totalPages}
-                    onClick={() => setCurrentPage((page) => Math.min(page + 1, totalPages))}
-                  >
-                    Next
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </>
-          ) : (
-            <AnalyticsEmptyState
-              icon={Search}
-              title="No issue rows match"
-              description="Adjust search, filters, or the date range to reveal matching issue analytics."
-            />
-          )}
-        </div>
-      </AnalyticsPanel>
-
-      <AnalyticsPanel
-        title="Recent Analytics Activity"
-        description="Recent created, resolved, assigned, and critical issue events."
-      >
-        {activityRows.length ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {activityRows.slice(0, 9).map((item) => (
-              <button
-                key={`${item.activityType}-${item._id}`}
-                type="button"
-                className={cn(ANALYTICS_SUBPANEL_CLASS, "p-4 text-left")}
-                onClick={() => openIssueList({ search: item.issueId })}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-950">
-                      {item.title}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {item.activityLabel}
-                    </p>
-                  </div>
-                  <Badge variant={item.activityType === "critical" ? "danger" : "secondary"}>
-                    {item.priority}
-                  </Badge>
-                </div>
-                <p className="mt-3 text-sm text-slate-500">
-                  {item.project?.name || "Unknown project"} -{" "}
-                  {item.activityAt ? formatDate(item.activityAt) : "N/A"}
-                </p>
-              </button>
-            ))}
+      <AnalyticsPanel title="Detailed Workflow Analytics" description="Separated task and bug rows for audit, export, and operational review.">
+        {allVisibleIssues.length ? (
+          <div className="max-h-[520px] overflow-auto">
+            <table className="w-full min-w-[1120px] text-left text-sm">
+              <thead className="sticky top-0 bg-white/95 text-xs uppercase tracking-[0.16em] text-slate-500 backdrop-blur">
+                <tr>
+                  <th className="px-3 py-3">Flow</th>
+                  <th className="px-3 py-3">ID</th>
+                  <th className="px-3 py-3">Title</th>
+                  <th className="px-3 py-3">Project</th>
+                  <th className="px-3 py-3">Owner</th>
+                  <th className="px-3 py-3">Status</th>
+                  <th className="px-3 py-3">Priority</th>
+                  <th className="px-3 py-3">Created</th>
+                  <th className="px-3 py-3">Resolution</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {allVisibleIssues.slice(0, 80).map((issue) => (
+                  <tr key={issue._id} className="hover:bg-blue-50/50">
+                    <td className="px-3 py-3"><Badge variant={issue.type === ISSUE_TYPES.BUG ? "danger" : "default"}>{issue.type === ISSUE_TYPES.BUG ? "Bug" : "Task"}</Badge></td>
+                    <td className="px-3 py-3 font-mono text-xs font-semibold">{issue.issueId}</td>
+                    <td className="max-w-[280px] truncate px-3 py-3 font-semibold text-slate-950">{issue.title}</td>
+                    <td className="px-3 py-3">{issue.project?.name || "Unknown"}</td>
+                    <td className="px-3 py-3">{resolveUserLabel(issue.developerLead || issue.assignee || issue.reporter)}</td>
+                    <td className="px-3 py-3"><Badge variant={getIssueStatusVariant(issue.status)}>{issue.status}</Badge></td>
+                    <td className="px-3 py-3"><Badge variant={getIssuePriorityVariant(issue.priority)}>{issue.priority}</Badge></td>
+                    <td className="px-3 py-3">{formatDateTime(issue.createdAt)}</td>
+                    <td className="px-3 py-3">{formatDuration(issue.resolutionTimeMs)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : (
-          <AnalyticsEmptyState
-            icon={Activity}
-            title="No recent analytics activity"
-            description="Activity events appear as issues are created, assigned, and resolved."
-          />
+          <AnalyticsEmptyState icon={AreaChartIcon} title="No analytics rows" description="Adjust filters or create task/bug records to populate reports." />
         )}
       </AnalyticsPanel>
-      <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 };
