@@ -8,11 +8,9 @@ import {
   LoaderCircle,
   LockKeyhole,
   Mail,
-  Sparkles,
-  User2,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import authWorkspaceImage from "@/assets/auth/anime-workspace.jpg";
+import authWorkspaceImage from "@/assets/auth/macro-bug-login.jpg";
 import pirnavLogo from "@/assets/pirnav-logo.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +26,6 @@ const initialForm = {
   role: "Developer",
 };
 
-const roleOptions = ["Admin", "Manager", "Developer", "Tester"];
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const passwordHasLetter = /[A-Za-z]/;
 const passwordHasNumber = /\d/;
@@ -41,9 +38,6 @@ const inputClassName =
 
 const passwordInputClassName =
   "auth-input h-11 rounded-xl border border-white/20 bg-slate-900/62 pl-11 pr-12 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-400/30 disabled:text-slate-50 disabled:opacity-100";
-
-const selectClassName =
-  "auth-select h-11 w-full appearance-none rounded-xl border border-white/20 bg-slate-900/62 pl-11 pr-11 text-sm text-slate-50 outline-none opacity-100 transition duration-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/30 disabled:text-slate-50 disabled:opacity-100";
 
 const getSafeRedirectPath = (search = "") => {
   const redirect = new URLSearchParams(search).get("redirect") || "";
@@ -108,9 +102,6 @@ const validateForm = ({ mode, formData }) => {
       errors.fullName = "Full name must be at least 2 characters long";
     }
 
-    if (!roleOptions.includes(formData.role)) {
-      errors.role = "Please select a valid role";
-    }
   }
 
   if (!formData.email.trim()) {
@@ -195,7 +186,7 @@ const AuthPage = () => {
     authMutation.reset();
     setFieldErrors({});
     setSuccessMessage(location.state.successMessage);
-    setMode(location.state.mode === "register" ? "register" : "login");
+    setMode("login");
     setShowPassword(false);
     setRememberMe(false);
     setFormData({
@@ -251,19 +242,6 @@ const AuthPage = () => {
     setFormData((current) => ({
       ...current,
       [name]: value,
-    }));
-  };
-
-  const handleModeChange = (nextMode) => {
-    authMutation.reset();
-    setFieldErrors({});
-    setSuccessMessage("");
-    setMode(nextMode);
-    setShowPassword(false);
-    setRememberMe(false);
-    setFormData((current) => ({
-      ...initialForm,
-      email: current.email,
     }));
   };
 
@@ -324,9 +302,8 @@ const AuthPage = () => {
     return mode === "login" ? "Login" : "Create account";
   }, [authMutation.isPending, mode]);
 
-  const eyebrowCopy = mode === "login" ? "Welcome Back" : "Create Account";
-  const titleCopy =
-    mode === "login" ? "Sign in to your workspace" : "Create your workspace account";
+  const eyebrowCopy = "Welcome Back";
+  const titleCopy = "Sign in to your workspace";
 
   return (
     <main
@@ -353,25 +330,20 @@ const AuthPage = () => {
           }}
         />
       ) : null}
-      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(7,17,31,0.92)_0%,rgba(7,17,31,0.72)_48%,rgba(7,17,31,0.42)_100%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(2,6,23,0.12)_0%,rgba(2,6,23,0.58)_100%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(4,10,25,0.78),rgba(8,14,35,0.82))]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.10)_0%,rgba(3,7,18,0.18)_42%,rgba(1,5,17,0.84)_100%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(14,165,233,0.14)_0%,transparent_36%,rgba(245,158,11,0.14)_100%)]" />
+      <div className="pointer-events-none absolute left-[10%] top-[18%] h-1 w-1 rounded-full bg-cyan-200/70 shadow-[0_0_34px_8px_rgba(34,211,238,0.28)]" />
+      <div className="pointer-events-none absolute right-[18%] top-[24%] h-1.5 w-1.5 rounded-full bg-amber-200/70 shadow-[0_0_42px_10px_rgba(251,191,36,0.22)]" />
+      <div className="pointer-events-none absolute bottom-[22%] left-[24%] h-1 w-1 rounded-full bg-white/55 shadow-[0_0_30px_8px_rgba(255,255,255,0.18)]" />
 
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-5 py-8 sm:px-8 lg:justify-start lg:px-20">
-        <div className="auth-fade-in grid w-full max-w-5xl gap-8 lg:grid-cols-[minmax(0,0.9fr)_420px] lg:items-center">
-          <div className="hidden max-w-xl space-y-5 lg:block">
-            <p className="text-sm font-semibold uppercase text-sky-200">
-              Pirnav Workspace
-            </p>
-            <h2 className="text-5xl font-semibold leading-tight text-white">
-              Track bugs, owners, and delivery decisions in one secure workspace.
-            </h2>
-            <p className="max-w-lg text-base leading-7 text-slate-200">
-              Sign in to continue exactly where your assignment, report, or dashboard
-              needs you.
-            </p>
-          </div>
-
-          <div className="flex w-full flex-col rounded-2xl border border-white/20 bg-white/[0.10] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.34)] backdrop-blur-[22px] sm:p-8">
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-8 sm:px-6">
+        <div className="auth-fade-in w-full max-w-[430px]">
+          <div className="relative flex w-full flex-col overflow-hidden rounded-3xl border border-white/15 bg-white/[0.10] p-6 shadow-[0_28px_90px_-24px_rgba(0,0,0,0.78)] backdrop-blur-[24px] sm:p-8">
+            <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/60 to-transparent" />
+            <div className="pointer-events-none absolute -right-20 -top-20 h-44 w-44 rounded-full bg-cyan-400/10 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-24 -left-16 h-44 w-44 rounded-full bg-amber-400/10 blur-3xl" />
+            <div className="relative">
             <div className="space-y-2.5">
               <div className="flex items-center">
                 <img
@@ -394,35 +366,6 @@ const AuthPage = () => {
                 <div className="flex items-start gap-3 rounded-[10px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
                   <span>{successMessage}</span>
-                </div>
-              ) : null}
-
-              {mode === "register" ? (
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-slate-200" htmlFor="fullName">
-                    Full name
-                  </label>
-                  <div className="relative">
-                    <User2 className="auth-field-icon pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
-                    <Input
-                      aria-invalid={Boolean(fieldErrors.fullName)}
-                      autoComplete="name"
-                      className={cn(
-                        inputClassName,
-                        fieldErrors.fullName &&
-                          "border-rose-400/60 focus-visible:border-rose-400 focus-visible:ring-rose-500/25"
-                      )}
-                      disabled={authMutation.isPending}
-                      id="fullName"
-                      name="fullName"
-                      placeholder="Avery Morgan"
-                      value={formData.fullName}
-                      onChange={handleChange}
-                    />
-                  </div>
-                  {fieldErrors.fullName ? (
-                    <p className="text-sm text-rose-300">{fieldErrors.fullName}</p>
-                  ) : null}
                 </div>
               ) : null}
 
@@ -522,41 +465,6 @@ const AuthPage = () => {
                 </button>
               ) : null}
 
-              {mode === "register" ? (
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-slate-200" htmlFor="role">
-                    Role
-                  </label>
-                  <div className="relative">
-                    <Sparkles className="auth-field-icon pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
-                    <select
-                      aria-invalid={Boolean(fieldErrors.role)}
-                      className={cn(
-                        selectClassName,
-                        fieldErrors.role &&
-                          "border-rose-400/60 focus:border-rose-400 focus:ring-rose-500/25"
-                      )}
-                      disabled={authMutation.isPending}
-                      id="role"
-                      name="role"
-                      style={{ colorScheme: "dark" }}
-                      value={formData.role}
-                      onChange={handleChange}
-                    >
-                      {roleOptions.map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="pointer-events-none absolute right-4 top-1/2 h-2.5 w-2.5 -translate-y-[60%] rotate-45 border-b border-r border-slate-400" />
-                  </div>
-                  {fieldErrors.role ? (
-                    <p className="text-sm text-rose-300">{fieldErrors.role}</p>
-                  ) : null}
-                </div>
-              ) : null}
-
               {authMutation.error ? (
                 <div className="rounded-[10px] border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
                   {getAuthErrorMessage(authMutation.error)}
@@ -576,16 +484,6 @@ const AuthPage = () => {
                 )}
               </Button>
             </form>
-
-            <div className="mt-6 text-sm text-slate-300">
-              {mode === "login" ? "Not registered yet?" : "Already have an account?"}{" "}
-              <button
-                className="font-semibold text-sky-300 transition duration-200 hover:text-sky-200"
-                type="button"
-                onClick={() => handleModeChange(mode === "login" ? "register" : "login")}
-              >
-                {mode === "login" ? "Create an account" : "Login"}
-              </button>
             </div>
           </div>
         </div>
