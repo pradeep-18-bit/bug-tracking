@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import {
   ISSUE_TYPE_OPTIONS,
+  ISSUE_TYPES,
   ISSUE_STATUS,
   filterIssues,
   getIssueDisplayKey,
@@ -37,7 +38,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { canCreateIssues, canDeleteIssues, hasAdminPanelAccess } from "@/lib/roles";
 
-const isValidIssueType = (value) => ISSUE_TYPE_OPTIONS.includes(value);
+const WORK_ITEM_TYPE_OPTIONS = ISSUE_TYPE_OPTIONS.filter(
+  (type) => type !== ISSUE_TYPES.BUG
+);
+const isValidWorkItemType = (value) => WORK_ITEM_TYPE_OPTIONS.includes(value);
 const ALL_PROJECTS_VALUE = "ALL";
 const HIGH_PRIORITY_QUERY_VALUE = "high";
 
@@ -468,6 +472,7 @@ const IssuesPage = () => {
         sprintId: filters.sprintId,
         assigneeId: filters.assigneeId,
         type: filters.type,
+        excludeType: ISSUE_TYPES.BUG,
         status: filters.status,
         statusGroup: filters.statusGroup,
         priority: filters.priority,
@@ -511,7 +516,7 @@ const IssuesPage = () => {
 
   const { data: dependencyIssuesData = [] } = useQuery({
     queryKey: ["issues", "issues-page", "dependency-options", role],
-    queryFn: () => fetchIssues(),
+    queryFn: () => fetchIssues({ excludeType: ISSUE_TYPES.BUG }),
     enabled:
       Boolean(projects.length) &&
       Boolean(isCreateDialogOpen || (isAdminView && selectedIssue)),
@@ -721,10 +726,10 @@ const IssuesPage = () => {
   };
 
   const error = projectsError || issuesError;
-  const composeType = isValidIssueType(searchParams.get("type"))
+  const composeType = isValidWorkItemType(searchParams.get("type"))
     ? searchParams.get("type")
     : "Task";
-  const lockComposeType = isValidIssueType(searchParams.get("type"));
+  const lockComposeType = isValidWorkItemType(searchParams.get("type"));
   const hasVisibleFilters = Boolean(
     filters.status !== "all" ||
       filters.statusGroup !== "all" ||
@@ -769,6 +774,7 @@ const IssuesPage = () => {
         epics={availableEpics}
         sprints={availableSprints}
         assignees={availableAssignees}
+        issueTypes={WORK_ITEM_TYPE_OPTIONS}
         visibleIssueCount={filteredIssues.length}
         activeStatusLabel={activeStatusLabel}
         selectedProject={selectedProject}
@@ -826,6 +832,7 @@ const IssuesPage = () => {
         }
         defaultTeamId={filters.teamId !== "all" ? filters.teamId : ""}
         defaultType={composeType}
+        allowedTypes={WORK_ITEM_TYPE_OPTIONS}
         lockType={lockComposeType}
         isPending={createIssueMutation.isPending}
         onSubmit={async (payload) => {

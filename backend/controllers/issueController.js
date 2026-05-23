@@ -1328,6 +1328,27 @@ const buildIssueQueryFromRequest = async (
     query.type = normalizedType;
   }
 
+  if (req.query.excludeType && req.query.excludeType !== "all") {
+    const normalizedExcludedType = getCanonicalIssueType(req.query.excludeType, "");
+
+    if (!isValidIssueType(normalizedExcludedType)) {
+      res.status(400);
+      throw new Error(`Excluded type must be ${ISSUE_TYPE_VALUES.join(", ")}`);
+    }
+
+    if (query.type) {
+      if (query.type === normalizedExcludedType) {
+        query._id = {
+          $in: [],
+        };
+      }
+    } else {
+      query.type = {
+        $ne: normalizedExcludedType,
+      };
+    }
+  }
+
   if (req.query.teamId && req.query.teamId !== "all") {
     if (!mongoose.isValidObjectId(req.query.teamId)) {
       res.status(400);

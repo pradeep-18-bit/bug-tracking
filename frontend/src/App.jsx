@@ -11,6 +11,7 @@ import {
 } from "@/lib/roles";
 
 const AuthPage = lazy(() => import("@/pages/AuthPage"));
+const AdminBugsPage = lazy(() => import("@/pages/AdminBugsPage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const DeveloperDashboardPage = lazy(() => import("@/pages/DeveloperDashboardPage"));
 const DeveloperSettingsPage = lazy(() => import("@/pages/DeveloperSettingsPage"));
@@ -199,6 +200,14 @@ const App = () => (
         element={
           <ProtectedRoute roles={[ROLE_TESTER]}>
             <TesterBugsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/bugs"
+        element={
+          <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
+            <AdminBugsPage />
           </ProtectedRoute>
         }
       />

@@ -14,6 +14,7 @@ const IssuesToolbar = ({
   epics = [],
   sprints = [],
   assignees = [],
+  issueTypes = ISSUE_TYPE_OPTIONS,
   visibleIssueCount = 0,
   activeStatusLabel = "",
   selectedProject = null,
@@ -161,8 +162,8 @@ const IssuesToolbar = ({
               value={filters.type}
               onChange={(event) => onTypeChange(event.target.value)}
             >
-              <option value="all">Task / Story / Bug / Epic / Sub-task</option>
-              {ISSUE_TYPE_OPTIONS.map((type) => (
+              <option value="all">{issueTypes.join(" / ")}</option>
+              {issueTypes.map((type) => (
                 <option key={type} value={type}>
                   {type}
                 </option>

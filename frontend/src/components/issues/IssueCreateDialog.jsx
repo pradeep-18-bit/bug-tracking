@@ -365,6 +365,7 @@ const IssueCreateDialog = ({
   onOpenChange,
   projects = [],
   availableIssues = [],
+  allowedTypes = ISSUE_TYPES,
   defaultProjectId = "",
   defaultTeamId = "",
   defaultType = "Task",
@@ -373,9 +374,10 @@ const IssueCreateDialog = ({
   onSubmit,
   onUploadAttachment,
 }) => {
-  const resolvedDefaultType = ISSUE_TYPES.includes(defaultType)
+  const typeOptions = allowedTypes.length ? allowedTypes : ISSUE_TYPES;
+  const resolvedDefaultType = typeOptions.includes(defaultType)
     ? defaultType
-    : ISSUE_TYPES[0];
+    : typeOptions[0];
   const [formData, setFormData] = useState(() =>
     buildInitialState({
       projects,
@@ -1462,7 +1464,7 @@ const IssueCreateDialog = ({
                     }
                     disabled={lockType || isSubmitPending}
                   >
-                    {ISSUE_TYPES.map((type) => (
+                    {typeOptions.map((type) => (
                       <option key={type} value={type}>
                         {type}
                       </option>

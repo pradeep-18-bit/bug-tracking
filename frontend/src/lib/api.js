@@ -382,6 +382,14 @@ export const fetchIssues = async (filters = {}) => {
   return response.data;
 };
 
+export const fetchBugs = async (filters = {}) => {
+  const params = buildParams(normalizeIssueFilters(filters));
+  const response = await api.get("/bugs", {
+    params,
+  });
+  return response.data;
+};
+
 export const fetchMyIssues = async (filters = {}) => {
   const params = buildParams(normalizeIssueFilters(filters));
   const response = await api.get("/issues/my", {

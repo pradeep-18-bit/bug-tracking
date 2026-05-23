@@ -31,6 +31,7 @@ export const getRoleNavigation = (role) => {
       { label: "Projects", href: "/projects", icon: "projects" },
       { label: "Backlog", href: "/backlog", icon: "backlog" },
       { label: "Issues", href: "/issues", icon: "issues" },
+      { label: "Bugs", href: "/admin/bugs", icon: "bugs" },
       { label: "Reports", href: "/reports", icon: "reports" },
       { label: "Settings", href: "/settings/users", icon: "settings" },
     ];
@@ -91,6 +92,11 @@ export const getPageMeta = (pathname, role) => {
       title: "Bugs",
       description:
         "Report assigned project bugs and track status, comments, attachments, and developer progress.",
+    },
+    "/admin/bugs": {
+      title: "Bug Tracker",
+      description:
+        "Track tester-reported bugs project-wise, manage lifecycle, and monitor QA verification.",
     },
     "/projects": {
       title: "Projects & Teams",
