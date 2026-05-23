@@ -171,6 +171,33 @@
     @apply transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-lg;
   }
 
+  .dashboard-scrollbar {
+    scrollbar-color: rgba(148, 163, 184, 0.42) transparent;
+    scrollbar-width: thin;
+    scroll-behavior: smooth;
+  }
+
+  .dashboard-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .dashboard-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .dashboard-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.34);
+    border-radius: 999px;
+  }
+
+  .dashboard-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.5);
+  }
+
+  .dashboard-scroll-fade {
+    mask-image: linear-gradient(to bottom, transparent 0, black 18px, black calc(100% - 18px), transparent 100%);
+  }
+
   .page-wrapper {
     box-sizing: border-box;
     max-width: 100%;

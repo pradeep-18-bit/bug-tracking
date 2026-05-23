@@ -81,6 +81,86 @@ const QuickActionButton = ({ icon: Icon, title, helper, className, onClick }) =>
   </button>
 );
 
+const ActiveProjectCard = ({ project, onOpen }) => {
+  const teams = project.teams || [];
+
+  return (
+    <button
+      type="button"
+      className="group block w-full rounded-2xl border border-white/50 bg-white/78 p-4 text-left shadow-sm backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200/80 hover:bg-white/90 hover:shadow-md dark:border-white/10 dark:bg-slate-900/58 dark:hover:bg-slate-900/78"
+      onClick={() => onOpen(project)}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" />
+            <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+              {project.name}
+            </p>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            {project.teamCount || 0} assigned team{project.teamCount === 1 ? "" : "s"}
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+          {project.completionRate}% complete
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="min-w-0 rounded-xl bg-slate-950/[0.03] px-3 py-2 dark:bg-white/[0.06]">
+          <p className="truncate text-[11px] font-medium text-slate-500">Issues</p>
+          <p className="mt-0.5 truncate text-base font-semibold text-slate-950 dark:text-slate-100">
+            {project.totalIssues}
+          </p>
+        </div>
+        <div className="min-w-0 rounded-xl bg-amber-50 px-3 py-2 dark:bg-amber-500/10">
+          <p className="truncate text-[11px] font-medium text-amber-700">Open</p>
+          <p className="mt-0.5 truncate text-base font-semibold text-amber-900 dark:text-amber-200">
+            {project.openIssues}
+          </p>
+        </div>
+        <div className="min-w-0 rounded-xl bg-emerald-50 px-3 py-2 dark:bg-emerald-500/10">
+          <p className="truncate text-[11px] font-medium text-emerald-700">Closed</p>
+          <p className="mt-0.5 truncate text-base font-semibold text-emerald-900 dark:text-emerald-200">
+            {project.closedIssues}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-1.5">
+        <div className="flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-500">
+          <span>Resolution progress</span>
+          <span>{project.openIssues} open</span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-800">
+          <div
+            className="h-full rounded-full bg-[linear-gradient(90deg,#8b5cf6,#06b6d4)] transition-all duration-500"
+            style={{ width: `${Math.max(project.completionRate, 5)}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {teams.length ? (
+          teams.map((team) => (
+            <span
+              key={team}
+              className="max-w-full break-words rounded-full border border-white/60 bg-white/72 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-950/46 dark:text-slate-300"
+            >
+              {team}
+            </span>
+          ))
+        ) : (
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500 dark:border-white/10 dark:bg-slate-950/46 dark:text-slate-400">
+            No teams assigned
+          </span>
+        )}
+      </div>
+    </button>
+  );
+};
+
 const DashboardLoading = () => (
   <div className="space-y-5">
     <Skeleton className="h-[170px] rounded-[16px] bg-gradient-to-r from-slate-200/70 via-white/80 to-slate-200/70" />
@@ -105,7 +185,7 @@ const DashboardPage = () => {
   const projects = analytics.projects?.projects || [];
   const teams = analytics.teams?.teams || [];
   const activity = analytics.recentActivity?.activity || [];
-  const mostActiveProject = analytics.overview?.mostActiveProject || projects[0] || null;
+  const activeProjects = projects;
   const highestWorkloadTeam = teams[0] || null;
   const maxStatusCount = Math.max(...statusRows.map((row) => row.count), 0);
   const navigateToIssues = (params = {}) => {
@@ -351,75 +431,28 @@ const DashboardPage = () => {
         </AnalyticsPanel>
 
         <AnalyticsPanel
-          title="Most Active Project"
-          description="Highest issue volume with open workload and assigned teams."
+          title="Most Active Projects"
+          description="All active projects sorted by issue volume, open workload, and assigned teams."
+          action={
+            activeProjects.length ? (
+              <Badge className="border-white/60 bg-white/72 text-slate-600">
+                {activeProjects.length} active
+              </Badge>
+            ) : null
+          }
         >
-          {mostActiveProject ? (
-            <button
-              type="button"
-              className={cn(ANALYTICS_SUBPANEL_CLASS, "block w-full space-y-5 p-5 text-left")}
-              onClick={() => navigateToIssues({ projectId: mostActiveProject.projectId })}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="truncate text-lg font-semibold text-slate-950 dark:text-slate-100">
-                    {mostActiveProject.name}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {mostActiveProject.teamCount || 0} assigned team
-                    {mostActiveProject.teamCount === 1 ? "" : "s"}
-                  </p>
-                </div>
-                <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">
-                  {mostActiveProject.completionRate}% complete
-                </span>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-[14px] bg-slate-950/[0.03] px-3 py-2">
-                  <p className="text-xs text-slate-500">Issues</p>
-                  <p className="mt-1 text-xl font-semibold text-slate-950">
-                    {mostActiveProject.totalIssues}
-                  </p>
-                </div>
-                <div className="rounded-[14px] bg-amber-50 px-3 py-2">
-                  <p className="text-xs text-amber-700">Open</p>
-                  <p className="mt-1 text-xl font-semibold text-amber-900">
-                    {mostActiveProject.openIssues}
-                  </p>
-                </div>
-                <div className="rounded-[14px] bg-emerald-50 px-3 py-2">
-                  <p className="text-xs text-emerald-700">Closed</p>
-                  <p className="mt-1 text-xl font-semibold text-emerald-900">
-                    {mostActiveProject.closedIssues}
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                  <span>Resolution progress</span>
-                  <span>{mostActiveProject.openIssues} open</span>
-                </div>
-                <div className="h-2.5 overflow-hidden rounded-full bg-slate-200/70">
-                  <div
-                    className="h-full rounded-full bg-[linear-gradient(90deg,#8b5cf6,#06b6d4)]"
-                    style={{ width: `${Math.max(mostActiveProject.completionRate, 5)}%` }}
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {(mostActiveProject.teams || []).slice(0, 4).map((team) => (
-                  <span
-                    key={team}
-                    className="rounded-full border border-white/60 bg-white/72 px-3 py-1 text-xs font-semibold text-slate-600"
-                  >
-                    {team}
-                  </span>
-                ))}
-              </div>
-            </button>
+          {activeProjects.length ? (
+            <div className="dashboard-scrollbar dashboard-scroll-fade max-h-[500px] space-y-3 overflow-y-auto pr-2">
+              {activeProjects.map((project) => (
+                <ActiveProjectCard
+                  key={project.projectId || project.name}
+                  project={project}
+                  onOpen={(selectedProject) =>
+                    navigateToIssues({ projectId: selectedProject.projectId })
+                  }
+                />
+              ))}
+            </div>
           ) : (
             <AnalyticsEmptyState
               icon={FolderKanban}
