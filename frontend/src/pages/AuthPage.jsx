@@ -10,7 +10,7 @@ import {
   Mail,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import authWorkspaceImage from "@/assets/auth/macro-bug-login.jpg";
+import authWorkspaceImage from "@/assets/auth/bug-tracker-workspace-login.png";
 import pirnavLogo from "@/assets/pirnav-logo.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,10 +34,10 @@ const isAdminDefaultLoginEnabledOnClient =
   import.meta.env.VITE_ENABLE_ADMIN_DEFAULT_LOGIN !== "false";
 
 const inputClassName =
-  "auth-input h-11 rounded-xl border border-white/20 bg-slate-900/62 pl-11 pr-4 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-400/30 disabled:text-slate-50 disabled:opacity-100";
+  "auth-input h-11 rounded-xl border border-white/25 bg-slate-950/70 pl-11 pr-4 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-400/35 disabled:text-slate-50 disabled:opacity-100";
 
 const passwordInputClassName =
-  "auth-input h-11 rounded-xl border border-white/20 bg-slate-900/62 pl-11 pr-12 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-400/30 disabled:text-slate-50 disabled:opacity-100";
+  "auth-input h-11 rounded-xl border border-white/25 bg-slate-950/70 pl-11 pr-12 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-400/35 disabled:text-slate-50 disabled:opacity-100";
 
 const getSafeRedirectPath = (search = "") => {
   const redirect = new URLSearchParams(search).get("redirect") || "";
@@ -312,34 +312,22 @@ const AuthPage = () => {
     >
       <div className="auth-illustration-fallback absolute inset-0" aria-hidden="true" />
       {!hasBackgroundError ? (
-        <img
-          src={authWorkspaceImage}
-          alt=""
+        <div
           aria-hidden="true"
           className={cn(
-            "absolute inset-0 h-full w-full object-cover transition-opacity duration-500",
+            "absolute inset-0 bg-cover bg-center transition-opacity duration-500",
             isBackgroundLoaded ? "opacity-100" : "opacity-0"
           )}
-          onError={() => {
-            setHasBackgroundError(true);
-            setIsBackgroundLoaded(false);
-          }}
-          onLoad={() => {
-            setHasBackgroundError(false);
-            setIsBackgroundLoaded(true);
-          }}
+          style={{ backgroundImage: `url(${authWorkspaceImage})` }}
         />
       ) : null}
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(4,10,25,0.78),rgba(8,14,35,0.82))]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.10)_0%,rgba(3,7,18,0.18)_42%,rgba(1,5,17,0.84)_100%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(14,165,233,0.14)_0%,transparent_36%,rgba(245,158,11,0.14)_100%)]" />
-      <div className="pointer-events-none absolute left-[10%] top-[18%] h-1 w-1 rounded-full bg-cyan-200/70 shadow-[0_0_34px_8px_rgba(34,211,238,0.28)]" />
-      <div className="pointer-events-none absolute right-[18%] top-[24%] h-1.5 w-1.5 rounded-full bg-amber-200/70 shadow-[0_0_42px_10px_rgba(251,191,36,0.22)]" />
-      <div className="pointer-events-none absolute bottom-[22%] left-[24%] h-1 w-1 rounded-full bg-white/55 shadow-[0_0_30px_8px_rgba(255,255,255,0.18)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(3,7,18,0.70)_0%,rgba(3,7,18,0.50)_28%,rgba(3,7,18,0.18)_58%,rgba(3,7,18,0.30)_100%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(2,6,23,0.30)_0%,rgba(2,6,23,0.12)_44%,rgba(2,6,23,0.42)_100%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_58%_40%,rgba(14,165,233,0.16)_0%,transparent_36%),radial-gradient(circle_at_26%_72%,rgba(249,115,22,0.14)_0%,transparent_32%)]" />
 
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-8 sm:px-6">
-        <div className="auth-fade-in w-full max-w-[430px]">
-          <div className="relative flex w-full flex-col overflow-hidden rounded-3xl border border-white/15 bg-white/[0.10] p-6 shadow-[0_28px_90px_-24px_rgba(0,0,0,0.78)] backdrop-blur-[24px] sm:p-8">
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-8 sm:px-6 lg:justify-start lg:px-0 lg:pl-12 xl:pl-16 2xl:pl-20">
+        <div className="auth-fade-in w-full max-w-[430px] lg:max-w-[420px]">
+          <div className="relative flex w-full flex-col overflow-hidden rounded-3xl border border-white/18 bg-slate-950/[0.56] p-6 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.86)] backdrop-blur-[26px] sm:p-8">
             <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/60 to-transparent" />
             <div className="pointer-events-none absolute -right-20 -top-20 h-44 w-44 rounded-full bg-cyan-400/10 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-24 -left-16 h-44 w-44 rounded-full bg-amber-400/10 blur-3xl" />
@@ -361,7 +349,7 @@ const AuthPage = () => {
               </h1>
             </div>
 
-            <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
+            <form className="mt-7 space-y-[18px]" onSubmit={handleSubmit}>
               {successMessage ? (
                 <div className="flex items-start gap-3 rounded-[10px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
@@ -472,7 +460,7 @@ const AuthPage = () => {
               ) : null}
 
               <Button
-                className="group mt-1 h-[46px] w-full rounded-[10px] border border-sky-300/20 bg-[linear-gradient(90deg,#2563EB_0%,#0EA5E9_100%)] text-sm font-bold text-white shadow-[0_20px_45px_-16px_rgba(14,165,233,0.6)] transition-all duration-200 hover:scale-[1.01] hover:shadow-[0_24px_54px_-14px_rgba(14,165,233,0.72)]"
+                className="group mt-2 h-[48px] w-full rounded-xl border border-cyan-200/24 bg-[linear-gradient(100deg,#2563EB_0%,#0891B2_52%,#F97316_150%)] text-sm font-bold text-white shadow-[0_20px_45px_-16px_rgba(14,165,233,0.68)] transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:border-cyan-100/36 hover:shadow-[0_26px_58px_-14px_rgba(14,165,233,0.78)] active:translate-y-0 active:scale-[0.99]"
                 disabled={authMutation.isPending}
                 type="submit"
               >
