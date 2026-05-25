@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Bell,
   Bug,
   CalendarDays,
   CheckCircle2,
@@ -11,7 +10,6 @@ import {
   Plus,
   RefreshCcw,
   Search,
-  Settings2,
   TimerReset,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -36,10 +34,9 @@ import {
 } from "@/lib/issues";
 import { getProjectTeams, resolveUserId } from "@/lib/project-teams";
 import { ROLE_TESTER } from "@/lib/roles";
-import { cn, formatDate, formatDateTime, getInitials } from "@/lib/utils";
+import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import EmptyState from "@/components/shared/EmptyState";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -91,6 +88,32 @@ const STATUS_CHART_META = [
     label: "Deferred",
     color: "#14b8a6",
     gradient: "from-cyan-500 to-teal-500",
+  },
+];
+
+const PROJECT_CHIP_ACCENTS = [
+  {
+    dot: "bg-blue-500",
+    className: "border-blue-200/70 bg-blue-50/82 text-blue-700 hover:bg-blue-100/82",
+  },
+  {
+    dot: "bg-emerald-500",
+    className:
+      "border-emerald-200/70 bg-emerald-50/82 text-emerald-700 hover:bg-emerald-100/82",
+  },
+  {
+    dot: "bg-violet-500",
+    className:
+      "border-violet-200/70 bg-violet-50/82 text-violet-700 hover:bg-violet-100/82",
+  },
+  {
+    dot: "bg-amber-500",
+    className:
+      "border-amber-200/70 bg-amber-50/82 text-amber-700 hover:bg-amber-100/82",
+  },
+  {
+    dot: "bg-cyan-500",
+    className: "border-cyan-200/70 bg-cyan-50/82 text-cyan-700 hover:bg-cyan-100/82",
   },
 ];
 
@@ -229,6 +252,34 @@ const DashboardIconButton = ({ children, className, ...props }) => (
   >
     {children}
   </Button>
+);
+
+const AttachedProjectsTile = ({ projects = [] }) => (
+  <div className="flex min-h-11 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-2xl border border-white/70 bg-white/78 px-3 shadow-sm backdrop-blur-xl max-sm:w-full max-sm:flex-wrap sm:h-11">
+    <span className="shrink-0 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+      Attached Projects :
+    </span>
+
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 overflow-x-auto py-1 sm:flex-nowrap">
+      {projects.map((project, index) => {
+        const accent = PROJECT_CHIP_ACCENTS[index % PROJECT_CHIP_ACCENTS.length];
+
+        return (
+          <span
+            className={cn(
+              "inline-flex h-7 max-w-[150px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_-18px_rgba(15,23,42,0.42)]",
+              accent.className
+            )}
+            key={project._id}
+            title={project.name}
+          >
+            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", accent.dot)} />
+            <span className="truncate">{project.name || "Project"}</span>
+          </span>
+        );
+      })}
+    </div>
+  </div>
 );
 
 const SummaryCard = ({ Icon, className, label, value }) => (
@@ -535,55 +586,28 @@ const TesterDashboardPage = () => {
 
   return (
     <div className="space-y-5">
-      <section className="flex flex-wrap items-center justify-between gap-4 rounded-[28px] border border-white/70 bg-white/82 p-3 shadow-[0_22px_58px_-38px_rgba(15,23,42,0.36)] backdrop-blur-xl lg:flex-nowrap">
-        <div className="flex min-w-0 items-center gap-3 max-sm:w-full max-sm:flex-wrap sm:gap-4 lg:flex-nowrap">
-          <div className="relative w-full min-w-0 shrink-0 sm:w-[380px] lg:w-[420px] xl:w-[460px]">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              aria-label="Search bugs"
-              className="h-11 rounded-2xl border-slate-200/90 bg-white/86 pl-10 shadow-sm"
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search bugs"
-              value={searchTerm}
-            />
-          </div>
-
-          <Button
-            className="interactive-button h-11 w-full shrink-0 rounded-2xl border border-indigo-300/30 bg-[linear-gradient(90deg,#2563EB_0%,#6366F1_55%,#8B5CF6_100%)] px-4 text-white shadow-[0_14px_28px_-18px_rgba(99,102,241,0.82)] hover:brightness-105 sm:w-auto sm:px-5"
-            onClick={() => navigate("/bugs")}
-            type="button"
-          >
-            <Plus className="h-4 w-4" />
-            New Bug
-          </Button>
+      <section className="flex flex-wrap items-center gap-3 rounded-[28px] border border-white/70 bg-white/82 p-3 shadow-[0_22px_58px_-38px_rgba(15,23,42,0.36)] backdrop-blur-xl lg:flex-nowrap">
+        <div className="relative w-full min-w-0 shrink-0 sm:flex-1 lg:w-[420px] lg:flex-none xl:w-[460px]">
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            aria-label="Search bugs"
+            className="h-11 rounded-2xl border-slate-200/90 bg-white/86 pl-10 shadow-sm"
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search bugs"
+            value={searchTerm}
+          />
         </div>
 
-        <div className="ml-0 flex w-full shrink-0 items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:justify-end">
-          <DashboardIconButton aria-label="Notifications">
-            <Bell className="h-4 w-4" />
-          </DashboardIconButton>
-          <DashboardIconButton
-            aria-label="Settings"
-            onClick={() => navigate("/dev/settings")}
-          >
-            <Settings2 className="h-4 w-4" />
-          </DashboardIconButton>
-          <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/78 px-3 py-2 shadow-sm">
-            <Avatar className="h-9 w-9 rounded-xl">
-              <AvatarFallback className="rounded-xl">
-                {getInitials(user?.name)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="hidden min-w-0 sm:block">
-              <p className="truncate text-sm font-semibold text-slate-950">
-                {user?.name || "Tester"}
-              </p>
-              <p className="truncate text-xs text-slate-500">
-                {user?.email || "tester workspace"}
-              </p>
-            </div>
-          </div>
-        </div>
+        <Button
+          className="interactive-button h-11 w-full shrink-0 rounded-2xl border border-indigo-300/30 bg-[linear-gradient(90deg,#2563EB_0%,#6366F1_55%,#8B5CF6_100%)] px-4 text-white shadow-[0_14px_28px_-18px_rgba(99,102,241,0.82)] hover:brightness-105 sm:w-auto sm:px-5"
+          onClick={() => navigate("/bugs")}
+          type="button"
+        >
+          <Plus className="h-4 w-4" />
+          New Bug
+        </Button>
+
+        <AttachedProjectsTile projects={assignedProjects} />
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
