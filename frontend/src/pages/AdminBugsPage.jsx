@@ -1,5 +1,6 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   Bug,
@@ -59,6 +60,49 @@ const BUG_STATUS_FILTERS = [
   { value: ISSUE_STATUS.CLOSED, label: "Closed" },
   { value: ISSUE_STATUS.REJECTED, label: "Rejected" },
 ];
+
+const normalizeStatusQueryValue = (value) => {
+  const normalizedValue = String(value || "").trim().toLowerCase();
+
+  if (!normalizedValue || normalizedValue === "all") {
+    return { status: "all", lifecycle: "all" };
+  }
+
+  if (normalizedValue === "open") {
+    return { status: "all", lifecycle: "open" };
+  }
+
+  if (normalizedValue === "resolved") {
+    return { status: "all", lifecycle: "resolved" };
+  }
+
+  if (normalizedValue === "closed") {
+    return { status: ISSUE_STATUS.CLOSED, lifecycle: "all" };
+  }
+
+  const status = Object.values(ISSUE_STATUS).find(
+    (item) => item.toLowerCase() === normalizedValue
+  );
+
+  return { status: status || "all", lifecycle: "all" };
+};
+
+const normalizePriorityQueryValue = (value) => {
+  const normalizedValue = String(value || "").trim().toLowerCase();
+  const priority = ["Critical", "High", "Medium", "Low"].find(
+    (item) => item.toLowerCase() === normalizedValue
+  );
+
+  return priority || "all";
+};
+
+const normalizeLifecycleQueryValue = (value) => {
+  const normalizedValue = String(value || "").trim().toLowerCase();
+
+  return ["open", "reopened", "fixed", "resolved"].includes(normalizedValue)
+    ? normalizedValue
+    : "all";
+};
 
 const getNestedUser = (value) => (value && typeof value === "object" ? value : null);
 const getReporter = (issue) => getNestedUser(issue?.reporter);
@@ -212,21 +256,27 @@ const DistributionPanel = ({ title, rows }) => {
 
 const AdminBugsPage = () => {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchParamString = searchParams.toString();
+  const initialStatusQuery = normalizeStatusQueryValue(searchParams.get("status"));
   const [selectedBug, setSelectedBug] = useState(null);
   const [filters, setFilters] = useState({
-    projectId: ALL_PROJECTS_VALUE,
+    projectId: searchParams.get("projectId") || ALL_PROJECTS_VALUE,
     teamId: "all",
     testerId: "all",
     developerId: "all",
     severity: "all",
-    priority: "all",
-    status: "all",
+    priority: normalizePriorityQueryValue(searchParams.get("priority")),
+    status: initialStatusQuery.status,
     sprintId: "all",
     epicId: "all",
-    lifecycle: "all",
-    dateFrom: "",
-    dateTo: "",
-    search: "",
+    lifecycle:
+      normalizeLifecycleQueryValue(searchParams.get("lifecycle")) !== "all"
+        ? normalizeLifecycleQueryValue(searchParams.get("lifecycle"))
+        : initialStatusQuery.lifecycle,
+    dateFrom: searchParams.get("dateFrom") || "",
+    dateTo: searchParams.get("dateTo") || "",
+    search: searchParams.get("search") || "",
   });
   const deferredSearch = useDeferredValue(filters.search);
 
@@ -306,6 +356,73 @@ const AdminBugsPage = () => {
   });
 
   const bugs = useMemo(() => (Array.isArray(bugsData) ? bugsData : []), [bugsData]);
+
+  useEffect(() => {
+    if (!projects.length) {
+      return;
+    }
+
+    const currentParams = new URLSearchParams(searchParamString);
+    const requestedProjectId = currentParams.get("projectId");
+    const requestedProjectName = currentParams.get("project");
+    const matchedProjectByName = requestedProjectName
+      ? projects.find(
+          (project) =>
+            String(project.name || "").trim().toLowerCase() ===
+            requestedProjectName.trim().toLowerCase()
+        )
+      : null;
+    const nextProjectId =
+      requestedProjectId ||
+      matchedProjectByName?._id ||
+      (requestedProjectName ? ALL_PROJECTS_VALUE : filters.projectId);
+    const statusQuery = normalizeStatusQueryValue(currentParams.get("status"));
+    const lifecycleQuery = normalizeLifecycleQueryValue(currentParams.get("lifecycle"));
+    const nextLifecycle =
+      lifecycleQuery !== "all" ? lifecycleQuery : statusQuery.lifecycle || "all";
+
+    setFilters((current) => {
+      const nextFilters = {
+        ...current,
+        projectId: nextProjectId,
+        priority: normalizePriorityQueryValue(currentParams.get("priority")),
+        status: statusQuery.status,
+        lifecycle: nextLifecycle,
+        dateFrom: currentParams.get("dateFrom") || "",
+        dateTo: currentParams.get("dateTo") || "",
+        search: currentParams.get("search") || "",
+        teamId: nextProjectId !== current.projectId ? "all" : current.teamId,
+        testerId: nextProjectId !== current.projectId ? "all" : current.testerId,
+        developerId: nextProjectId !== current.projectId ? "all" : current.developerId,
+        epicId: nextProjectId !== current.projectId ? "all" : current.epicId,
+        sprintId: nextProjectId !== current.projectId ? "all" : current.sprintId,
+      };
+
+      return Object.entries(nextFilters).every(([key, value]) => current[key] === value)
+        ? current
+        : nextFilters;
+    });
+  }, [filters.projectId, projects, searchParamString]);
+
+  useEffect(() => {
+    const bugParam = new URLSearchParams(searchParamString).get("bug");
+
+    if (!bugParam || isBugsLoading) {
+      return;
+    }
+
+    const routedBug = bugs.find(
+      (bugIssue) =>
+        String(bugIssue._id) === String(bugParam) ||
+        getIssueDisplayKey(bugIssue).toLowerCase() ===
+          String(bugParam).trim().toLowerCase()
+    );
+
+    if (routedBug && String(selectedBug?._id || "") !== String(routedBug._id)) {
+      setSelectedBug(routedBug);
+    }
+  }, [bugs, isBugsLoading, searchParamString, selectedBug?._id]);
+
   const filteredBugs = useMemo(() => {
     const searchTerm = deferredSearch.trim().toLowerCase();
 
@@ -330,7 +447,20 @@ const AdminBugsPage = () => {
         return false;
       }
 
+      if (filters.lifecycle === "open" && isClosedBug(bugIssue)) {
+        return false;
+      }
+
       if (filters.lifecycle === "fixed" && !isReadyForQa(bugIssue)) {
+        return false;
+      }
+
+      if (
+        filters.lifecycle === "resolved" &&
+        ![ISSUE_STATUS.FIXED, ISSUE_STATUS.QA, ISSUE_STATUS.CLOSED].includes(
+          normalizeBugStatusForIssue(bugIssue)
+        )
+      ) {
         return false;
       }
 
@@ -742,6 +872,12 @@ const AdminBugsPage = () => {
         onOpenChange={(open) => {
           if (!open) {
             setSelectedBug(null);
+
+            if (searchParams.get("bug")) {
+              const nextParams = new URLSearchParams(searchParams);
+              nextParams.delete("bug");
+              setSearchParams(nextParams, { replace: true });
+            }
           }
         }}
         onUpdateIssue={(id, payload) =>

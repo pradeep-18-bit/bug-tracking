@@ -1,19 +1,24 @@
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
   BarChart3,
+  Bug,
   CheckCircle2,
   FolderKanban,
   Layers3,
   Plus,
+  RefreshCcw,
   Rocket,
   ShieldCheck,
   Sparkles,
+  TimerReset,
   Users2,
   Zap,
 } from "lucide-react";
+import { fetchBugs } from "@/lib/api";
 import useAnalytics from "@/hooks/use-analytics";
 import {
   ANALYTICS_PANEL_CLASS,
@@ -29,6 +34,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  ISSUE_STATUS,
+  getIssueDisplayKey,
+  getIssuePriorityVariant,
+  getIssueStatusLabel,
+  getIssueStatusVariant,
+  normalizeBugStatusForIssue,
+  resolveBugDetails,
+  resolveIssueProjectId,
+} from "@/lib/issues";
 import { cn, formatDateTime, getInitials } from "@/lib/utils";
 
 const statusTone = {
@@ -62,6 +77,71 @@ const activityTone = {
   critical: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
+const BUG_PRIORITY_META = [
+  { key: "Low", className: "bg-emerald-500", tone: "text-emerald-700" },
+  { key: "Medium", className: "bg-amber-500", tone: "text-amber-700" },
+  { key: "High", className: "bg-orange-500", tone: "text-orange-700" },
+  { key: "Critical", className: "bg-rose-500", tone: "text-rose-700" },
+];
+
+const BUG_RESOLVED_STATUSES = [
+  ISSUE_STATUS.FIXED,
+  ISSUE_STATUS.QA,
+  ISSUE_STATUS.CLOSED,
+];
+
+const BUG_CLOSED_STATUSES = [
+  ISSUE_STATUS.CLOSED,
+  ISSUE_STATUS.REJECTED,
+  ISSUE_STATUS.DEFERRED,
+];
+
+const getBugProjectName = (bug) => bug?.projectId?.name || "Unknown project";
+const getBugAssigneeName = (bug) => {
+  const developer = resolveBugDetails(bug)?.developerLead || bug?.assignee;
+
+  return developer?.name || developer?.email || "Unassigned";
+};
+const getBugSeverity = (bug) => resolveBugDetails(bug)?.severity || "";
+const isCriticalBug = (bug) =>
+  bug?.priority === "Critical" || ["Blocker", "Critical"].includes(getBugSeverity(bug));
+const isOpenBug = (bug) => !BUG_CLOSED_STATUSES.includes(normalizeBugStatusForIssue(bug));
+const isResolvedBug = (bug) =>
+  BUG_RESOLVED_STATUSES.includes(normalizeBugStatusForIssue(bug));
+const isReopenedBug = (bug) =>
+  normalizeBugStatusForIssue(bug) === ISSUE_STATUS.REOPEN ||
+  Boolean(resolveBugDetails(bug)?.reopenReason);
+
+const startOfDay = (date) => {
+  const value = new Date(date);
+  value.setHours(0, 0, 0, 0);
+  return value;
+};
+
+const startOfWeek = (date) => {
+  const value = startOfDay(date);
+  const day = value.getDay();
+  const diff = value.getDate() - day + (day === 0 ? -6 : 1);
+  value.setDate(diff);
+  return value;
+};
+
+const countBetween = (items, getDate, from, to = new Date()) =>
+  items.filter((item) => {
+    const time = new Date(getDate(item) || 0).getTime();
+
+    return time >= from.getTime() && time < to.getTime();
+  }).length;
+
+const buildTrend = (current, previous, suffix = "vs last week") => {
+  const delta = current - previous;
+
+  return {
+    direction: delta > 0 ? "up" : delta < 0 ? "down" : "flat",
+    label: `${delta > 0 ? "+" : ""}${delta} ${suffix}`,
+  };
+};
+
 const QuickActionButton = ({ icon: Icon, title, helper, className, onClick }) => (
   <button
     type="button"
@@ -79,6 +159,131 @@ const QuickActionButton = ({ icon: Icon, title, helper, className, onClick }) =>
       <span className="mt-1 block truncate text-xs opacity-75">{helper}</span>
     </span>
   </button>
+);
+
+const ProjectBugCard = ({ project, onOpen }) => (
+  <button
+    type="button"
+    onClick={() => onOpen(project)}
+    className={cn(
+      ANALYTICS_SUBPANEL_CLASS,
+      "block w-full px-4 py-3 text-left hover:border-rose-200/80"
+    )}
+  >
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+          {project.name}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          Open: {project.open} | Closed: {project.closed} | Critical: {project.critical}
+        </p>
+      </div>
+      <Badge className="shrink-0 border-rose-200 bg-rose-50 text-rose-700">
+        {project.total} Bugs
+      </Badge>
+    </div>
+    <div className="mt-3 space-y-1.5">
+      <div className="flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-500">
+        <span>Resolution rate</span>
+        <span>{project.resolutionRate}%</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-800">
+        <div
+          className="h-full rounded-full bg-[linear-gradient(90deg,#fb7185,#f97316,#22c55e)] transition-all duration-500"
+          style={{ width: `${Math.max(project.resolutionRate, project.total ? 5 : 0)}%` }}
+        />
+      </div>
+    </div>
+  </button>
+);
+
+const PriorityDistribution = ({ rows, total }) => (
+  <AnalyticsPanel
+    title="Bug Priority Distribution"
+    description="Live severity pressure across all tracked bug records."
+  >
+    {total ? (
+      <div className="space-y-4">
+        {rows.map((row) => (
+          <div className="space-y-2" key={row.key}>
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className={cn("font-semibold", row.tone)}>{row.key}</span>
+              <span className="font-semibold text-slate-600 dark:text-slate-300">
+                {row.count}
+              </span>
+            </div>
+            <div className="h-2.5 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
+              <div
+                className={cn("h-full rounded-full transition-all duration-500", row.className)}
+                style={{ width: `${Math.max(row.percentage, row.count ? 6 : 0)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <AnalyticsEmptyState
+        icon={Bug}
+        title="No bug priorities yet"
+        description="Priority distribution appears once bugs are reported."
+      />
+    )}
+  </AnalyticsPanel>
+);
+
+const RecentCriticalBugs = ({ bugs, onOpen }) => (
+  <AnalyticsPanel
+    title="Recent Critical Bugs"
+    description="Latest high-risk bug records that need operational attention."
+  >
+    {bugs.length ? (
+      <div className="space-y-3">
+        {bugs.map((bug) => {
+          const status = normalizeBugStatusForIssue(bug);
+
+          return (
+            <button
+              key={bug._id}
+              type="button"
+              onClick={() => onOpen(bug)}
+              className={cn(
+                ANALYTICS_SUBPANEL_CLASS,
+                "grid w-full gap-3 px-4 py-3 text-left lg:grid-cols-[110px_minmax(0,1fr)_120px_130px_110px] lg:items-center"
+              )}
+            >
+              <span className="font-mono text-xs font-semibold text-slate-500">
+                {getIssueDisplayKey(bug)}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+                  {getBugProjectName(bug)}
+                </span>
+                <span className="mt-0.5 block truncate text-xs text-slate-500">
+                  {bug.title || "Untitled bug"}
+                </span>
+              </span>
+              <Badge variant={getIssuePriorityVariant(bug.priority)}>
+                {bug.priority || "Medium"}
+              </Badge>
+              <span className="truncate text-sm text-slate-600 dark:text-slate-300">
+                {getBugAssigneeName(bug)}
+              </span>
+              <Badge variant={getIssueStatusVariant(status)}>
+                {getIssueStatusLabel(status)}
+              </Badge>
+            </button>
+          );
+        })}
+      </div>
+    ) : (
+      <AnalyticsEmptyState
+        icon={AlertTriangle}
+        title="No critical bugs right now"
+        description="Critical bug alerts appear here as soon as high-risk bugs are logged."
+      />
+    )}
+  </AnalyticsPanel>
 );
 
 const ActiveProjectCard = ({ project, onOpen }) => {
@@ -175,6 +380,15 @@ const DashboardLoading = () => (
 const DashboardPage = () => {
   const navigate = useNavigate();
   const analytics = useAnalytics();
+  const {
+    data: bugsData = [],
+    isLoading: isBugsLoading,
+    error: bugsError,
+  } = useQuery({
+    queryKey: ["bugs", "admin-dashboard-overview"],
+    queryFn: () => fetchBugs({ sortBy: "recently-updated" }),
+  });
+  const bugs = useMemo(() => (Array.isArray(bugsData) ? bugsData : []), [bugsData]);
   const summary = analytics.overview?.summary || {};
   const trends = analytics.overview?.trends || {};
   const statusRows = useMemo(
@@ -188,6 +402,14 @@ const DashboardPage = () => {
   const activeProjects = projects;
   const highestWorkloadTeam = teams[0] || null;
   const maxStatusCount = Math.max(...statusRows.map((row) => row.count), 0);
+  const now = useMemo(() => new Date(), []);
+  const weekStart = useMemo(() => startOfWeek(now), [now]);
+  const previousWeekStart = useMemo(() => {
+    const value = new Date(weekStart);
+    value.setDate(value.getDate() - 7);
+    return value;
+  }, [weekStart]);
+  const todayStart = useMemo(() => startOfDay(now), [now]);
   const navigateToIssues = (params = {}) => {
     const searchParams = new URLSearchParams();
 
@@ -199,6 +421,173 @@ const DashboardPage = () => {
 
     navigate(`/issues${searchParams.toString() ? `?${searchParams}` : ""}`);
   };
+  const navigateToBugs = (params = {}) => {
+    const searchParams = new URLSearchParams();
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value && value !== "all") {
+        searchParams.set(key, value);
+      }
+    });
+
+    navigate(`/admin/bugs${searchParams.toString() ? `?${searchParams}` : ""}`);
+  };
+  const bugMetrics = useMemo(() => {
+    const openBugs = bugs.filter(isOpenBug);
+    const criticalBugs = bugs.filter(isCriticalBug);
+    const resolvedBugs = bugs.filter(isResolvedBug);
+    const reopenedBugs = bugs.filter(isReopenedBug);
+    const thisWeek = countBetween(bugs, (bug) => bug.createdAt, weekStart);
+    const previousWeek = countBetween(bugs, (bug) => bug.createdAt, previousWeekStart, weekStart);
+    const resolvedThisWeek = countBetween(
+      resolvedBugs,
+      (bug) => bug.updatedAt || bug.createdAt,
+      weekStart
+    );
+    const resolvedLastWeek = countBetween(
+      resolvedBugs,
+      (bug) => bug.updatedAt || bug.createdAt,
+      previousWeekStart,
+      weekStart
+    );
+    const resolvedToday = countBetween(
+      resolvedBugs,
+      (bug) => bug.updatedAt || bug.createdAt,
+      todayStart
+    );
+
+    return {
+      total: bugs.length,
+      open: openBugs.length,
+      critical: criticalBugs.length,
+      resolved: resolvedBugs.length,
+      reopened: reopenedBugs.length,
+      thisWeek,
+      previousWeek,
+      resolvedThisWeek,
+      resolvedLastWeek,
+      resolvedToday,
+    };
+  }, [bugs, previousWeekStart, todayStart, weekStart]);
+  const bugProjectRows = useMemo(() => {
+    const rowsByProject = new Map();
+
+    bugs.forEach((bug) => {
+      const projectId = resolveIssueProjectId(bug) || getBugProjectName(bug);
+      const row = rowsByProject.get(projectId) || {
+        projectId,
+        name: getBugProjectName(bug),
+        total: 0,
+        open: 0,
+        closed: 0,
+        critical: 0,
+      };
+
+      row.total += 1;
+      row.open += isOpenBug(bug) ? 1 : 0;
+      row.closed += BUG_CLOSED_STATUSES.includes(normalizeBugStatusForIssue(bug)) ? 1 : 0;
+      row.critical += isCriticalBug(bug) ? 1 : 0;
+      row.resolutionRate = row.total ? Math.round((row.closed / row.total) * 100) : 0;
+      rowsByProject.set(projectId, row);
+    });
+
+    return Array.from(rowsByProject.values())
+      .sort((left, right) => right.total - left.total)
+      .slice(0, 6);
+  }, [bugs]);
+  const priorityRows = useMemo(
+    () =>
+      BUG_PRIORITY_META.map((item) => {
+        const count = bugs.filter((bug) => (bug.priority || "Medium") === item.key).length;
+
+        return {
+          ...item,
+          count,
+          percentage: bugMetrics.total ? Math.round((count / bugMetrics.total) * 100) : 0,
+        };
+      }),
+    [bugMetrics.total, bugs]
+  );
+  const recentCriticalBugs = useMemo(
+    () =>
+      bugs
+        .filter(isCriticalBug)
+        .sort(
+          (left, right) =>
+            new Date(right.updatedAt || right.createdAt || 0).getTime() -
+            new Date(left.updatedAt || left.createdAt || 0).getTime()
+        )
+        .slice(0, 6),
+    [bugs]
+  );
+  const bugKpiCards = [
+    {
+      key: "total-bugs",
+      title: "Total Bugs",
+      value: formatCompactNumber(bugMetrics.total),
+      helper: "All bug records",
+      icon: Bug,
+      tone: "blue",
+      trend: buildTrend(bugMetrics.thisWeek, bugMetrics.previousWeek),
+      onClick: () => navigateToBugs(),
+    },
+    {
+      key: "open-bugs",
+      title: "Open Bugs",
+      value: formatCompactNumber(bugMetrics.open),
+      helper: "Needs action",
+      icon: TimerReset,
+      tone: "amber",
+      trend: { direction: bugMetrics.open ? "up" : "flat", label: `${bugMetrics.open} active` },
+      onClick: () => navigateToBugs({ status: "open" }),
+    },
+    {
+      key: "critical-bugs",
+      title: "Critical Bugs",
+      value: formatCompactNumber(bugMetrics.critical),
+      helper: "High risk",
+      icon: AlertTriangle,
+      tone: "rose",
+      trend: {
+        direction: bugMetrics.critical ? "up" : "flat",
+        label: `${bugMetrics.critical} urgent`,
+      },
+      onClick: () => navigateToBugs({ priority: "Critical" }),
+    },
+    {
+      key: "resolved-bugs",
+      title: "Resolved Bugs",
+      value: formatCompactNumber(bugMetrics.resolved),
+      helper: "Fixed / closed",
+      icon: CheckCircle2,
+      tone: "emerald",
+      trend: buildTrend(bugMetrics.resolvedThisWeek, bugMetrics.resolvedLastWeek, "resolved this week"),
+      onClick: () => navigateToBugs({ status: "resolved" }),
+    },
+    {
+      key: "reopened-bugs",
+      title: "Reopened Bugs",
+      value: formatCompactNumber(bugMetrics.reopened),
+      helper: "Needs review",
+      icon: RefreshCcw,
+      tone: "violet",
+      trend: { direction: bugMetrics.reopened ? "up" : "flat", label: `${bugMetrics.reopened} reopened` },
+      onClick: () => navigateToBugs({ lifecycle: "reopened" }),
+    },
+    {
+      key: "bugs-this-week",
+      title: "Bugs This Week",
+      value: formatCompactNumber(bugMetrics.thisWeek),
+      helper: "New reports",
+      icon: Activity,
+      tone: "cyan",
+      trend: {
+        direction: bugMetrics.resolvedToday ? "down" : "flat",
+        label: `${bugMetrics.resolvedToday} resolved today`,
+      },
+      onClick: () => navigateToBugs({ dateFrom: weekStart.toISOString().slice(0, 10) }),
+    },
+  ];
   const kpiCards = [
     {
       key: "total",
@@ -359,6 +748,99 @@ const DashboardPage = () => {
             onClick={card.onClick}
           />
         ))}
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-100">
+              Bug Management Overview
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Live bug analytics, project risk, and critical bug navigation.
+            </p>
+          </div>
+          <Badge className="w-fit border-white/60 bg-white/72 text-slate-600">
+            {isBugsLoading ? "Syncing bugs" : `${bugMetrics.total} tracked bugs`}
+          </Badge>
+        </div>
+
+        {bugsError ? (
+          <Card className={ANALYTICS_PANEL_CLASS}>
+            <CardContent className="p-6 text-sm text-rose-700">
+              {bugsError.response?.data?.message || "Unable to load bug analytics."}
+            </CardContent>
+          </Card>
+        ) : isBugsLoading ? (
+          <AnalyticsSkeletonGrid />
+        ) : (
+          <>
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+              {bugKpiCards.map((card) => (
+                <AnalyticsKpiCard
+                  key={card.key}
+                  title={card.title}
+                  value={card.value}
+                  icon={card.icon}
+                  tone={card.tone}
+                  helper={card.helper}
+                  trend={card.trend}
+                  onClick={card.onClick}
+                />
+              ))}
+            </section>
+
+            <section className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+              <AnalyticsPanel
+                title="Project-wise Bug Overview"
+                description="Projects ranked by live bug volume with resolution progress."
+                action={
+                  bugProjectRows.length ? (
+                    <Badge className="border-white/60 bg-white/72 text-slate-600">
+                      {bugProjectRows.length} projects
+                    </Badge>
+                  ) : null
+                }
+              >
+                {bugProjectRows.length ? (
+                  <div className="dashboard-scrollbar dashboard-scroll-fade max-h-[430px] space-y-3 overflow-y-auto pr-2">
+                    {bugProjectRows.map((project) => (
+                      <ProjectBugCard
+                        key={project.projectId}
+                        project={project}
+                        onOpen={(selectedProject) =>
+                          navigateToBugs({
+                            projectId:
+                              selectedProject.projectId === selectedProject.name
+                                ? ""
+                                : selectedProject.projectId,
+                            project:
+                              selectedProject.projectId === selectedProject.name
+                                ? selectedProject.name
+                                : "",
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <AnalyticsEmptyState
+                    icon={FolderKanban}
+                    title="No project bug data yet"
+                    description="Project bug insights appear once bugs are linked to projects."
+                  />
+                )}
+              </AnalyticsPanel>
+
+              <PriorityDistribution rows={priorityRows} total={bugMetrics.total} />
+            </section>
+
+            <RecentCriticalBugs
+              bugs={recentCriticalBugs}
+              onOpen={(bug) => navigateToBugs({ bug: bug._id })}
+            />
+          </>
+        )}
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
