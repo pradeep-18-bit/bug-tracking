@@ -1,5 +1,25 @@
 const { ISSUE_STATUS, normalizeIssueStatus } = require("./issueStatus");
 
+const OPEN_STATUSES = Object.freeze([
+  "Todo",
+  "In Progress",
+  "Pending",
+  "Reopened",
+]);
+
+const CLOSED_STATUSES = Object.freeze([
+  "Done",
+  "Closed",
+  "Resolved",
+]);
+
+const OPEN_STATUS_VALUES = Object.freeze([
+  ISSUE_STATUS.TODO,
+  ISSUE_STATUS.IN_PROGRESS,
+  "PENDING",
+  ISSUE_STATUS.REOPEN,
+]);
+
 const COMPLETED_STATUS_VALUES = Object.freeze([
   ISSUE_STATUS.DONE,
   ISSUE_STATUS.CLOSED,
@@ -20,7 +40,8 @@ const CRITICAL_SEVERITY_VALUES = Object.freeze(["Critical"]);
 const isClosedStatus = (status) =>
   COMPLETED_STATUS_VALUES.includes(normalizeIssueStatus(status, ""));
 
-const isOpenStatus = (status) => !isClosedStatus(status);
+const isOpenStatus = (status) =>
+  OPEN_STATUS_VALUES.includes(normalizeIssueStatus(status, ""));
 
 const isReopenedStatus = (status) =>
   normalizeIssueStatus(status, "") === ISSUE_STATUS.REOPEN;
@@ -57,7 +78,13 @@ const getFilterAlias = (value = "") => {
 
 const buildOpenIssueCondition = () => ({
   status: {
-    $nin: COMPLETED_STATUS_QUERY_VALUES,
+    $in: [
+      ISSUE_STATUS.TODO,
+      ISSUE_STATUS.IN_PROGRESS,
+      ISSUE_STATUS.REOPEN,
+      "PENDING",
+      ...OPEN_STATUSES,
+    ],
   },
 });
 
@@ -95,7 +122,10 @@ const buildCriticalIssueCondition = () => ({
 module.exports = {
   COMPLETED_STATUS_QUERY_VALUES,
   COMPLETED_STATUS_VALUES,
+  CLOSED_STATUSES,
   HIGH_PRIORITY_VALUES,
+  OPEN_STATUSES,
+  OPEN_STATUS_VALUES,
   buildClosedIssueCondition,
   buildCriticalIssueCondition,
   buildHighPriorityIssueCondition,

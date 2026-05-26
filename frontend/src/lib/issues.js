@@ -59,6 +59,23 @@ export const BUG_TERMINAL_STATUSES = [
   ISSUE_STATUS.DEFERRED,
 ];
 export const BUG_LIFECYCLE_STATUSES = BUG_STATUS_OPTIONS.map((option) => option.value);
+export const OPEN_STATUSES = Object.freeze([
+  "Todo",
+  "In Progress",
+  "Pending",
+  "Reopened",
+]);
+export const CLOSED_STATUSES = Object.freeze([
+  "Done",
+  "Closed",
+  "Resolved",
+]);
+export const ISSUE_OPEN_STATUSES = Object.freeze([
+  ISSUE_STATUS.TODO,
+  ISSUE_STATUS.IN_PROGRESS,
+  "PENDING",
+  ISSUE_STATUS.REOPEN,
+]);
 export const ISSUE_COMPLETED_STATUSES = Object.freeze([
   ISSUE_STATUS.CLOSED,
   ISSUE_STATUS.RESOLVED,
@@ -189,6 +206,10 @@ export const normalizeIssueStatus = (value, fallback = ISSUE_STATUS.TODO) => {
     return ISSUE_STATUS.RESOLVED;
   }
 
+  if (normalizedValue === "PENDING") {
+    return "PENDING";
+  }
+
   return Object.values(ISSUE_STATUS).includes(normalizedValue)
     ? normalizedValue
     : fallback;
@@ -244,7 +265,12 @@ export const isIssueClosed = (issueOrStatus) => {
   return ISSUE_COMPLETED_STATUSES.includes(normalizeIssueStatus(status, ""));
 };
 
-export const isIssueOpen = (issueOrStatus) => !isIssueClosed(issueOrStatus);
+export const isIssueOpen = (issueOrStatus) => {
+  const status =
+    typeof issueOrStatus === "object" ? issueOrStatus?.status : issueOrStatus;
+
+  return ISSUE_OPEN_STATUSES.includes(normalizeIssueStatus(status, ""));
+};
 
 export const isIssueReopened = (issueOrStatus) => {
   const status =

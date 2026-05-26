@@ -18,7 +18,7 @@ import {
   Users2,
   Zap,
 } from "lucide-react";
-import { fetchBugs, fetchIssueStats } from "@/lib/api";
+import { fetchBugs, fetchIssues } from "@/lib/api";
 import useAnalytics from "@/hooks/use-analytics";
 import {
   ANALYTICS_PANEL_CLASS,
@@ -38,10 +38,13 @@ import {
   ISSUE_STATUS,
   ISSUE_TYPES,
   getCriticalIssues,
+  getClosedIssues,
   getIssueDisplayKey,
   getIssuePriorityVariant,
   getIssueStatusLabel,
   getIssueStatusVariant,
+  getHighPriorityIssues,
+  getOpenIssues,
   getReopenedIssues,
   normalizeBugStatusForIssue,
   resolveBugDetails,
@@ -382,12 +385,12 @@ const DashboardPage = () => {
   const navigate = useNavigate();
   const analytics = useAnalytics();
   const {
-    data: issueStatsData = {},
-    isLoading: isIssueStatsLoading,
-    error: issueStatsError,
+    data: issuesData = [],
+    isLoading: isIssuesLoading,
+    error: issuesError,
   } = useQuery({
-    queryKey: ["issues", "stats", "admin-dashboard-overview", { excludeType: ISSUE_TYPES.BUG }],
-    queryFn: () => fetchIssueStats({ excludeType: ISSUE_TYPES.BUG }),
+    queryKey: ["issues", "admin-dashboard-overview", { excludeType: ISSUE_TYPES.BUG }],
+    queryFn: () => fetchIssues({ excludeType: ISSUE_TYPES.BUG }),
     staleTime: 0,
     refetchOnMount: "always",
   });
@@ -399,14 +402,20 @@ const DashboardPage = () => {
     queryKey: ["bugs", "admin-dashboard-overview"],
     queryFn: () => fetchBugs({ sortBy: "recently-updated" }),
   });
+  const issues = useMemo(
+    () => (Array.isArray(issuesData) ? issuesData : []),
+    [issuesData]
+  );
   const bugs = useMemo(() => (Array.isArray(bugsData) ? bugsData : []), [bugsData]);
   const summary = analytics.overview?.summary || {};
   const issueStats = {
-    total: Number(issueStatsData?.total || 0),
-    open: Number(issueStatsData?.open || 0),
-    closed: Number(issueStatsData?.closed || 0),
-    highPriority: Number(issueStatsData?.highPriority || 0),
+    total: issues.length,
+    open: getOpenIssues(issues).length,
+    closed: getClosedIssues(issues).length,
+    highPriority: getHighPriorityIssues(issues).length,
   };
+  console.log("Dashboard Open Count", issueStats.open);
+  console.log("Dashboard Closed Count", issueStats.closed);
   const trends = analytics.overview?.trends || {};
   const statusRows = useMemo(
     () =>
@@ -674,16 +683,16 @@ const DashboardPage = () => {
     },
   ];
 
-  if (analytics.isLoading || isIssueStatsLoading) {
+  if (analytics.isLoading || isIssuesLoading) {
     return <DashboardLoading />;
   }
 
-  if (analytics.error || issueStatsError) {
+  if (analytics.error || issuesError) {
     return (
       <Card className={ANALYTICS_PANEL_CLASS}>
         <CardContent className="p-6 text-sm text-rose-700">
           {analytics.error?.response?.data?.message ||
-            issueStatsError?.response?.data?.message ||
+            issuesError?.response?.data?.message ||
             "Unable to load dashboard analytics right now."}
         </CardContent>
       </Card>

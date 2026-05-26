@@ -16,8 +16,10 @@ import {
   ISSUE_TYPES,
   ISSUE_STATUS,
   filterIssues,
+  getClosedIssues,
   getIssueDisplayKey,
   getIssueStatusLabel,
+  getOpenIssues,
   normalizeIssueFilterAlias,
   sortIssues,
 } from "@/lib/issues";
@@ -505,7 +507,20 @@ const IssuesPage = () => {
     [issuesData]
   );
 
-  const filteredIssues = issues;
+  const filter = searchParams.get("filter") || "";
+  const filteredIssues = useMemo(() => {
+    if (filter === "open") {
+      return getOpenIssues(issues);
+    }
+
+    if (filter === "closed") {
+      return getClosedIssues(issues);
+    }
+
+    return issues;
+  }, [filter, issues]);
+  console.log("Issues Filter", filter);
+  console.log("Filtered Issues", filteredIssues);
 
   const activeStatusLabel = useMemo(() => {
     if (filters.statusGroup === "open") {
