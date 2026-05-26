@@ -62,7 +62,6 @@ const {
   BUG_SEVERITY_VALUES,
   BUG_STATUS,
   BUG_STATUS_VALUES,
-  BUG_TERMINAL_STATUS_VALUES,
   normalizeBugPriority,
   normalizeBugSeverity,
 } = require("../utils/bugLifecycle");
@@ -77,18 +76,22 @@ const isQaRole = (role) => role === ROLE_TESTER;
 const isDevRole = (role) => role === ROLE_DEVELOPER;
 const isLeadRole = (role) => [ROLE_ADMIN, ROLE_MANAGER].includes(role);
 const ISSUE_PRIORITY_VALUES = ["Critical", "High", "Medium", "Low"];
-const HIGH_PRIORITY_VALUES = ["Critical", "High"];
-const CRITICAL_SEVERITIES = ["Blocker", "Critical"];
-const CLOSED_FILTER_STATUSES = Array.from(
-  new Set([
-    ISSUE_STATUS.DONE,
-    ISSUE_STATUS.FIXED,
-    ...BUG_TERMINAL_STATUS_VALUES,
-  ])
-);
-const OPEN_FILTER_STATUSES = ISSUE_STATUS_VALUES.filter(
-  (status) => !CLOSED_FILTER_STATUSES.includes(status)
-);
+const COMPLETED_ISSUE_STATUSES = [
+  ISSUE_STATUS.CLOSED,
+  ISSUE_STATUS.DONE,
+  "RESOLVED",
+  "Closed",
+  "Done",
+  "Resolved",
+];
+const NORMALIZED_COMPLETED_ISSUE_STATUSES = [
+  ISSUE_STATUS.CLOSED,
+  ISSUE_STATUS.DONE,
+  "RESOLVED",
+];
+const HIGH_PRIORITY_VALUES = ["Critical", "High", "Urgent"];
+const STAT_HIGH_PRIORITY_VALUES = ["High", "Critical", "Urgent"];
+const CLOSED_FILTER_STATUSES = COMPLETED_ISSUE_STATUSES;
 const escapeRegExp = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -137,18 +140,9 @@ const addAndCondition = (query, condition) => {
 };
 
 const buildHighPriorityCondition = () => ({
-  $or: [
-    {
-      priority: {
-        $in: HIGH_PRIORITY_VALUES,
-      },
-    },
-    {
-      "bugDetails.severity": {
-        $in: CRITICAL_SEVERITIES,
-      },
-    },
-  ],
+  priority: {
+    $in: HIGH_PRIORITY_VALUES,
+  },
 });
 
 const getAccessibleProjectIds = async (user) => {
@@ -1274,7 +1268,7 @@ const buildIssueQueryFromRequest = async (
 
     if (statusGroup === "open") {
       query.status = {
-        $in: OPEN_FILTER_STATUSES,
+        $nin: CLOSED_FILTER_STATUSES,
       };
     } else if (statusGroup === "closed") {
       query.status = {
@@ -1512,6 +1506,41 @@ const getIssues = asyncHandler(async (req, res) => {
   const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
 
   res.status(200).json(serializeIssues(issues));
+});
+
+const getIssueStats = asyncHandler(async (req, res) => {
+  const query = await buildIssueQueryFromRequest(req, res);
+  const issues = await Issue.find(query)
+    .select("status priority")
+    .lean();
+
+  const stats = issues.reduce(
+    (summary, issue) => {
+      const status = normalizeIssueStatus(issue.status, "");
+
+      summary.total += 1;
+
+      if (NORMALIZED_COMPLETED_ISSUE_STATUSES.includes(status)) {
+        summary.closed += 1;
+      } else {
+        summary.open += 1;
+      }
+
+      if (STAT_HIGH_PRIORITY_VALUES.includes(issue.priority)) {
+        summary.highPriority += 1;
+      }
+
+      return summary;
+    },
+    {
+      total: 0,
+      open: 0,
+      closed: 0,
+      highPriority: 0,
+    }
+  );
+
+  res.status(200).json(stats);
 });
 
 const getMyIssues = asyncHandler(async (req, res) => {
@@ -2998,6 +3027,7 @@ const deleteIssue = asyncHandler(async (req, res) => {
 
 module.exports = {
   getIssues,
+  getIssueStats,
   getMyIssues,
   getRecentIssueActivity,
   getReports,

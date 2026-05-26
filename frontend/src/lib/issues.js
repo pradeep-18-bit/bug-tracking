@@ -10,6 +10,7 @@ export const ISSUE_STATUS = Object.freeze({
   ASSIGNED: "ASSIGNED",
   FIXED: "FIXED",
   CLOSED: "CLOSED",
+  RESOLVED: "RESOLVED",
   REOPEN: "REOPEN",
   REJECTED: "REJECTED",
   DEFERRED: "DEFERRED",
@@ -58,6 +59,16 @@ export const BUG_TERMINAL_STATUSES = [
   ISSUE_STATUS.DEFERRED,
 ];
 export const BUG_LIFECYCLE_STATUSES = BUG_STATUS_OPTIONS.map((option) => option.value);
+export const ISSUE_COMPLETED_STATUSES = Object.freeze([
+  ISSUE_STATUS.CLOSED,
+  ISSUE_STATUS.RESOLVED,
+  ISSUE_STATUS.DONE,
+]);
+export const ISSUE_HIGH_PRIORITY_VALUES = Object.freeze([
+  "High",
+  "Critical",
+  "Urgent",
+]);
 
 export const ISSUE_STATUS_OPTIONS = [
   { value: "all", label: "All" },
@@ -172,6 +183,10 @@ export const normalizeIssueStatus = (value, fallback = ISSUE_STATUS.TODO) => {
     return ISSUE_STATUS.REOPEN;
   }
 
+  if (normalizedValue === "RESOLVED") {
+    return ISSUE_STATUS.RESOLVED;
+  }
+
   return Object.values(ISSUE_STATUS).includes(normalizedValue)
     ? normalizedValue
     : fallback;
@@ -220,15 +235,12 @@ export const getIssueWorkflowLane = (status) => {
   return ISSUE_STATUS.IN_PROGRESS;
 };
 
-export const isIssueClosed = (issueOrStatus) =>
-  [
-    ISSUE_STATUS.DONE,
-    ...BUG_TERMINAL_STATUSES,
-  ].includes(
-    normalizeIssueStatus(
-      typeof issueOrStatus === "object" ? issueOrStatus?.status : issueOrStatus
-    )
-  );
+export const isIssueClosed = (issueOrStatus) => {
+  const status =
+    typeof issueOrStatus === "object" ? issueOrStatus?.status : issueOrStatus;
+
+  return ISSUE_COMPLETED_STATUSES.includes(normalizeIssueStatus(status, ""));
+};
 
 export const isIssueOpen = (issueOrStatus) => !isIssueClosed(issueOrStatus);
 
@@ -451,14 +463,7 @@ export const filterIssues = (issues, filters) => {
   return issues.filter((issue) => {
     const normalizedIssueStatus = normalizeIssueStatus(issue.status);
 
-    if (
-      statusGroup === "open" &&
-      ![
-        ISSUE_STATUS.OPEN,
-        ISSUE_STATUS.IN_PROGRESS,
-        ISSUE_STATUS.REOPEN,
-      ].includes(normalizedIssueStatus)
-    ) {
+    if (statusGroup === "open" && ISSUE_COMPLETED_STATUSES.includes(normalizedIssueStatus)) {
       return false;
     }
 
@@ -482,8 +487,7 @@ export const filterIssues = (issues, filters) => {
 
     if (
       priorityGroup === "high" &&
-      !["Critical", "High"].includes(issue.priority) &&
-      !["Blocker", "Critical"].includes(issue.bugDetails?.severity)
+      !ISSUE_HIGH_PRIORITY_VALUES.includes(issue.priority)
     ) {
       return false;
     }

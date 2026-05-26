@@ -492,7 +492,7 @@ const IssuesPage = () => {
 
   const activeStatusLabel = useMemo(() => {
     if (filters.statusGroup === "open") {
-      return "Showing: Open / In Progress / Reopened";
+      return "Showing: Open / In Progress / Reopened / Pending / To Do";
     }
 
     if (filters.statusGroup === "closed") {
@@ -504,7 +504,7 @@ const IssuesPage = () => {
     }
 
     if (filters.priorityGroup === HIGH_PRIORITY_QUERY_VALUE) {
-      return "Showing: High / Critical priority";
+      return "Showing: High / Critical / Urgent priority";
     }
 
     if (filters.priority && filters.priority !== "all") {

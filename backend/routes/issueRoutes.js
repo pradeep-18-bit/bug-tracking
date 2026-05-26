@@ -1,6 +1,7 @@
 const express = require("express");
 const {
   getIssues,
+  getIssueStats,
   getMyIssues,
   getRecentIssueActivity,
   createIssue,
@@ -25,6 +26,7 @@ const router = express.Router();
 
 router.get("/my", protect, getMyIssues);
 router.get("/activity", protect, getRecentIssueActivity);
+router.get("/stats", protect, getIssueStats);
 router.patch("/:id/planning", protect, updateIssuePlanning);
 router.post("/:id/sprint", protect, moveIssueToSprint);
 router.delete("/:id/sprint", protect, removeIssueFromSprint);

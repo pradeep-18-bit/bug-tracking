@@ -18,7 +18,7 @@ import {
   Users2,
   Zap,
 } from "lucide-react";
-import { fetchBugs } from "@/lib/api";
+import { fetchBugs, fetchIssueStats } from "@/lib/api";
 import useAnalytics from "@/hooks/use-analytics";
 import {
   ANALYTICS_PANEL_CLASS,
@@ -36,6 +36,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ISSUE_STATUS,
+  ISSUE_TYPES,
   getIssueDisplayKey,
   getIssuePriorityVariant,
   getIssueStatusLabel,
@@ -381,6 +382,16 @@ const DashboardPage = () => {
   const navigate = useNavigate();
   const analytics = useAnalytics();
   const {
+    data: issueStatsData = {},
+    isLoading: isIssueStatsLoading,
+    error: issueStatsError,
+  } = useQuery({
+    queryKey: ["issues", "stats", "admin-dashboard-overview", { excludeType: ISSUE_TYPES.BUG }],
+    queryFn: () => fetchIssueStats({ excludeType: ISSUE_TYPES.BUG }),
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+  const {
     data: bugsData = [],
     isLoading: isBugsLoading,
     error: bugsError,
@@ -390,6 +401,12 @@ const DashboardPage = () => {
   });
   const bugs = useMemo(() => (Array.isArray(bugsData) ? bugsData : []), [bugsData]);
   const summary = analytics.overview?.summary || {};
+  const issueStats = {
+    total: Number(issueStatsData?.total || 0),
+    open: Number(issueStatsData?.open || 0),
+    closed: Number(issueStatsData?.closed || 0),
+    highPriority: Number(issueStatsData?.highPriority || 0),
+  };
   const trends = analytics.overview?.trends || {};
   const statusRows = useMemo(
     () =>
@@ -592,7 +609,7 @@ const DashboardPage = () => {
     {
       key: "total",
       title: "Total Issues",
-      value: formatCompactNumber(summary.totalIssues),
+      value: formatCompactNumber(issueStats.total),
       helper: "Tracked work",
       icon: Layers3,
       tone: "blue",
@@ -602,7 +619,7 @@ const DashboardPage = () => {
     {
       key: "open",
       title: "Open Issues",
-      value: formatCompactNumber(summary.openIssues),
+      value: formatCompactNumber(issueStats.open),
       helper: "Active workload",
       icon: AlertTriangle,
       tone: "amber",
@@ -612,7 +629,7 @@ const DashboardPage = () => {
     {
       key: "closed",
       title: "Closed Issues",
-      value: formatCompactNumber(summary.closedIssues),
+      value: formatCompactNumber(issueStats.closed),
       helper: "Resolved work",
       icon: CheckCircle2,
       tone: "emerald",
@@ -622,8 +639,8 @@ const DashboardPage = () => {
     {
       key: "priority",
       title: "High Priority",
-      value: formatCompactNumber(summary.highPriorityIssues),
-      helper: "High / critical items",
+      value: formatCompactNumber(issueStats.highPriority),
+      helper: "High / critical / urgent",
       icon: ShieldCheck,
       tone: "rose",
       trend: trends.highPriorityIssues,
@@ -657,15 +674,16 @@ const DashboardPage = () => {
     },
   ];
 
-  if (analytics.isLoading) {
+  if (analytics.isLoading || isIssueStatsLoading) {
     return <DashboardLoading />;
   }
 
-  if (analytics.error) {
+  if (analytics.error || issueStatsError) {
     return (
       <Card className={ANALYTICS_PANEL_CLASS}>
         <CardContent className="p-6 text-sm text-rose-700">
-          {analytics.error.response?.data?.message ||
+          {analytics.error?.response?.data?.message ||
+            issueStatsError?.response?.data?.message ||
             "Unable to load dashboard analytics right now."}
         </CardContent>
       </Card>
@@ -849,7 +867,7 @@ const DashboardPage = () => {
           description="Distribution of active and resolved workload from live issue data."
           action={
             <Badge className="border-white/60 bg-white/72 text-slate-600">
-              {summary.totalIssues || 0} total
+              {issueStats.total || 0} total
             </Badge>
           }
         >
