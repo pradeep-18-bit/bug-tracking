@@ -6,6 +6,8 @@ const {
   getConversations,
   getMessages,
   searchUsers,
+  uploadChatAttachment,
+  uploadChatAttachmentMiddleware,
 } = require("../controllers/chat.controller");
 const { protect } = require("../middleware/authMiddleware");
 
@@ -16,6 +18,7 @@ router.post("/conversations", protect, createConversation);
 router.get("/conversation/:id", protect, getConversationById);
 router.get("/messages/:conversationId", protect, getMessages);
 router.post("/messages", protect, createMessage);
+router.post("/attachments", protect, uploadChatAttachmentMiddleware, uploadChatAttachment);
 router.get("/users/search", protect, searchUsers);
 
 module.exports = router;

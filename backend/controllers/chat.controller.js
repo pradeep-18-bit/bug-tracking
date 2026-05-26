@@ -1,3 +1,6 @@
+const fs = require("fs");
+const path = require("path");
+const multer = require("multer");
 const mongoose = require("mongoose");
 const Conversation = require("../models/Conversation.model");
 const Message = require("../models/Message.model");
@@ -17,6 +20,35 @@ const CHAT_ACCESS_ROLES = ["Admin", "Manager", "Team Lead", "Developer", "Tester
 const MAX_MESSAGE_LENGTH = 4000;
 const DEFAULT_MESSAGE_LIMIT = 30;
 const MAX_MESSAGE_LIMIT = 80;
+const MAX_CHAT_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+const chatAttachmentsRoot = path.resolve(__dirname, "..", "uploads", "chat-attachments");
+const allowedAttachmentExtensions = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xlsx",
+  ".txt",
+]);
+const allowedAttachmentMimeTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain",
+]);
+
+fs.mkdirSync(chatAttachmentsRoot, {
+  recursive: true,
+});
 
 const userSelect = "_id name email role designation workspaceId";
 const conversationPopulation = [
@@ -66,6 +98,57 @@ const sanitizeText = (value = "", limit = MAX_MESSAGE_LENGTH) =>
 const escapeRegex = (value = "") =>
   String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+const sanitizeFileName = (value = "attachment") => {
+  const parsedName = path.basename(String(value || "attachment"));
+  const safeFileName = parsedName
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9._-]/g, "")
+    .slice(0, 180);
+
+  return safeFileName || "attachment";
+};
+
+const isAllowedAttachment = (file = {}) => {
+  const extension = path.extname(file.originalname || "").toLowerCase();
+  const mimeType = String(file.mimetype || "").toLowerCase();
+
+  return (
+    allowedAttachmentExtensions.has(extension) &&
+    allowedAttachmentMimeTypes.has(mimeType)
+  );
+};
+
+const chatAttachmentStorage = multer.diskStorage({
+  destination: (_req, _file, callback) => {
+    callback(null, chatAttachmentsRoot);
+  },
+  filename: (_req, file, callback) => {
+    callback(
+      null,
+      `${Date.now()}-${Math.round(Math.random() * 1e9)}-${sanitizeFileName(
+        file?.originalname
+      )}`
+    );
+  },
+});
+
+const uploadChatAttachmentMiddleware = multer({
+  storage: chatAttachmentStorage,
+  limits: {
+    fileSize: MAX_CHAT_ATTACHMENT_SIZE,
+  },
+  fileFilter: (_req, file, callback) => {
+    if (!isAllowedAttachment(file)) {
+      const error = new Error("Unsupported file type");
+      error.statusCode = 400;
+      callback(error);
+      return;
+    }
+
+    callback(null, true);
+  },
+}).single("file");
+
 const sanitizeAttachments = (attachments = []) => {
   if (!Array.isArray(attachments)) {
     return [];
@@ -73,15 +156,27 @@ const sanitizeAttachments = (attachments = []) => {
 
   return attachments
     .slice(0, 10)
-    .map((attachment) => ({
-      name: sanitizeText(attachment?.name || "", 180),
-      url: sanitizeText(attachment?.url || "", 1200),
-      type: sanitizeText(attachment?.type || "", 120),
-      size: Number.isFinite(Number(attachment?.size))
+    .map((attachment) => {
+      const fileName = sanitizeFileName(
+        attachment?.fileName || attachment?.name || "attachment"
+      );
+      const fileUrl = sanitizeText(attachment?.fileUrl || attachment?.url || "", 1200);
+      const fileType = sanitizeText(attachment?.fileType || attachment?.type || "", 120);
+      const size = Number.isFinite(Number(attachment?.size))
         ? Math.max(0, Number(attachment.size))
-        : 0,
-    }))
-    .filter((attachment) => attachment.name || attachment.url);
+        : 0;
+
+      return {
+        name: fileName,
+        fileName,
+        url: fileUrl,
+        fileUrl,
+        type: fileType,
+        fileType,
+        size,
+      };
+    })
+    .filter((attachment) => attachment.fileName || attachment.fileUrl);
 };
 
 const sortDirectParticipants = (participantIds = []) =>
@@ -337,13 +432,13 @@ const createDirectConversation = async ({ currentUser, targetUserId }) => {
 
   const participants = sortDirectParticipants([currentUser._id, targetUser._id]);
   let conversation = await Conversation.findOne({
-      workspaceId,
-      type: "direct",
-      participants: {
-        $all: participants,
-        $size: 2,
-      },
-    });
+    workspaceId,
+    type: "direct",
+    participants: {
+      $all: participants,
+      $size: 2,
+    },
+  });
 
   if (!conversation) {
     try {
@@ -686,6 +781,30 @@ const createMessage = asyncHandler(async (req, res) => {
   });
 });
 
+const uploadChatAttachment = asyncHandler(async (req, res) => {
+  ensureChatAccess(req, res);
+
+  if (!req.file) {
+    res.status(400);
+    throw new Error("Select a file to upload");
+  }
+
+  const fileName = sanitizeFileName(req.file.originalname);
+  const fileUrl = `/uploads/chat-attachments/${req.file.filename}`;
+
+  res.status(201).json({
+    attachment: {
+      name: fileName,
+      fileName,
+      url: fileUrl,
+      fileUrl,
+      type: req.file.mimetype,
+      fileType: req.file.mimetype,
+      size: req.file.size,
+    },
+  });
+});
+
 const searchUsers = asyncHandler(async (req, res) => {
   ensureChatAccess(req, res);
 
@@ -793,4 +912,6 @@ module.exports = {
   markConversationSeen,
   searchUsers,
   serializeConversation,
+  uploadChatAttachment,
+  uploadChatAttachmentMiddleware,
 };

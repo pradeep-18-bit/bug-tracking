@@ -9,12 +9,27 @@ const attachmentSchema = new Schema(
       trim: true,
       default: "",
     },
+    fileName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     url: {
       type: String,
       trim: true,
       default: "",
     },
+    fileUrl: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     type: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    fileType: {
       type: String,
       trim: true,
       default: "",

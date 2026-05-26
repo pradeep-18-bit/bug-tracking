@@ -845,6 +845,17 @@ export const sendChatMessage = async (payload) => {
   return response.data?.message || response.data;
 };
 
+export const uploadChatAttachment = async (file, onUploadProgress) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await api.post("/chat/attachments", formData, {
+    onUploadProgress,
+  });
+
+  return response.data?.attachment || response.data;
+};
+
 export const searchChatUsers = async (query) => {
   const response = await api.get("/chat/users/search", {
     params: buildParams({
