@@ -545,7 +545,7 @@ const createProject = asyncHandler(async (req, res) => {
       userId: teamLead,
       workspaceId,
       label: "Team lead",
-      allowedRoles: ["Admin", "Manager", "Developer"],
+      allowedRoles: ["Admin", "Manager", "Team Lead", "Developer"],
     }),
     loadWorkspaceUserAssignment({
       userId: qaLead,
@@ -718,7 +718,7 @@ const updateProject = asyncHandler(async (req, res) => {
             userId: req.body.teamLead,
             workspaceId,
             label: "Team lead",
-            allowedRoles: ["Admin", "Manager", "Developer"],
+            allowedRoles: ["Admin", "Manager", "Team Lead", "Developer"],
           })
         : Promise.resolve({ value: project.teamLead || null }),
       hasQaLeadInput

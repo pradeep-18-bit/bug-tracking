@@ -815,4 +815,43 @@ export const importUsers = async (file) => {
   return response.data;
 };
 
+export const fetchChatConversations = async () => {
+  const response = await api.get("/chat/conversations");
+  return response.data?.conversations || [];
+};
+
+export const createChatConversation = async (payload) => {
+  const response = await api.post("/chat/conversations", payload);
+  return response.data?.conversation || response.data;
+};
+
+export const fetchChatConversation = async (conversationId) => {
+  const response = await api.get(`/chat/conversation/${conversationId}`);
+  return response.data?.conversation || response.data;
+};
+
+export const fetchChatMessages = async ({ conversationId, before, limit = 30 }) => {
+  const response = await api.get(`/chat/messages/${conversationId}`, {
+    params: buildParams({
+      before,
+      limit,
+    }),
+  });
+  return response.data;
+};
+
+export const sendChatMessage = async (payload) => {
+  const response = await api.post("/chat/messages", payload);
+  return response.data?.message || response.data;
+};
+
+export const searchChatUsers = async (query) => {
+  const response = await api.get("/chat/users/search", {
+    params: buildParams({
+      q: query,
+    }),
+  });
+  return response.data?.users || [];
+};
+
 export default api;

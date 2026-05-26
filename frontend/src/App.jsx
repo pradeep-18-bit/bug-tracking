@@ -7,6 +7,7 @@ import {
   ADMIN_PANEL_ROLES,
   getDashboardPathByRole,
   ROLE_DEVELOPER,
+  ROLE_TEAM_LEAD,
   ROLE_TESTER,
 } from "@/lib/roles";
 
@@ -19,6 +20,7 @@ const TesterDashboardPage = lazy(() => import("@/pages/TesterDashboardPage"));
 const TesterBugsPage = lazy(() => import("@/pages/TesterBugsPage"));
 const ProjectsPage = lazy(() => import("@/pages/ProjectsPage"));
 const BacklogPage = lazy(() => import("@/pages/BacklogPage"));
+const ChatPage = lazy(() => import("@/pages/ChatPage"));
 const IssuesPage = lazy(() => import("@/pages/IssuesPage"));
 const TasksPage = lazy(() => import("@/pages/TasksPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
@@ -180,7 +182,7 @@ const App = () => (
       <Route
         path="/dev/dashboard"
         element={
-          <ProtectedRoute roles={[ROLE_DEVELOPER]}>
+          <ProtectedRoute roles={[ROLE_DEVELOPER, ROLE_TEAM_LEAD]}>
             <DeveloperDashboardPage />
           </ProtectedRoute>
         }
@@ -188,7 +190,7 @@ const App = () => (
       <Route
         path="/dev/settings"
         element={
-          <ProtectedRoute roles={[ROLE_DEVELOPER, ROLE_TESTER]}>
+          <ProtectedRoute roles={[ROLE_DEVELOPER, ROLE_TEAM_LEAD, ROLE_TESTER]}>
             <SelfSettingsRoute />
           </ProtectedRoute>
         }
@@ -268,9 +270,19 @@ const App = () => (
       <Route path="/issues" element={<IssuesPage />} />
       <Route path="/issues/:issueId" element={<IssuesPage />} />
       <Route
+        path="/chat"
+        element={
+          <ProtectedRoute
+            roles={[...ADMIN_PANEL_ROLES, ROLE_TEAM_LEAD, ROLE_DEVELOPER, ROLE_TESTER]}
+          >
+            <ChatPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/tasks"
         element={
-          <ProtectedRoute roles={[ROLE_DEVELOPER, ROLE_TESTER]}>
+          <ProtectedRoute roles={[ROLE_DEVELOPER, ROLE_TEAM_LEAD, ROLE_TESTER]}>
             <TasksPage />
           </ProtectedRoute>
         }

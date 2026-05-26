@@ -1,11 +1,13 @@
 export const ROLE_ADMIN = "Admin";
 export const ROLE_MANAGER = "Manager";
+export const ROLE_TEAM_LEAD = "Team Lead";
 export const ROLE_DEVELOPER = "Developer";
 export const ROLE_TESTER = "Tester";
 
 export const WORKSPACE_ROLE_OPTIONS = [
   ROLE_ADMIN,
   ROLE_MANAGER,
+  ROLE_TEAM_LEAD,
   ROLE_DEVELOPER,
   ROLE_TESTER,
 ];
@@ -17,6 +19,7 @@ export const hasAdminPanelAccess = (role) => ADMIN_PANEL_ROLES.includes(role);
 export const dashboardPathByRole = {
   [ROLE_ADMIN]: "/admin/dashboard",
   [ROLE_MANAGER]: "/admin/dashboard",
+  [ROLE_TEAM_LEAD]: "/dev/dashboard",
   [ROLE_DEVELOPER]: "/dev/dashboard",
   [ROLE_TESTER]: "/tester/dashboard",
 };
@@ -33,6 +36,7 @@ export const getRoleNavigation = (role) => {
       { label: "Issues", href: "/issues", icon: "issues" },
       { label: "Bugs", href: "/admin/bugs", icon: "bugs" },
       { label: "Reports", href: "/reports", icon: "reports" },
+      { label: "Chat", href: "/chat", icon: "chat" },
       { label: "Settings", href: "/settings/users", icon: "settings" },
     ];
   }
@@ -43,6 +47,7 @@ export const getRoleNavigation = (role) => {
       { label: "Bugs", href: "/bugs", icon: "bugs" },
       { label: "Tasks", href: "/tasks", icon: "tasks" },
       { label: "Reports", href: "/reports", icon: "reports" },
+      { label: "Chat", href: "/chat", icon: "chat" },
       { label: "Settings", href: "/dev/settings", icon: "settings" },
     ];
   }
@@ -51,6 +56,7 @@ export const getRoleNavigation = (role) => {
     { label: "Dashboard", href: dashboardPathByRole[ROLE_DEVELOPER], icon: "dashboard" },
     { label: "Tasks", href: "/tasks", icon: "tasks" },
     { label: "Reports", href: "/reports", icon: "reports" },
+    { label: "Chat", href: "/chat", icon: "chat" },
     { label: "Settings", href: "/dev/settings", icon: "settings" },
   ];
 };
@@ -127,6 +133,11 @@ export const getPageMeta = (pathname, role) => {
       title: "Reports",
       description:
         "Review work item analytics, distribution trends, and project-level workload signals.",
+    },
+    "/chat": {
+      title: "Chat",
+      description:
+        "Message teammates, project teams, and group channels in realtime.",
     },
     "/settings/users": {
       title: "User Management",

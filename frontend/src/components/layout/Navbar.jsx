@@ -9,6 +9,7 @@ import {
   ListTodo,
   LogOut,
   Menu,
+  MessageCircle,
   Settings2,
   Users2,
   X,
@@ -18,6 +19,7 @@ import pirnavLogo from "@/assets/pirnav-logo.png";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useChatStore } from "@/lib/chatStore";
 import { getRoleNavigation } from "@/lib/roles";
 import { cn, getInitials } from "@/lib/utils";
 
@@ -30,6 +32,7 @@ const iconMap = {
   bugs: Bug,
   tasks: ListTodo,
   reports: BarChart3,
+  chat: MessageCircle,
   settings: Settings2,
 };
 
@@ -41,10 +44,23 @@ const Navbar = () => {
   const { user, logout } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const navigation = getRoleNavigation(user?.role);
+  const chatUnreadCount = useChatStore((state) => state.getTotalUnread());
+  const hasLoadedConversations = useChatStore(
+    (state) => state.hasLoadedConversations
+  );
+  const loadConversations = useChatStore((state) => state.loadConversations);
 
   useEffect(() => {
     setIsMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!user || hasLoadedConversations) {
+      return;
+    }
+
+    loadConversations();
+  }, [hasLoadedConversations, loadConversations, user]);
 
   return (
     <header className="fixed inset-x-0 top-0 z-30 h-16 border-b border-white/45 bg-gradient-to-r from-white/78 via-blue-50/74 to-sky-100/70 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-2xl sm:h-20">
@@ -82,6 +98,11 @@ const Navbar = () => {
                 >
                   <Icon className="h-4 w-4 transition-transform duration-300 group-hover:scale-105" />
                   <span>{item.label}</span>
+                  {item.icon === "chat" && chatUnreadCount ? (
+                    <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1.5 text-[11px] font-extrabold text-blue-600 shadow-sm">
+                      {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                    </span>
+                  ) : null}
                 </NavLink>
               );
             })}
@@ -142,6 +163,11 @@ const Navbar = () => {
                     <span className="flex items-center gap-2">
                       <Icon className="h-4 w-4" />
                       {item.label}
+                      {item.icon === "chat" && chatUnreadCount ? (
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-extrabold text-white shadow-sm">
+                          {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                        </span>
+                      ) : null}
                     </span>
                   </NavLink>
                 );

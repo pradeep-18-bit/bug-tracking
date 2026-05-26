@@ -1,11 +1,13 @@
 const ROLE_ADMIN = "Admin";
 const ROLE_MANAGER = "Manager";
+const ROLE_TEAM_LEAD = "Team Lead";
 const ROLE_DEVELOPER = "Developer";
 const ROLE_TESTER = "Tester";
 
 const USER_ROLE_OPTIONS = [
   ROLE_ADMIN,
   ROLE_MANAGER,
+  ROLE_TEAM_LEAD,
   ROLE_DEVELOPER,
   ROLE_TESTER,
 ];
@@ -19,6 +21,7 @@ const isEligibleWorkspaceSenderRole = hasAdminAccess;
 module.exports = {
   ROLE_ADMIN,
   ROLE_MANAGER,
+  ROLE_TEAM_LEAD,
   ROLE_DEVELOPER,
   ROLE_TESTER,
   USER_ROLE_OPTIONS,

@@ -1,0 +1,796 @@
+const mongoose = require("mongoose");
+const Conversation = require("../models/Conversation.model");
+const Message = require("../models/Message.model");
+const Project = require("../models/Project");
+const ProjectTeam = require("../models/ProjectTeam");
+const Team = require("../models/Team");
+const TeamMember = require("../models/TeamMember");
+const User = require("../models/User");
+const asyncHandler = require("../utils/asyncHandler");
+const {
+  buildProjectAccessQuery,
+  mergeProjectTeamIds,
+} = require("../utils/projectRelations");
+const { normalizeWorkspaceId } = require("../utils/workspace");
+
+const CHAT_ACCESS_ROLES = ["Admin", "Manager", "Team Lead", "Developer", "Tester"];
+const MAX_MESSAGE_LENGTH = 4000;
+const DEFAULT_MESSAGE_LIMIT = 30;
+const MAX_MESSAGE_LIMIT = 80;
+
+const userSelect = "_id name email role designation workspaceId";
+const conversationPopulation = [
+  { path: "participants", select: userSelect },
+  { path: "createdBy", select: userSelect },
+  { path: "projectId", select: "_id name shortCode themeColor workspaceId" },
+  { path: "teamId", select: "_id name workspaceId" },
+];
+
+const objectIdString = (value) => String(value?._id || value || "");
+
+const ensureChatAccess = (req, res) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Unauthorized");
+  }
+
+  if (!CHAT_ACCESS_ROLES.includes(req.user.role)) {
+    res.status(403);
+    throw new Error("You do not have access to chat");
+  }
+};
+
+const isValidObjectId = (value) => mongoose.isValidObjectId(value);
+
+const uniqueObjectIds = (values = []) => {
+  const byId = new Map();
+
+  values.filter(Boolean).forEach((value) => {
+    const id = objectIdString(value);
+
+    if (id && isValidObjectId(id)) {
+      byId.set(id, new mongoose.Types.ObjectId(id));
+    }
+  });
+
+  return Array.from(byId.values());
+};
+
+const sanitizeText = (value = "", limit = MAX_MESSAGE_LENGTH) =>
+  String(value)
+    .replace(/<[^>]*>/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .trim()
+    .slice(0, limit);
+
+const escapeRegex = (value = "") =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const sanitizeAttachments = (attachments = []) => {
+  if (!Array.isArray(attachments)) {
+    return [];
+  }
+
+  return attachments
+    .slice(0, 10)
+    .map((attachment) => ({
+      name: sanitizeText(attachment?.name || "", 180),
+      url: sanitizeText(attachment?.url || "", 1200),
+      type: sanitizeText(attachment?.type || "", 120),
+      size: Number.isFinite(Number(attachment?.size))
+        ? Math.max(0, Number(attachment.size))
+        : 0,
+    }))
+    .filter((attachment) => attachment.name || attachment.url);
+};
+
+const sortDirectParticipants = (participantIds = []) =>
+  uniqueObjectIds(participantIds).sort((left, right) =>
+    String(left).localeCompare(String(right))
+  );
+
+const serializeUser = (user) => {
+  if (!user) {
+    return null;
+  }
+
+  return {
+    _id: user._id,
+    name: user.name || "",
+    email: user.email || "",
+    role: user.role || "",
+    designation: user.designation || "",
+    workspaceId: normalizeWorkspaceId(user.workspaceId),
+  };
+};
+
+const serializeConversation = (conversation, { unreadCount = 0 } = {}) => {
+  const item =
+    typeof conversation?.toObject === "function"
+      ? conversation.toObject()
+      : conversation;
+
+  if (!item) {
+    return null;
+  }
+
+  return {
+    ...item,
+    workspaceId: normalizeWorkspaceId(item.workspaceId),
+    participants: (item.participants || []).map(serializeUser).filter(Boolean),
+    createdBy: serializeUser(item.createdBy) || item.createdBy,
+    unreadCount,
+  };
+};
+
+const populateConversation = (target) => target.populate(conversationPopulation);
+
+const loadConversationForUser = async (conversationId, user, options = {}) => {
+  if (!isValidObjectId(conversationId)) {
+    return null;
+  }
+
+  const query = Conversation.findOne({
+    _id: conversationId,
+    workspaceId: normalizeWorkspaceId(user.workspaceId),
+    participants: user._id,
+  });
+
+  return options.lean
+    ? populateConversation(query).lean()
+    : populateConversation(query);
+};
+
+const countUnreadByConversation = async (conversationIds = [], userId) => {
+  if (!conversationIds.length) {
+    return new Map();
+  }
+
+  const counts = await Message.aggregate([
+    {
+      $match: {
+        conversationId: {
+          $in: conversationIds,
+        },
+        senderId: {
+          $ne: new mongoose.Types.ObjectId(objectIdString(userId)),
+        },
+        deleted: false,
+        seenBy: {
+          $not: {
+            $elemMatch: {
+              userId: new mongoose.Types.ObjectId(objectIdString(userId)),
+            },
+          },
+        },
+      },
+    },
+    {
+      $group: {
+        _id: "$conversationId",
+        count: {
+          $sum: 1,
+        },
+      },
+    },
+  ]);
+
+  return new Map(counts.map((item) => [String(item._id), item.count]));
+};
+
+const getTeamParticipantIds = async (teamId, workspaceId) => {
+  const teamIds = Array.isArray(teamId) ? teamId : [teamId];
+  const memberships = await TeamMember.find({
+    teamId: {
+      $in: teamIds,
+    },
+  })
+    .select("userId")
+    .lean();
+
+  const memberIds = memberships.map((membership) => membership.userId);
+
+  if (!memberIds.length) {
+    return [];
+  }
+
+  return User.find({
+    _id: {
+      $in: memberIds,
+    },
+    workspaceId: normalizeWorkspaceId(workspaceId),
+  }).distinct("_id");
+};
+
+const getProjectParticipantIds = async (project, workspaceId) => {
+  const projectTeams = await ProjectTeam.find({
+    projectId: project._id,
+  })
+    .select("teamId")
+    .lean();
+  const teamIds = mergeProjectTeamIds(project, projectTeams);
+  const teamMemberIds = teamIds.length
+    ? await getTeamParticipantIds(teamIds, workspaceId)
+    : [];
+
+  return uniqueObjectIds([
+    project.createdBy,
+    project.manager,
+    project.projectManager,
+    project.teamLead,
+    project.qaLead,
+    ...teamMemberIds,
+  ]);
+};
+
+const ensureTeamConversation = async ({ team, currentUserId }) => {
+  const workspaceId = normalizeWorkspaceId(team.workspaceId);
+  const participantIds = uniqueObjectIds([
+    currentUserId,
+    ...(await getTeamParticipantIds(team._id, workspaceId)),
+    team.createdBy,
+  ]);
+
+  return Conversation.findOneAndUpdate(
+    {
+      workspaceId,
+      channelType: "team",
+      teamId: team._id,
+    },
+    {
+      $setOnInsert: {
+        type: "group",
+        channelType: "team",
+        teamId: team._id,
+        workspaceId,
+        createdBy: currentUserId,
+      },
+      $set: {
+        participants: participantIds,
+        name: team.name,
+      },
+    },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true,
+    }
+  );
+};
+
+const ensureProjectConversation = async ({ project, currentUserId }) => {
+  const workspaceId = normalizeWorkspaceId(project.workspaceId);
+  const participantIds = uniqueObjectIds([
+    currentUserId,
+    ...(await getProjectParticipantIds(project, workspaceId)),
+  ]);
+
+  return Conversation.findOneAndUpdate(
+    {
+      workspaceId,
+      channelType: "project",
+      projectId: project._id,
+    },
+    {
+      $setOnInsert: {
+        type: "group",
+        channelType: "project",
+        projectId: project._id,
+        workspaceId,
+        createdBy: currentUserId,
+      },
+      $set: {
+        participants: participantIds,
+        name: project.name,
+      },
+    },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true,
+    }
+  );
+};
+
+const ensureWorkspaceChannelsForUser = async (user) => {
+  const workspaceId = normalizeWorkspaceId(user.workspaceId);
+  const userId = user._id;
+  const teamIds = await TeamMember.find({
+    userId,
+  }).distinct("teamId");
+  const [teams, projects] = await Promise.all([
+    Team.find({
+      _id: {
+        $in: teamIds,
+      },
+      workspaceId,
+    }).lean(),
+    Project.find(await buildProjectAccessQuery(user))
+      .select(
+        "_id name workspaceId createdBy manager projectManager teamLead qaLead attachedTeams teamIds"
+      )
+      .lean(),
+  ]);
+
+  await Promise.all([
+    ...teams.map((team) => ensureTeamConversation({ team, currentUserId: userId })),
+    ...projects.map((project) =>
+      ensureProjectConversation({ project, currentUserId: userId })
+    ),
+  ]);
+};
+
+const createDirectConversation = async ({ currentUser, targetUserId }) => {
+  const workspaceId = normalizeWorkspaceId(currentUser.workspaceId);
+  const targetUser = await User.findOne({
+    _id: targetUserId,
+    workspaceId,
+  })
+    .select(userSelect)
+    .lean();
+
+  if (!targetUser) {
+    const error = new Error("Selected user could not be found in this workspace");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const participants = sortDirectParticipants([currentUser._id, targetUser._id]);
+  let conversation = await Conversation.findOne({
+      workspaceId,
+      type: "direct",
+      participants: {
+        $all: participants,
+        $size: 2,
+      },
+    });
+
+  if (!conversation) {
+    try {
+      conversation = await Conversation.create({
+        type: "direct",
+        channelType: "direct",
+        participants,
+        workspaceId,
+        createdBy: currentUser._id,
+      });
+    } catch (error) {
+      if (error.code !== 11000) {
+        throw error;
+      }
+
+      conversation = await Conversation.findOne({
+        workspaceId,
+        type: "direct",
+        participants: {
+          $all: participants,
+          $size: 2,
+        },
+      });
+    }
+  }
+
+  return populateConversation(Conversation.findById(conversation._id)).lean();
+};
+
+const createMessageDocument = async ({
+  conversationId,
+  sender,
+  message,
+  attachments = [],
+}) => {
+  const sanitizedMessage = sanitizeText(message);
+  const sanitizedAttachments = sanitizeAttachments(attachments);
+
+  if (!sanitizedMessage && !sanitizedAttachments.length) {
+    const error = new Error("Message text or attachment is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const conversation = await Conversation.findOne({
+    _id: conversationId,
+    workspaceId: normalizeWorkspaceId(sender.workspaceId),
+    participants: sender._id,
+  }).select("_id participants workspaceId");
+
+  if (!conversation) {
+    const error = new Error("Conversation not found or inaccessible");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const createdMessage = await Message.create({
+    conversationId: conversation._id,
+    senderId: sender._id,
+    message: sanitizedMessage,
+    attachments: sanitizedAttachments,
+    seenBy: [
+      {
+        userId: sender._id,
+        seenAt: new Date(),
+      },
+    ],
+  });
+
+  await Conversation.updateOne(
+    {
+      _id: conversation._id,
+    },
+    {
+      lastMessage: sanitizedMessage || "Attachment",
+      lastMessageAt: createdMessage.createdAt,
+    }
+  );
+
+  return Message.findById(createdMessage._id)
+    .populate("senderId", userSelect)
+    .lean();
+};
+
+const getConversations = asyncHandler(async (req, res) => {
+  ensureChatAccess(req, res);
+
+  await ensureWorkspaceChannelsForUser(req.user);
+
+  const conversations = await populateConversation(
+    Conversation.find({
+      workspaceId: normalizeWorkspaceId(req.user.workspaceId),
+      participants: req.user._id,
+    }).sort({ lastMessageAt: -1, updatedAt: -1 })
+  ).lean();
+  const unreadCounts = await countUnreadByConversation(
+    conversations.map((conversation) => conversation._id),
+    req.user._id
+  );
+
+  res.status(200).json({
+    conversations: conversations
+      .map((conversation) =>
+        serializeConversation(conversation, {
+          unreadCount: unreadCounts.get(String(conversation._id)) || 0,
+        })
+      )
+      .filter(Boolean),
+  });
+});
+
+const createConversation = asyncHandler(async (req, res) => {
+  ensureChatAccess(req, res);
+
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const type = req.body?.type === "direct" ? "direct" : "group";
+  const channelType = ["team", "project", "custom"].includes(req.body?.channelType)
+    ? req.body.channelType
+    : type === "direct"
+      ? "direct"
+      : "custom";
+
+  if (type === "direct") {
+    const targetUserId = req.body?.userId || req.body?.participantId;
+
+    if (!isValidObjectId(targetUserId)) {
+      res.status(400);
+      throw new Error("A valid user is required for direct chat");
+    }
+
+    const conversation = await createDirectConversation({
+      currentUser: req.user,
+      targetUserId,
+    });
+
+    res.status(201).json({
+      conversation: serializeConversation(conversation),
+    });
+    return;
+  }
+
+  if (channelType === "team") {
+    if (!isValidObjectId(req.body?.teamId)) {
+      res.status(400);
+      throw new Error("A valid team is required");
+    }
+
+    const team = await Team.findOne({
+      _id: req.body.teamId,
+      workspaceId,
+    }).lean();
+
+    if (!team) {
+      res.status(404);
+      throw new Error("Team not found");
+    }
+
+    const conversation = await ensureTeamConversation({
+      team,
+      currentUserId: req.user._id,
+    });
+    const populated = await populateConversation(
+      Conversation.findById(conversation._id)
+    ).lean();
+
+    res.status(201).json({
+      conversation: serializeConversation(populated),
+    });
+    return;
+  }
+
+  if (channelType === "project") {
+    if (!isValidObjectId(req.body?.projectId)) {
+      res.status(400);
+      throw new Error("A valid project is required");
+    }
+
+    const project = await Project.findOne({
+      _id: req.body.projectId,
+      ...(await buildProjectAccessQuery(req.user)),
+    }).lean();
+
+    if (!project) {
+      res.status(404);
+      throw new Error("Project not found or inaccessible");
+    }
+
+    const conversation = await ensureProjectConversation({
+      project,
+      currentUserId: req.user._id,
+    });
+    const populated = await populateConversation(
+      Conversation.findById(conversation._id)
+    ).lean();
+
+    res.status(201).json({
+      conversation: serializeConversation(populated),
+    });
+    return;
+  }
+
+  const participantIds = uniqueObjectIds([
+    req.user._id,
+    ...(Array.isArray(req.body?.participants) ? req.body.participants : []),
+  ]);
+
+  if (participantIds.length < 2) {
+    res.status(400);
+    throw new Error("Group chat needs at least two participants");
+  }
+
+  const participantCount = await User.countDocuments({
+    _id: {
+      $in: participantIds,
+    },
+    workspaceId,
+  });
+
+  if (participantCount !== participantIds.length) {
+    res.status(400);
+    throw new Error("All participants must belong to this workspace");
+  }
+
+  const conversation = await Conversation.create({
+    type: "group",
+    channelType: "custom",
+    name: sanitizeText(req.body?.name || "Group chat", 120),
+    participants: participantIds,
+    workspaceId,
+    createdBy: req.user._id,
+  });
+  const populated = await populateConversation(
+    Conversation.findById(conversation._id)
+  ).lean();
+
+  res.status(201).json({
+    conversation: serializeConversation(populated),
+  });
+});
+
+const getConversationById = asyncHandler(async (req, res) => {
+  ensureChatAccess(req, res);
+
+  const conversation = await loadConversationForUser(req.params.id, req.user, {
+    lean: true,
+  });
+
+  if (!conversation) {
+    res.status(404);
+    throw new Error("Conversation not found or inaccessible");
+  }
+
+  const unreadCounts = await countUnreadByConversation(
+    [conversation._id],
+    req.user._id
+  );
+
+  res.status(200).json({
+    conversation: serializeConversation(conversation, {
+      unreadCount: unreadCounts.get(String(conversation._id)) || 0,
+    }),
+  });
+});
+
+const getMessages = asyncHandler(async (req, res) => {
+  ensureChatAccess(req, res);
+
+  if (!isValidObjectId(req.params.conversationId)) {
+    res.status(400);
+    throw new Error("Invalid conversation id");
+  }
+
+  const conversation = await Conversation.findOne({
+    _id: req.params.conversationId,
+    workspaceId: normalizeWorkspaceId(req.user.workspaceId),
+    participants: req.user._id,
+  })
+    .select("_id")
+    .lean();
+
+  if (!conversation) {
+    res.status(404);
+    throw new Error("Conversation not found or inaccessible");
+  }
+
+  const limit = Math.min(
+    Math.max(Number(req.query.limit) || DEFAULT_MESSAGE_LIMIT, 1),
+    MAX_MESSAGE_LIMIT
+  );
+  const before = req.query.before;
+  const query = {
+    conversationId: conversation._id,
+    deleted: false,
+  };
+
+  if (before) {
+    const beforeDate = new Date(before);
+
+    if (!Number.isNaN(beforeDate.getTime())) {
+      query.createdAt = {
+        $lt: beforeDate,
+      };
+    }
+  }
+
+  const descendingMessages = await Message.find(query)
+    .populate("senderId", userSelect)
+    .sort({ createdAt: -1 })
+    .limit(limit + 1)
+    .lean();
+  const hasMore = descendingMessages.length > limit;
+  const messages = descendingMessages.slice(0, limit).reverse();
+
+  res.status(200).json({
+    messages,
+    pagination: {
+      hasMore,
+      nextCursor: hasMore ? messages[0]?.createdAt || null : null,
+    },
+  });
+});
+
+const createMessage = asyncHandler(async (req, res) => {
+  ensureChatAccess(req, res);
+
+  if (!isValidObjectId(req.body?.conversationId)) {
+    res.status(400);
+    throw new Error("Invalid conversation id");
+  }
+
+  const message = await createMessageDocument({
+    conversationId: req.body.conversationId,
+    sender: req.user,
+    message: req.body.message,
+    attachments: req.body.attachments,
+  });
+
+  res.status(201).json({
+    message,
+  });
+});
+
+const searchUsers = asyncHandler(async (req, res) => {
+  ensureChatAccess(req, res);
+
+  const query = sanitizeText(req.query.q || "", 80);
+  const safeQuery = escapeRegex(query);
+
+  if (query.length < 2) {
+    res.status(200).json({
+      users: [],
+    });
+    return;
+  }
+
+  const users = await User.find({
+    workspaceId: normalizeWorkspaceId(req.user.workspaceId),
+    _id: {
+      $ne: req.user._id,
+    },
+    $or: [
+      {
+        name: {
+          $regex: safeQuery,
+          $options: "i",
+        },
+      },
+      {
+        email: {
+          $regex: safeQuery,
+          $options: "i",
+        },
+      },
+      {
+        employeeId: {
+          $regex: safeQuery,
+          $options: "i",
+        },
+      },
+    ],
+  })
+    .select(userSelect)
+    .sort({ name: 1 })
+    .limit(12)
+    .lean();
+
+  res.status(200).json({
+    users: users.map(serializeUser).filter(Boolean),
+  });
+});
+
+const markConversationSeen = async ({ conversationId, user }) => {
+  const conversation = await Conversation.findOne({
+    _id: conversationId,
+    workspaceId: normalizeWorkspaceId(user.workspaceId),
+    participants: user._id,
+  })
+    .select("_id")
+    .lean();
+
+  if (!conversation) {
+    return {
+      matched: false,
+      modifiedCount: 0,
+    };
+  }
+
+  const result = await Message.updateMany(
+    {
+      conversationId: conversation._id,
+      senderId: {
+        $ne: user._id,
+      },
+      seenBy: {
+        $not: {
+          $elemMatch: {
+            userId: user._id,
+          },
+        },
+      },
+    },
+    {
+      $push: {
+        seenBy: {
+          userId: user._id,
+          seenAt: new Date(),
+        },
+      },
+    }
+  );
+
+  return {
+    matched: true,
+    modifiedCount: result.modifiedCount || 0,
+  };
+};
+
+module.exports = {
+  CHAT_ACCESS_ROLES,
+  createConversation,
+  createMessage,
+  createMessageDocument,
+  getConversationById,
+  getConversations,
+  getMessages,
+  loadConversationForUser,
+  markConversationSeen,
+  searchUsers,
+  serializeConversation,
+};
