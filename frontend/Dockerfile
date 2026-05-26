@@ -4,7 +4,6 @@ WORKDIR /app
 
 COPY package*.json ./
 
-# Skip lifecycle scripts temporarily
 RUN npm ci --ignore-scripts
 
 COPY . .
@@ -18,7 +17,6 @@ ENV VITE_ENABLE_ADMIN_DEFAULT_LOGIN=$VITE_ENABLE_ADMIN_DEFAULT_LOGIN
 ARG VITE_DEBUG_TEAM_SELECTION=false
 ENV VITE_DEBUG_TEAM_SELECTION=$VITE_DEBUG_TEAM_SELECTION
 
-# Build app directly
 RUN npm run build --ignore-scripts
 
 FROM nginx:1.27-alpine
@@ -27,3 +25,5 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
