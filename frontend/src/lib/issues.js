@@ -69,6 +69,8 @@ export const ISSUE_HIGH_PRIORITY_VALUES = Object.freeze([
   "Critical",
   "Urgent",
 ]);
+export const ISSUE_CRITICAL_PRIORITY_VALUES = Object.freeze(["Critical"]);
+export const ISSUE_CRITICAL_SEVERITY_VALUES = Object.freeze(["Critical"]);
 
 export const ISSUE_STATUS_OPTIONS = [
   { value: "all", label: "All" },
@@ -244,6 +246,38 @@ export const isIssueClosed = (issueOrStatus) => {
 
 export const isIssueOpen = (issueOrStatus) => !isIssueClosed(issueOrStatus);
 
+export const isIssueReopened = (issueOrStatus) => {
+  const status =
+    typeof issueOrStatus === "object" ? issueOrStatus?.status : issueOrStatus;
+
+  return normalizeIssueStatus(status, "") === ISSUE_STATUS.REOPEN;
+};
+
+export const isHighPriorityIssue = (issue = {}) =>
+  ISSUE_HIGH_PRIORITY_VALUES.includes(issue.priority);
+
+export const isCriticalIssue = (issue = {}) =>
+  ISSUE_CRITICAL_PRIORITY_VALUES.includes(issue.priority) ||
+  ISSUE_CRITICAL_SEVERITY_VALUES.includes(issue.severity || issue.bugDetails?.severity);
+
+export const getOpenIssues = (issues = []) => issues.filter(isIssueOpen);
+
+export const getClosedIssues = (issues = []) => issues.filter(isIssueClosed);
+
+export const getReopenedIssues = (issues = []) => issues.filter(isIssueReopened);
+
+export const getCriticalIssues = (issues = []) => issues.filter(isCriticalIssue);
+
+export const getHighPriorityIssues = (issues = []) => issues.filter(isHighPriorityIssue);
+
+export const normalizeIssueFilterAlias = (value = "") => {
+  const normalizedValue = String(value || "").trim().toLowerCase();
+
+  return ["open", "closed", "reopened", "critical"].includes(normalizedValue)
+    ? normalizedValue
+    : "";
+};
+
 export const isIssueInProgress = (issueOrStatus) =>
   ISSUE_ACTIVE_STATUS_VALUES.includes(
     normalizeIssueStatus(
@@ -288,9 +322,9 @@ export const resolveBugDetails = (issue) => issue?.bugDetails || {};
 
 export const getIssueStatusMetrics = (issues = []) => ({
   total: issues.length,
-  open: issues.filter((issue) => isIssueOpen(issue)).length,
+  open: getOpenIssues(issues).length,
   inProgress: issues.filter((issue) => isIssueInProgress(issue)).length,
-  closed: issues.filter((issue) => isIssueClosed(issue)).length,
+  closed: getClosedIssues(issues).length,
 });
 
 export const createIssueListFilters = (overrides = {}) => ({
@@ -451,6 +485,7 @@ export const filterIssues = (issues, filters) => {
   const assigneeFilter = filters.assigneeId ?? filters.assignee ?? "all";
   const priorityGroup = filters.priorityGroup || "all";
   const statusGroup = filters.statusGroup || "all";
+  const filterAlias = normalizeIssueFilterAlias(filters.filter);
   const normalizedStatusFilter =
     filters.status && filters.status !== "all"
       ? normalizeIssueStatus(filters.status)
@@ -463,7 +498,23 @@ export const filterIssues = (issues, filters) => {
   return issues.filter((issue) => {
     const normalizedIssueStatus = normalizeIssueStatus(issue.status);
 
-    if (statusGroup === "open" && ISSUE_COMPLETED_STATUSES.includes(normalizedIssueStatus)) {
+    if (filterAlias === "open" && !isIssueOpen(issue)) {
+      return false;
+    }
+
+    if (filterAlias === "closed" && !isIssueClosed(issue)) {
+      return false;
+    }
+
+    if (filterAlias === "reopened" && !isIssueReopened(issue)) {
+      return false;
+    }
+
+    if (filterAlias === "critical" && !isCriticalIssue(issue)) {
+      return false;
+    }
+
+    if (statusGroup === "open" && !isIssueOpen(issue)) {
       return false;
     }
 
@@ -487,7 +538,7 @@ export const filterIssues = (issues, filters) => {
 
     if (
       priorityGroup === "high" &&
-      !ISSUE_HIGH_PRIORITY_VALUES.includes(issue.priority)
+      !isHighPriorityIssue(issue)
     ) {
       return false;
     }

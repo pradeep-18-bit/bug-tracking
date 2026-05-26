@@ -40,6 +40,17 @@ const {
   isValidIssueType,
 } = require("../utils/issueTypes");
 const { getNextPlanningOrder } = require("../utils/planningOrder");
+const {
+  buildClosedIssueCondition,
+  buildCriticalIssueCondition,
+  buildHighPriorityIssueCondition,
+  buildOpenIssueCondition,
+  buildReopenedIssueCondition,
+  getClosedIssues,
+  getFilterAlias,
+  getHighPriorityIssues,
+  getOpenIssues,
+} = require("../utils/issueFilters");
 const { canManageProjectPlanning } = require("../utils/backlogAccess");
 const {
   buildProjectAccessQuery,
@@ -76,22 +87,6 @@ const isQaRole = (role) => role === ROLE_TESTER;
 const isDevRole = (role) => role === ROLE_DEVELOPER;
 const isLeadRole = (role) => [ROLE_ADMIN, ROLE_MANAGER].includes(role);
 const ISSUE_PRIORITY_VALUES = ["Critical", "High", "Medium", "Low"];
-const COMPLETED_ISSUE_STATUSES = [
-  ISSUE_STATUS.CLOSED,
-  ISSUE_STATUS.DONE,
-  "RESOLVED",
-  "Closed",
-  "Done",
-  "Resolved",
-];
-const NORMALIZED_COMPLETED_ISSUE_STATUSES = [
-  ISSUE_STATUS.CLOSED,
-  ISSUE_STATUS.DONE,
-  "RESOLVED",
-];
-const HIGH_PRIORITY_VALUES = ["Critical", "High", "Urgent"];
-const STAT_HIGH_PRIORITY_VALUES = ["High", "Critical", "Urgent"];
-const CLOSED_FILTER_STATUSES = COMPLETED_ISSUE_STATUSES;
 const escapeRegExp = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -139,11 +134,7 @@ const addAndCondition = (query, condition) => {
   return query;
 };
 
-const buildHighPriorityCondition = () => ({
-  priority: {
-    $in: HIGH_PRIORITY_VALUES,
-  },
-});
+const buildHighPriorityCondition = buildHighPriorityIssueCondition;
 
 const getAccessibleProjectIds = async (user) => {
   const workspaceId = normalizeWorkspaceId(user.workspaceId);
@@ -1267,13 +1258,9 @@ const buildIssueQueryFromRequest = async (
     const statusGroup = String(req.query.statusGroup).trim().toLowerCase();
 
     if (statusGroup === "open") {
-      query.status = {
-        $nin: CLOSED_FILTER_STATUSES,
-      };
+      Object.assign(query, buildOpenIssueCondition());
     } else if (statusGroup === "closed") {
-      query.status = {
-        $in: CLOSED_FILTER_STATUSES,
-      };
+      Object.assign(query, buildClosedIssueCondition());
     } else {
       res.status(400);
       throw new Error("Invalid status group filter");
@@ -1281,14 +1268,24 @@ const buildIssueQueryFromRequest = async (
   }
 
   if (req.query.status && req.query.status !== "all") {
-    const statusFilterResult = parseIssueStatusInput(req.query.status, "");
+    const statusAlias = getFilterAlias(req.query.status);
 
-    if (statusFilterResult.error) {
-      res.status(statusFilterResult.error.status);
-      throw new Error(statusFilterResult.error.message);
+    if (statusAlias === "open") {
+      Object.assign(query, buildOpenIssueCondition());
+    } else if (statusAlias === "closed") {
+      Object.assign(query, buildClosedIssueCondition());
+    } else if (statusAlias === "reopened") {
+      Object.assign(query, buildReopenedIssueCondition());
+    } else {
+      const statusFilterResult = parseIssueStatusInput(req.query.status, "");
+
+      if (statusFilterResult.error) {
+        res.status(statusFilterResult.error.status);
+        throw new Error(statusFilterResult.error.message);
+      }
+
+      query.status = statusFilterResult.value;
     }
-
-    query.status = statusFilterResult.value;
   }
 
   if (req.query.priorityGroup && req.query.priorityGroup !== "all") {
@@ -1300,6 +1297,21 @@ const buildIssueQueryFromRequest = async (
     }
 
     addAndCondition(query, buildHighPriorityCondition());
+  }
+
+  const filterAlias = getFilterAlias(req.query.filter);
+
+  if (filterAlias === "open") {
+    Object.assign(query, buildOpenIssueCondition());
+  } else if (filterAlias === "closed") {
+    Object.assign(query, buildClosedIssueCondition());
+  } else if (filterAlias === "reopened") {
+    Object.assign(query, buildReopenedIssueCondition());
+  } else if (filterAlias === "critical") {
+    addAndCondition(query, buildCriticalIssueCondition());
+  } else if (req.query.filter && req.query.filter !== "all") {
+    res.status(400);
+    throw new Error("Invalid issue filter");
   }
 
   if (req.query.priority && req.query.priority !== "all") {
@@ -1514,31 +1526,12 @@ const getIssueStats = asyncHandler(async (req, res) => {
     .select("status priority")
     .lean();
 
-  const stats = issues.reduce(
-    (summary, issue) => {
-      const status = normalizeIssueStatus(issue.status, "");
-
-      summary.total += 1;
-
-      if (NORMALIZED_COMPLETED_ISSUE_STATUSES.includes(status)) {
-        summary.closed += 1;
-      } else {
-        summary.open += 1;
-      }
-
-      if (STAT_HIGH_PRIORITY_VALUES.includes(issue.priority)) {
-        summary.highPriority += 1;
-      }
-
-      return summary;
-    },
-    {
-      total: 0,
-      open: 0,
-      closed: 0,
-      highPriority: 0,
-    }
-  );
+  const stats = {
+    total: issues.length,
+    open: getOpenIssues(issues).length,
+    closed: getClosedIssues(issues).length,
+    highPriority: getHighPriorityIssues(issues).length,
+  };
 
   res.status(200).json(stats);
 });

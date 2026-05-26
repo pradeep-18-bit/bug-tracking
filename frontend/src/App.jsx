@@ -122,6 +122,12 @@ const SelfSettingsRoute = () => {
   return role === ROLE_TESTER ? <UserSettingsPage /> : <DeveloperSettingsPage />;
 };
 
+const BugsRoute = () => {
+  const { role } = useAuth();
+
+  return ADMIN_PANEL_ROLES.includes(role) ? <AdminBugsPage /> : <TesterBugsPage />;
+};
+
 const App = () => (
   <Routes>
     <Route path="/" element={<RootRoute />} />
@@ -198,8 +204,8 @@ const App = () => (
       <Route
         path="/bugs"
         element={
-          <ProtectedRoute roles={[ROLE_TESTER]}>
-            <TesterBugsPage />
+          <ProtectedRoute roles={[...ADMIN_PANEL_ROLES, ROLE_TESTER]}>
+            <BugsRoute />
           </ProtectedRoute>
         }
       />

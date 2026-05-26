@@ -21,10 +21,13 @@ import {
 import {
   BUG_SEVERITY_OPTIONS,
   ISSUE_STATUS,
+  getCriticalIssues,
   getIssueDisplayKey,
   getIssuePriorityVariant,
   getIssueStatusLabel,
   getIssueStatusVariant,
+  getReopenedIssues,
+  normalizeIssueFilterAlias,
   normalizeBugStatusForIssue,
   resolveBugDetails,
   resolveIssueProjectId,
@@ -104,6 +107,12 @@ const normalizeLifecycleQueryValue = (value) => {
     : "all";
 };
 
+const getDashboardFilterQueryValue = (value) => {
+  const filterAlias = normalizeIssueFilterAlias(value);
+
+  return ["reopened", "critical"].includes(filterAlias) ? filterAlias : "all";
+};
+
 const getNestedUser = (value) => (value && typeof value === "object" ? value : null);
 const getReporter = (issue) => getNestedUser(issue?.reporter);
 const getBugDeveloper = (issue) =>
@@ -139,8 +148,7 @@ const getResolutionEta = (issue) => {
 };
 
 const isReopenedBug = (issue) =>
-  normalizeBugStatusForIssue(issue) === ISSUE_STATUS.REOPEN ||
-  Boolean(resolveBugDetails(issue)?.reopenReason);
+  normalizeBugStatusForIssue(issue) === ISSUE_STATUS.REOPEN;
 
 const isReadyForQa = (issue) =>
   [ISSUE_STATUS.FIXED, ISSUE_STATUS.QA].includes(normalizeBugStatusForIssue(issue));
@@ -259,6 +267,9 @@ const AdminBugsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamString = searchParams.toString();
   const initialStatusQuery = normalizeStatusQueryValue(searchParams.get("status"));
+  const initialDashboardFilter = getDashboardFilterQueryValue(
+    searchParams.get("filter") || searchParams.get("status")
+  );
   const [selectedBug, setSelectedBug] = useState(null);
   const [filters, setFilters] = useState({
     projectId: searchParams.get("projectId") || ALL_PROJECTS_VALUE,
@@ -271,9 +282,12 @@ const AdminBugsPage = () => {
     sprintId: "all",
     epicId: "all",
     lifecycle:
-      normalizeLifecycleQueryValue(searchParams.get("lifecycle")) !== "all"
+      initialDashboardFilter === "reopened"
+        ? "reopened"
+        : normalizeLifecycleQueryValue(searchParams.get("lifecycle")) !== "all"
         ? normalizeLifecycleQueryValue(searchParams.get("lifecycle"))
         : initialStatusQuery.lifecycle,
+    filter: initialDashboardFilter,
     dateFrom: searchParams.get("dateFrom") || "",
     dateTo: searchParams.get("dateTo") || "",
     search: searchParams.get("search") || "",
@@ -340,6 +354,7 @@ const AdminBugsPage = () => {
       filters.epicId,
       filters.dateFrom,
       filters.dateTo,
+      filters.filter,
     ],
     queryFn: () =>
       fetchBugs({
@@ -351,6 +366,7 @@ const AdminBugsPage = () => {
         epicId: filters.epicId,
         dateFrom: filters.dateFrom,
         dateTo: filters.dateTo,
+        filter: filters.filter,
         sortBy: "recently-updated",
       }),
   });
@@ -378,8 +394,15 @@ const AdminBugsPage = () => {
       (requestedProjectName ? ALL_PROJECTS_VALUE : filters.projectId);
     const statusQuery = normalizeStatusQueryValue(currentParams.get("status"));
     const lifecycleQuery = normalizeLifecycleQueryValue(currentParams.get("lifecycle"));
+    const dashboardFilter = getDashboardFilterQueryValue(
+      currentParams.get("filter") || currentParams.get("status")
+    );
     const nextLifecycle =
-      lifecycleQuery !== "all" ? lifecycleQuery : statusQuery.lifecycle || "all";
+      dashboardFilter === "reopened"
+        ? "reopened"
+        : lifecycleQuery !== "all"
+          ? lifecycleQuery
+          : statusQuery.lifecycle || "all";
 
     setFilters((current) => {
       const nextFilters = {
@@ -388,6 +411,7 @@ const AdminBugsPage = () => {
         priority: normalizePriorityQueryValue(currentParams.get("priority")),
         status: statusQuery.status,
         lifecycle: nextLifecycle,
+        filter: dashboardFilter,
         dateFrom: currentParams.get("dateFrom") || "",
         dateTo: currentParams.get("dateTo") || "",
         search: currentParams.get("search") || "",
@@ -443,6 +467,14 @@ const AdminBugsPage = () => {
         return false;
       }
 
+      if (filters.filter === "reopened" && !isReopenedBug(bugIssue)) {
+        return false;
+      }
+
+      if (filters.filter === "critical" && !getCriticalIssues([bugIssue]).length) {
+        return false;
+      }
+
       if (filters.lifecycle === "reopened" && !isReopenedBug(bugIssue)) {
         return false;
       }
@@ -481,16 +513,14 @@ const AdminBugsPage = () => {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(searchTerm));
     });
-  }, [bugs, deferredSearch, filters.developerId, filters.lifecycle, filters.severity, filters.testerId]);
+  }, [bugs, deferredSearch, filters.developerId, filters.filter, filters.lifecycle, filters.severity, filters.testerId]);
 
   const metrics = useMemo(
     () => ({
       total: filteredBugs.length,
       open: filteredBugs.filter((bugIssue) => !isClosedBug(bugIssue)).length,
-      critical: filteredBugs.filter((bugIssue) =>
-        ["Blocker", "Critical"].includes(getSeverity(bugIssue))
-      ).length,
-      reopened: filteredBugs.filter(isReopenedBug).length,
+      critical: getCriticalIssues(filteredBugs).length,
+      reopened: getReopenedIssues(filteredBugs).length,
       readyForQa: filteredBugs.filter(isReadyForQa).length,
       closed: filteredBugs.filter((bugIssue) => normalizeBugStatusForIssue(bugIssue) === ISSUE_STATUS.CLOSED).length,
     }),

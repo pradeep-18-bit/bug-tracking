@@ -18,6 +18,7 @@ import {
   filterIssues,
   getIssueDisplayKey,
   getIssueStatusLabel,
+  normalizeIssueFilterAlias,
   sortIssues,
 } from "@/lib/issues";
 import {
@@ -176,6 +177,7 @@ const buildIssueListCacheFilters = (queryKey = []) => ({
   type: queryKey[9] || "all",
   dateFrom: queryKey[15] || "",
   dateTo: queryKey[16] || "",
+  filter: queryKey[17] || "all",
 });
 
 const IssueBoardSkeleton = () => (
@@ -203,6 +205,9 @@ const IssuesPage = () => {
   const navigate = useNavigate();
   const { issueId: routeIssueId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  const initialFilterAlias = normalizeIssueFilterAlias(
+    searchParams.get("filter") || searchParams.get("status")
+  );
   const [filters, setFilters] = useState({
     projectId: normalizeProjectFilterValue(searchParams.get("projectId")),
     teamId: searchParams.get("teamId") || "all",
@@ -212,12 +217,15 @@ const IssuesPage = () => {
     type: "all",
     status: normalizeStatusFilterValue(searchParams.get("status")) || "all",
     statusGroup:
-      normalizeStatusGroupFilterValue(searchParams.get("statusGroup")) || "all",
+      initialFilterAlias === "open" || initialFilterAlias === "closed"
+        ? initialFilterAlias
+        : normalizeStatusGroupFilterValue(searchParams.get("statusGroup")) || "all",
     priority: normalizePriorityFilterValue(searchParams.get("priority")),
     priorityGroup:
       normalizePriorityGroupFilterValue(searchParams.get("priorityGroup")) || "all",
     dateFrom: searchParams.get("dateFrom") || "",
     dateTo: searchParams.get("dateTo") || "",
+    filter: initialFilterAlias || "all",
     search: searchParams.get("search") || "",
   });
   const [selectedIssue, setSelectedIssue] = useState(null);
@@ -266,8 +274,13 @@ const IssuesPage = () => {
       const nextSearch = searchParams.get("search") || current.search;
       const requestedAssigneeId = searchParams.get("assigneeId") || current.assigneeId;
       const nextStatus = normalizeStatusFilterValue(searchParams.get("status")) || "all";
+      const nextFilterAlias = normalizeIssueFilterAlias(
+        searchParams.get("filter") || searchParams.get("status")
+      );
       const nextStatusGroup =
-        normalizeStatusGroupFilterValue(searchParams.get("statusGroup")) || "all";
+        nextFilterAlias === "open" || nextFilterAlias === "closed"
+          ? nextFilterAlias
+          : normalizeStatusGroupFilterValue(searchParams.get("statusGroup")) || "all";
       const nextPriority = normalizePriorityFilterValue(searchParams.get("priority"));
       const nextPriorityGroup =
         normalizePriorityGroupFilterValue(searchParams.get("priorityGroup")) || "all";
@@ -286,6 +299,7 @@ const IssuesPage = () => {
         current.priorityGroup === nextPriorityGroup &&
         current.dateFrom === nextDateFrom &&
         current.dateTo === nextDateTo &&
+        current.filter === (nextFilterAlias || "all") &&
         current.search === nextSearch
       ) {
         return current;
@@ -304,6 +318,7 @@ const IssuesPage = () => {
         priorityGroup: nextPriorityGroup,
         dateFrom: nextDateFrom,
         dateTo: nextDateTo,
+        filter: nextFilterAlias || "all",
         search: nextSearch,
       };
     });
@@ -462,6 +477,7 @@ const IssuesPage = () => {
       filters.priorityGroup,
       filters.dateFrom,
       filters.dateTo,
+      filters.filter,
     ],
     queryFn: () =>
       fetchIssues({
@@ -479,6 +495,7 @@ const IssuesPage = () => {
         priorityGroup: filters.priorityGroup,
         dateFrom: filters.dateFrom,
         dateTo: filters.dateTo,
+        filter: filters.filter,
         search: deferredSearch,
       }),
     enabled: Boolean(projects.length),

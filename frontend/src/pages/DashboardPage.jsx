@@ -37,10 +37,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ISSUE_STATUS,
   ISSUE_TYPES,
+  getCriticalIssues,
   getIssueDisplayKey,
   getIssuePriorityVariant,
   getIssueStatusLabel,
   getIssueStatusVariant,
+  getReopenedIssues,
   normalizeBugStatusForIssue,
   resolveBugDetails,
   resolveIssueProjectId,
@@ -104,14 +106,12 @@ const getBugAssigneeName = (bug) => {
   return developer?.name || developer?.email || "Unassigned";
 };
 const getBugSeverity = (bug) => resolveBugDetails(bug)?.severity || "";
-const isCriticalBug = (bug) =>
-  bug?.priority === "Critical" || ["Blocker", "Critical"].includes(getBugSeverity(bug));
+const isCriticalBug = (bug) => getCriticalIssues([bug]).length > 0;
 const isOpenBug = (bug) => !BUG_CLOSED_STATUSES.includes(normalizeBugStatusForIssue(bug));
 const isResolvedBug = (bug) =>
   BUG_RESOLVED_STATUSES.includes(normalizeBugStatusForIssue(bug));
 const isReopenedBug = (bug) =>
-  normalizeBugStatusForIssue(bug) === ISSUE_STATUS.REOPEN ||
-  Boolean(resolveBugDetails(bug)?.reopenReason);
+  getReopenedIssues([bug]).length > 0;
 
 const startOfDay = (date) => {
   const value = new Date(date);
@@ -447,7 +447,7 @@ const DashboardPage = () => {
       }
     });
 
-    navigate(`/admin/bugs${searchParams.toString() ? `?${searchParams}` : ""}`);
+    navigate(`/bugs${searchParams.toString() ? `?${searchParams}` : ""}`);
   };
   const bugMetrics = useMemo(() => {
     const openBugs = bugs.filter(isOpenBug);
@@ -569,7 +569,7 @@ const DashboardPage = () => {
         direction: bugMetrics.critical ? "up" : "flat",
         label: `${bugMetrics.critical} urgent`,
       },
-      onClick: () => navigateToBugs({ priority: "Critical" }),
+      onClick: () => navigateToBugs({ filter: "critical" }),
     },
     {
       key: "resolved-bugs",
@@ -589,7 +589,7 @@ const DashboardPage = () => {
       icon: RefreshCcw,
       tone: "violet",
       trend: { direction: bugMetrics.reopened ? "up" : "flat", label: `${bugMetrics.reopened} reopened` },
-      onClick: () => navigateToBugs({ lifecycle: "reopened" }),
+      onClick: () => navigateToBugs({ filter: "reopened" }),
     },
     {
       key: "bugs-this-week",
@@ -624,7 +624,7 @@ const DashboardPage = () => {
       icon: AlertTriangle,
       tone: "amber",
       trend: trends.openIssues,
-      onClick: () => navigateToIssues({ statusGroup: "open" }),
+      onClick: () => navigateToIssues({ filter: "open" }),
     },
     {
       key: "closed",
@@ -634,7 +634,7 @@ const DashboardPage = () => {
       icon: CheckCircle2,
       tone: "emerald",
       trend: trends.closedIssues,
-      onClick: () => navigateToIssues({ statusGroup: "closed" }),
+      onClick: () => navigateToIssues({ filter: "closed" }),
     },
     {
       key: "priority",
