@@ -157,39 +157,39 @@ const Navbar = () => {
       <AnimatePresence>
         {isMenuOpen && (
           <>
-            {/* Backdrop overlay */}
+            {/* Backdrop overlay - dark semi-transparent with blur */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
+              className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm lg:hidden"
               onClick={() => setIsMenuOpen(false)}
             />
 
-            {/* Mobile drawer */}
+            {/* Mobile drawer - slides from RIGHT */}
             <motion.div
-              initial={{ x: "-100%", opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: "-100%", opacity: 0 }}
-              transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="fixed left-0 top-0 z-50 flex h-screen w-full max-w-xs flex-col border-r border-white/45 bg-gradient-to-b from-white/82 via-blue-50/78 to-sky-100/74 shadow-[0_18px_40px_rgba(15,23,42,0.12)] lg:hidden"
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", stiffness: 350, damping: 35 }}
+              className="fixed right-0 top-0 z-[9999] flex h-screen w-[80%] max-w-[320px] flex-col border-l border-slate-200 bg-white shadow-2xl lg:hidden"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Drawer header with close button */}
-              <div className="flex items-center justify-between border-b border-white/45 px-4 py-3.5 sm:py-4">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 sm:px-5 sm:py-5">
                 <img
                   src={pirnavLogo}
                   alt="Pirnav Software Solutions Pvt. Ltd."
-                  className="h-auto max-h-8 w-auto max-w-[120px] object-contain sm:max-h-9 sm:max-w-[140px]"
+                  className="h-auto max-h-8 w-auto max-w-[100px] object-contain"
                 />
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={() => setIsMenuOpen(false)}
-                  className="shrink-0 hover:bg-white/40"
+                  className="shrink-0 -mr-2 hover:bg-slate-100"
                 >
-                  <X className="h-5 w-5" />
+                  <X className="h-5 w-5 text-slate-600" />
                 </Button>
               </div>
 
@@ -207,17 +207,17 @@ const Navbar = () => {
                         onClick={() => setIsMenuOpen(false)}
                         className={({ isActive }) =>
                           cn(
-                            "group inline-flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-medium transition-all duration-200",
+                            "group flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-sm font-medium transition-all duration-200",
                             isActive
-                              ? "border-blue-200/80 bg-gradient-to-r from-blue-500/85 via-sky-400/80 to-cyan-300/75 font-semibold text-white shadow-[0_12px_28px_rgba(37,99,235,0.3)]"
-                              : "border-white/35 bg-white/38 text-slate-700 hover:border-blue-200/70 hover:bg-white/55 hover:text-slate-950"
+                              ? "border-blue-200 bg-blue-50 text-blue-700 shadow-sm"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
                           )
                         }
                       >
-                        <Icon className="h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-105" />
+                        <Icon className="h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110" />
                         <span className="flex-1 text-left">{item.label}</span>
                         {item.icon === "chat" && chatUnreadCount ? (
-                          <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-extrabold text-white shadow-sm">
+                          <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-extrabold text-white shadow-sm">
                             {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
                           </span>
                         ) : null}
@@ -227,10 +227,10 @@ const Navbar = () => {
                 </nav>
 
                 {/* Divider */}
-                <div className="my-2 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+                <div className="my-3 h-px bg-slate-200" />
 
                 {/* User info */}
-                <div className="flex items-center gap-3 rounded-2xl border border-white/40 bg-white/40 px-4 py-3 shadow-[0_12px_30px_rgba(148,163,184,0.14)] backdrop-blur-xl">
+                <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm">
                   <Avatar className="h-10 w-10 shrink-0">
                     <AvatarFallback>{getInitials(user?.name)}</AvatarFallback>
                   </Avatar>
@@ -244,11 +244,10 @@ const Navbar = () => {
               </div>
 
               {/* Drawer footer with logout */}
-              <div className="border-t border-white/45 px-3 py-3 sm:px-4 sm:py-4">
+              <div className="border-t border-slate-200 px-3 py-3 sm:px-4 sm:py-4">
                 <Button
-                  className="w-full"
+                  className="w-full bg-red-500 text-white hover:bg-red-600"
                   type="button"
-                  variant="outline"
                   onClick={() => {
                     setIsMenuOpen(false);
                     logout();
