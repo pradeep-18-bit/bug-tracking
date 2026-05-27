@@ -10,6 +10,7 @@ import {
   resolveApiAssetUrl,
   suggestIssuePriority,
   uploadIssueAttachment,
+  downloadAttachment,
 } from "@/lib/api";
 import {
   getIssueDisplayKey,
@@ -628,12 +629,11 @@ const IssueDetailsDrawer = ({
               <div className="mt-4 space-y-3">
                 {attachments.length ? (
                   attachments.map((attachment) => (
-                    <a
+                    <button
                       key={attachment._id}
-                      href={resolveApiAssetUrl(attachment.downloadUrl || attachment.storagePath)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-4 transition hover:border-blue-200 hover:bg-white"
+                      type="button"
+                      onClick={() => downloadAttachment(attachment)}
+                      className="block w-full rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-4 transition hover:border-blue-200 hover:bg-white cursor-pointer text-left"
                     >
                       <p className="text-sm font-semibold text-slate-950">
                         {attachment.fileName}
@@ -642,7 +642,7 @@ const IssueDetailsDrawer = ({
                         {attachment.uploadedBy?.name || "Unknown user"} •{" "}
                         {formatDateTime(attachment.createdAt)}
                       </p>
-                    </a>
+                    </button>
                   ))
                 ) : (
                   <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-sm leading-6 text-slate-500">

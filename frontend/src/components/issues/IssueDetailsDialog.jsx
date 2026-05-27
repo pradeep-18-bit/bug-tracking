@@ -17,6 +17,7 @@ import {
   fetchIssueHistory,
   resolveApiAssetUrl,
   uploadIssueAttachment,
+  downloadAttachment,
 } from "@/lib/api";
 import {
   BUG_ALTERNATE_TRANSITIONS,
@@ -1434,14 +1435,11 @@ const IssueDetailsDialog = ({
                   <Skeleton className="h-16 w-full" />
                 ) : attachments.length ? (
                   attachments.map((attachment) => (
-                    <a
+                    <button
                       key={attachment._id}
-                      className="block rounded-[20px] border border-gray-200 bg-white p-3 text-sm transition hover:border-blue-200"
-                      href={resolveApiAssetUrl(
-                        attachment.downloadUrl || attachment.storagePath
-                      )}
-                      target="_blank"
-                      rel="noreferrer"
+                      type="button"
+                      onClick={() => downloadAttachment(attachment)}
+                      className="block w-full rounded-[20px] border border-gray-200 bg-white p-3 text-sm transition hover:border-blue-200 hover:bg-blue-50 cursor-pointer"
                     >
                       <span className="font-semibold text-gray-900">
                         {attachment.fileName}
@@ -1450,7 +1448,7 @@ const IssueDetailsDialog = ({
                         {attachment.uploadedBy?.name || "Unknown user"} at{" "}
                         {formatDateTime(attachment.createdAt)}
                       </span>
-                    </a>
+                    </button>
                   ))
                 ) : (
                   <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">

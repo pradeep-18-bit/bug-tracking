@@ -739,6 +739,36 @@ export const resolveApiAssetUrl = (assetPath = "") => {
   }
 };
 
+export const downloadAttachment = async (attachment) => {
+  try {
+    // Use the downloadUrl if available, otherwise use storagePath
+    const downloadPath = attachment.downloadUrl || attachment.storagePath;
+    
+    if (!downloadPath) {
+      throw new Error("No download path available for attachment");
+    }
+
+    // Make authenticated request to download the file
+    const response = await api.get(downloadPath, {
+      responseType: "blob",
+      withCredentials: true,
+    });
+
+    // Create a blob URL and trigger download
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", attachment.fileName || "attachment");
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error("Failed to download attachment:", error);
+    throw error;
+  }
+};
+
 export const inviteUser = async (payload) => {
   const response = await api.post("/users/invite", payload);
   return response.data;
