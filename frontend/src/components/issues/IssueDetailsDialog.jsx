@@ -1438,7 +1438,7 @@ const IssueDetailsDialog = ({
                     <button
                       key={attachment._id}
                       type="button"
-                      onClick={() => downloadAttachment(attachment)}
+                      onClick={() => downloadAttachment(attachment, issue._id)}
                       className="block w-full rounded-[20px] border border-gray-200 bg-white p-3 text-sm transition hover:border-blue-200 hover:bg-blue-50 cursor-pointer"
                     >
                       <span className="font-semibold text-gray-900">

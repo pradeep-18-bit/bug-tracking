@@ -11,6 +11,7 @@ const {
 const {
   createIssueWorklog,
   getIssueAttachments,
+  downloadIssueAttachment,
   getIssueHistory,
   getIssueWorklogs,
   moveIssueToSprint,
@@ -31,6 +32,7 @@ router.patch("/:id/planning", protect, updateIssuePlanning);
 router.post("/:id/sprint", protect, moveIssueToSprint);
 router.delete("/:id/sprint", protect, removeIssueFromSprint);
 router.get("/:id/attachments", protect, getIssueAttachments);
+router.get("/:issueId/attachments/:attachmentId/download", protect, downloadIssueAttachment);
 router.post(
   "/:id/attachments",
   protect,

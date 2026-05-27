@@ -632,7 +632,7 @@ const IssueDetailsDrawer = ({
                     <button
                       key={attachment._id}
                       type="button"
-                      onClick={() => downloadAttachment(attachment)}
+                      onClick={() => downloadAttachment(attachment, issue._id)}
                       className="block w-full rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-4 transition hover:border-blue-200 hover:bg-white cursor-pointer text-left"
                     >
                       <p className="text-sm font-semibold text-slate-950">

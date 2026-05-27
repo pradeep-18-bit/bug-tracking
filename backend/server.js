@@ -39,6 +39,15 @@ app.disable("x-powered-by");
 
 app.use(cors());
 app.use(express.json());
+
+// Protect issue attachments from direct access - must use API endpoint
+app.use("/uploads/issue-attachments", (req, res) => {
+  res.status(403).json({
+    message: "Direct access to issue attachments is not allowed. Use the API endpoint instead.",
+  });
+});
+
+// Allow other uploads (e.g., chat attachments) for now
 app.use("/uploads", express.static(path.resolve(__dirname, "uploads")));
 
 app.get("/", (req, res) => {

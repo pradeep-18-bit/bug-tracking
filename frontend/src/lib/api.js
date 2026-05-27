@@ -739,20 +739,24 @@ export const resolveApiAssetUrl = (assetPath = "") => {
   }
 };
 
-export const downloadAttachment = async (attachment) => {
+export const downloadAttachment = async (attachment, issueId) => {
   try {
-    // Use the downloadUrl if available, otherwise use storagePath
-    const downloadPath = attachment.downloadUrl || attachment.storagePath;
-    
-    if (!downloadPath) {
-      throw new Error("No download path available for attachment");
+    if (!attachment._id) {
+      throw new Error("Attachment ID is required");
     }
 
-    // Make authenticated request to download the file
-    const response = await api.get(downloadPath, {
-      responseType: "blob",
-      withCredentials: true,
-    });
+    if (!issueId) {
+      throw new Error("Issue ID is required");
+    }
+
+    // Use authenticated endpoint for downloading
+    const response = await api.get(
+      `/issues/${issueId}/attachments/${attachment._id}/download`,
+      {
+        responseType: "blob",
+        withCredentials: true,
+      }
+    );
 
     // Create a blob URL and trigger download
     const url = window.URL.createObjectURL(new Blob([response.data]));
