@@ -368,7 +368,7 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.98 }}
                 transition={{ duration: 0.16 }}
-                className="absolute bottom-12 right-0 z-30 max-w-[calc(100vw-2rem)] overflow-hidden rounded-[22px] border border-emerald-100 bg-white shadow-[0_26px_70px_-42px_rgba(15,23,42,0.5)]"
+                className="absolute bottom-12 right-0 z-[45] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[22px] border border-emerald-100 bg-white shadow-[0_26px_70px_-42px_rgba(15,23,42,0.5)]"
               >
                 <Suspense
                   fallback={

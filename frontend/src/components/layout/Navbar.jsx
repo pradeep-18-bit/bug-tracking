@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   BarChart3,
   Bug,
@@ -61,6 +62,19 @@ const Navbar = () => {
 
     loadConversations();
   }, [hasLoadedConversations, loadConversations, user]);
+
+  // Prevent body scroll when mobile menu is open
+  useEffect(() => {
+    if (isMenuOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "unset";
+    }
+
+    return () => {
+      document.body.style.overflow = "unset";
+    };
+  }, [isMenuOpen]);
 
   return (
     <header className="fixed inset-x-0 top-0 z-30 h-16 border-b border-white/45 bg-gradient-to-r from-white/78 via-blue-50/74 to-sky-100/70 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-2xl sm:h-20">
@@ -139,60 +153,115 @@ const Navbar = () => {
         </div>
       </div>
 
-      {isMenuOpen ? (
-        <div className="absolute inset-x-0 top-full max-h-[calc(100vh-4rem)] overflow-y-auto border-b border-white/45 bg-gradient-to-r from-white/82 via-blue-50/78 to-sky-100/74 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur-2xl sm:max-h-[calc(100vh-5rem)] lg:hidden">
-          <div className="mx-auto w-full max-w-screen-2xl space-y-4 px-4 py-4 sm:px-6 lg:px-8">
-            <nav className="grid gap-2">
-              {navigation.map((item) => {
-                const Icon = iconMap[item.icon] || LayoutDashboard;
+      {/* Mobile drawer menu */}
+      <AnimatePresence>
+        {isMenuOpen && (
+          <>
+            {/* Backdrop overlay */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
+              onClick={() => setIsMenuOpen(false)}
+            />
 
-                return (
-                  <NavLink
-                    key={item.href}
-                    to={item.href}
-                    className={({ isActive }) =>
-                      cn(
-                        navItemClassName,
-                        "w-full justify-between bg-white/38",
-                        isActive
-                          ? "border-blue-200/80 bg-gradient-to-r from-blue-500/85 via-sky-400/80 to-cyan-300/75 font-semibold text-white shadow-[0_12px_28px_rgba(37,99,235,0.3)]"
-                          : "border-white/35 text-slate-700 hover:border-blue-200/70 hover:bg-white/55 hover:text-slate-950"
-                      )
-                    }
-                  >
-                    <span className="flex items-center gap-2">
-                      <Icon className="h-4 w-4" />
-                      {item.label}
-                      {item.icon === "chat" && chatUnreadCount ? (
-                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-extrabold text-white shadow-sm">
-                          {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
-                        </span>
-                      ) : null}
-                    </span>
-                  </NavLink>
-                );
-              })}
-            </nav>
-
-            <div className="flex items-center gap-3 rounded-[24px] border border-white/40 bg-white/40 px-4 py-3 shadow-[0_12px_30px_rgba(148,163,184,0.14)] backdrop-blur-xl">
-              <Avatar className="h-11 w-11">
-                <AvatarFallback>{getInitials(user?.name)}</AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-slate-900">
-                  {user?.name}
-                </p>
-                <p className="truncate text-xs text-slate-600">{user?.email}</p>
+            {/* Mobile drawer */}
+            <motion.div
+              initial={{ x: "-100%", opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: "-100%", opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              className="fixed left-0 top-0 z-50 flex h-screen w-full max-w-xs flex-col border-r border-white/45 bg-gradient-to-b from-white/82 via-blue-50/78 to-sky-100/74 shadow-[0_18px_40px_rgba(15,23,42,0.12)] lg:hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Drawer header with close button */}
+              <div className="flex items-center justify-between border-b border-white/45 px-4 py-3.5 sm:py-4">
+                <img
+                  src={pirnavLogo}
+                  alt="Pirnav Software Solutions Pvt. Ltd."
+                  className="h-auto max-h-8 w-auto max-w-[120px] object-contain sm:max-h-9 sm:max-w-[140px]"
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="shrink-0 hover:bg-white/40"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
               </div>
-            </div>
 
-            <Button className="w-full" type="button" variant="outline" onClick={logout}>
-              <LogOut className="h-4 w-4" />
-              Logout
-            </Button>
-          </div>
-        </div>
-      ) : null}
+              {/* Drawer content - scrollable */}
+              <div className="flex-1 overflow-y-auto space-y-3 px-3 py-4 sm:space-y-4 sm:px-4 sm:py-5">
+                {/* Navigation items */}
+                <nav className="space-y-2">
+                  {navigation.map((item) => {
+                    const Icon = iconMap[item.icon] || LayoutDashboard;
+
+                    return (
+                      <NavLink
+                        key={item.href}
+                        to={item.href}
+                        onClick={() => setIsMenuOpen(false)}
+                        className={({ isActive }) =>
+                          cn(
+                            "group inline-flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-medium transition-all duration-200",
+                            isActive
+                              ? "border-blue-200/80 bg-gradient-to-r from-blue-500/85 via-sky-400/80 to-cyan-300/75 font-semibold text-white shadow-[0_12px_28px_rgba(37,99,235,0.3)]"
+                              : "border-white/35 bg-white/38 text-slate-700 hover:border-blue-200/70 hover:bg-white/55 hover:text-slate-950"
+                          )
+                        }
+                      >
+                        <Icon className="h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-105" />
+                        <span className="flex-1 text-left">{item.label}</span>
+                        {item.icon === "chat" && chatUnreadCount ? (
+                          <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-extrabold text-white shadow-sm">
+                            {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                          </span>
+                        ) : null}
+                      </NavLink>
+                    );
+                  })}
+                </nav>
+
+                {/* Divider */}
+                <div className="my-2 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+
+                {/* User info */}
+                <div className="flex items-center gap-3 rounded-2xl border border-white/40 bg-white/40 px-4 py-3 shadow-[0_12px_30px_rgba(148,163,184,0.14)] backdrop-blur-xl">
+                  <Avatar className="h-10 w-10 shrink-0">
+                    <AvatarFallback>{getInitials(user?.name)}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-900">
+                      {user?.name}
+                    </p>
+                    <p className="truncate text-xs text-slate-600">{user?.email}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Drawer footer with logout */}
+              <div className="border-t border-white/45 px-3 py-3 sm:px-4 sm:py-4">
+                <Button
+                  className="w-full"
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    logout();
+                  }}
+                >
+                  <LogOut className="h-4 w-4" />
+                  Logout
+                </Button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </header>
   );
 };

@@ -178,7 +178,7 @@ const PlanningActionMenu = ({
               ref={menuRef}
               role="menu"
               className={cn(
-                "fixed z-[1600] w-56 max-w-[calc(100vw-1.5rem)] rounded-[18px] border border-white/75 bg-white/96 p-2 shadow-[0_26px_52px_-28px_rgba(15,23,42,0.34)] backdrop-blur-xl",
+                "fixed z-[70] w-56 max-w-[calc(100vw-1.5rem)] rounded-[18px] border border-white/75 bg-white/96 p-2 shadow-[0_26px_52px_-28px_rgba(15,23,42,0.34)] backdrop-blur-xl",
                 menuPosition.ready ? "opacity-100" : "opacity-0"
               )}
               style={{

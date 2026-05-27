@@ -231,7 +231,7 @@ const BacklogToolbar = ({
             </Button>
 
             {advancedOpen ? (
-              <div className="absolute right-0 top-full z-30 mt-2 w-full min-w-[280px] rounded-[22px] border border-white/75 bg-white/96 p-4 shadow-[0_26px_52px_-28px_rgba(15,23,42,0.34)] backdrop-blur-xl xl:w-[320px]">
+              <div className="absolute right-0 top-full z-[45] mt-2 w-full min-w-[280px] rounded-[22px] border border-white/75 bg-white/96 p-4 shadow-[0_26px_52px_-28px_rgba(15,23,42,0.34)] backdrop-blur-xl xl:w-[320px]">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-slate-950">Advanced Filters</p>
