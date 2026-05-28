@@ -1,5 +1,5 @@
 const nodemailer = require("nodemailer");
-const { generateIssueRedirectUrl } = require("../config/env");
+const { generateIssueRedirectUrl, generateBugRedirectUrl } = require("../config/env");
 const User = require("../models/User");
 const UserEmailConfig = require("../models/UserEmailConfig");
 const WorkspaceSetting = require("../models/WorkspaceSetting");
@@ -1351,7 +1351,7 @@ const sendIssueEmail = async (emails, issue, options = {}) => {
 
 const sendBugAssignmentEmail = async (emails, bug, options = {}) => {
   const bugId = String(bug.displayBugId || bug._id || "");
-  const bugUrl = generateIssueRedirectUrl(bugId);
+  const bugUrl = generateBugRedirectUrl(bugId);
   const bugTitle = String(bug.title || "Untitled bug");
   const projectName = bug.projectName || "N/A";
   const severity = bug.severity || "N/A";

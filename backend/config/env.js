@@ -48,6 +48,9 @@ const buildAppUrl = (pathname = "") => {
 const generateIssueUrl = (issueId) => buildAppUrl(`/issues/${issueId}`);
 const generateIssueRedirectUrl = (issueId) =>
   buildAppUrl(`/login?redirect=/issues/${encodeURIComponent(String(issueId || ""))}`);
+const generateBugUrl = (bugId) => buildAppUrl(`/bugs/${bugId}`);
+const generateBugRedirectUrl = (bugId) =>
+  buildAppUrl(`/login?redirect=/bugs/${encodeURIComponent(String(bugId || ""))}`);
 
 module.exports = {
   APP_URL: getAppUrl(),
@@ -55,6 +58,8 @@ module.exports = {
   buildAppUrl,
   generateIssueRedirectUrl,
   generateIssueUrl,
+  generateBugRedirectUrl,
+  generateBugUrl,
   getAppUrl,
   normalizeBaseUrl,
 };
