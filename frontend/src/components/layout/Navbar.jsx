@@ -11,7 +11,6 @@ import {
   LogOut,
   Menu,
   MessageCircle,
-  Settings2,
   Users2,
   X,
 } from "lucide-react";
@@ -35,11 +34,10 @@ const iconMap = {
   tasks: ListTodo,
   reports: BarChart3,
   chat: MessageCircle,
-  settings: Settings2,
 };
 
 const navItemClassName =
-  "group inline-flex items-center gap-2.5 rounded-lg border px-3.5 py-2 text-sm font-medium transition duration-200 ease-out whitespace-nowrap";
+  "group inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition duration-200 ease-out whitespace-nowrap";
 
 const Navbar = () => {
   const location = useLocation();
@@ -82,7 +80,7 @@ const Navbar = () => {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.14),transparent_32%),radial-gradient(circle_at_top_right,_rgba(186,230,253,0.20),transparent_40%)]" />
 
       <div className="relative z-10 mx-auto h-full w-full max-w-screen-2xl overflow-visible px-4 sm:px-6 lg:px-8">
-        <div className="flex h-full items-center gap-2 overflow-visible lg:gap-4">
+        <div className="flex h-full items-center gap-2 overflow-visible lg:gap-3">
           <NavLink
             to={navigation[0]?.href || "/"}
             className="flex min-w-0 items-center gap-3"
@@ -94,7 +92,7 @@ const Navbar = () => {
             />
           </NavLink>
 
-          <nav className="hidden items-center gap-1.5 lg:flex">
+          <nav className="hidden items-center gap-1.5 lg:flex xl:gap-2">
             {navigation.map((item) => {
               const Icon = iconMap[item.icon] || LayoutDashboard;
 

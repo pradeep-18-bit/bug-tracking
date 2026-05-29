@@ -4,12 +4,14 @@ import {
   ChevronDown,
   LogOut,
   Lock,
+  Settings,
   User,
   Sliders,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/use-auth";
+import { hasAdminPanelAccess } from "@/lib/roles";
 import { getInitials } from "@/lib/utils";
 
 const UserProfileDropdown = () => {
@@ -58,6 +60,10 @@ const UserProfileDropdown = () => {
     navigate(path);
   };
 
+  const settingsPath = hasAdminPanelAccess(user?.role)
+    ? "/settings/users"
+    : "/dev/settings";
+
   const menuItems = [
     {
       icon: User,
@@ -65,14 +71,14 @@ const UserProfileDropdown = () => {
       onClick: () => handleNavigate("/profile"),
     },
     {
-      icon: User,
-      label: "Account Settings",
-      onClick: () => handleNavigate("/profile"),
-    },
-    {
       icon: Lock,
       label: "Change Password",
       onClick: () => handleNavigate("/settings?tab=password"),
+    },
+    {
+      icon: Settings,
+      label: "Settings",
+      onClick: () => handleNavigate(settingsPath),
     },
     {
       icon: Sliders,
@@ -111,13 +117,13 @@ const UserProfileDropdown = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.94 }}
             transition={{ type: "spring", stiffness: 350, damping: 30 }}
-            className="profile-dropdown-scrollbar absolute right-0 top-[calc(100%+12px)] z-[10000] max-h-[calc(100vh-100px)] w-[min(calc(100vw-2rem),20rem)] min-w-[260px] max-w-[320px] overflow-y-auto overscroll-contain rounded-xl border border-white/70 bg-white/90 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.45),0_8px_24px_-16px_rgba(37,99,235,0.28)] backdrop-blur-xl"
+            className="profile-dropdown-scrollbar absolute right-0 top-[calc(100%+12px)] z-[10000] max-h-[calc(100vh-100px)] w-[min(calc(100vw-2rem),20rem)] min-w-[260px] max-w-[320px] overflow-y-auto overscroll-contain rounded-xl border border-white/70 bg-white/90 py-1 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.45),0_8px_24px_-16px_rgba(37,99,235,0.28)] backdrop-blur-xl"
             role="menu"
           >
             {/* User Info Header */}
-            <div className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/95 px-4 py-4 backdrop-blur-xl">
-              <div className="flex items-start gap-3">
-                <Avatar className="h-12 w-12 ring-2 ring-blue-100 shrink-0">
+            <div className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/95 px-3.5 py-3 backdrop-blur-xl">
+              <div className="flex items-center gap-3">
+                <Avatar className="h-10 w-10 shrink-0 ring-2 ring-blue-100">
                   <AvatarFallback className="text-sm font-bold bg-gradient-to-br from-blue-500 to-blue-600 text-white">
                     {getInitials(user?.name)}
                   </AvatarFallback>
@@ -130,7 +136,7 @@ const UserProfileDropdown = () => {
                     {user?.email}
                   </p>
                   {user?.role && (
-                    <div className="mt-2">
+                    <div className="mt-1.5">
                       <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-blue-100/50 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
                         <span className="h-1.5 w-1.5 rounded-full bg-blue-600" />
                         <span className="truncate whitespace-nowrap">{user.role}</span>
@@ -142,7 +148,7 @@ const UserProfileDropdown = () => {
             </div>
 
             {/* Menu Items */}
-            <nav className="space-y-1 px-2 py-2">
+            <nav className="space-y-0.5 px-2 py-2">
               {menuItems.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -150,7 +156,7 @@ const UserProfileDropdown = () => {
                     key={item.label}
                     onClick={item.onClick}
                     role="menuitem"
-                    className="group/item flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-blue-50 hover:text-blue-700 active:bg-blue-100 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-blue-400"
+                    className="group/item flex h-9 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-blue-50 hover:text-blue-700 active:bg-blue-100 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-blue-400"
                   >
                     <Icon className="h-4 w-4 shrink-0 text-slate-500 group-hover/item:text-blue-600 transition-colors" />
                     <span className="min-w-0 flex-1 truncate whitespace-nowrap text-left">
@@ -162,14 +168,14 @@ const UserProfileDropdown = () => {
             </nav>
 
             {/* Divider */}
-            <div className="my-1 h-px bg-slate-100" />
+            <div className="mx-2 h-px bg-slate-100" />
 
             {/* Logout Button */}
             <div className="px-2 py-2">
               <button
                 onClick={handleLogout}
                 role="menuitem"
-                className="group/logout flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-red-600 transition-all duration-150 hover:bg-red-50 active:bg-red-100 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-red-400"
+                className="group/logout flex h-9 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-red-600 transition-all duration-150 hover:bg-red-50 active:bg-red-100 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-red-400"
               >
                 <LogOut className="h-4 w-4 shrink-0 transition-colors" />
                 <span className="min-w-0 flex-1 truncate whitespace-nowrap text-left">

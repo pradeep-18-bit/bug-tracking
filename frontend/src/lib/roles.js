@@ -37,7 +37,6 @@ export const getRoleNavigation = (role) => {
       { label: "Bugs", href: "/admin/bugs", icon: "bugs" },
       { label: "Reports", href: "/reports", icon: "reports" },
       { label: "Chat", href: "/chat", icon: "chat" },
-      { label: "Settings", href: "/settings/users", icon: "settings" },
     ];
   }
 
@@ -48,7 +47,6 @@ export const getRoleNavigation = (role) => {
       { label: "Tasks", href: "/tasks", icon: "tasks" },
       { label: "Reports", href: "/reports", icon: "reports" },
       { label: "Chat", href: "/chat", icon: "chat" },
-      { label: "Settings", href: "/dev/settings", icon: "settings" },
     ];
   }
 
@@ -57,7 +55,6 @@ export const getRoleNavigation = (role) => {
     { label: "Tasks", href: "/tasks", icon: "tasks" },
     { label: "Reports", href: "/reports", icon: "reports" },
     { label: "Chat", href: "/chat", icon: "chat" },
-    { label: "Settings", href: "/dev/settings", icon: "settings" },
   ];
 };
 
