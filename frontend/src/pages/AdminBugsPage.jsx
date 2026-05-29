@@ -10,10 +10,8 @@ import {
   Eye,
   Filter,
   ListChecks,
-  MessageSquarePlus,
   RefreshCcw,
   Search,
-  ShieldCheck,
   SlidersHorizontal,
   TimerReset,
   UserPlus,
@@ -174,29 +172,6 @@ const isInProgressBug = (issue) =>
     normalizeBugStatusForIssue(issue)
   );
 
-const getCategoryTag = (issue) => {
-  const category = String(resolveBugDetails(issue)?.category || "").toLowerCase();
-  const platform = String(resolveBugDetails(issue)?.affectedPlatform || "").toLowerCase();
-
-  if (category.includes("security")) return "Security";
-  if (category.includes("database")) return "Database";
-  if (category.includes("api") || platform.includes("api")) return "API";
-  if (category.includes("backend")) return "Backend";
-  if (category.includes("mobile") || platform.includes("mobile")) return "Mobile";
-  if (category.includes("ui")) return "UI";
-
-  return "";
-};
-
-const tagClassMap = {
-  UI: "border-sky-200 bg-sky-50 text-sky-700",
-  Backend: "border-indigo-200 bg-indigo-50 text-indigo-700",
-  API: "border-cyan-200 bg-cyan-50 text-cyan-700",
-  Database: "border-violet-200 bg-violet-50 text-violet-700",
-  Security: "border-rose-200 bg-rose-50 text-rose-700",
-  Mobile: "border-emerald-200 bg-emerald-50 text-emerald-700",
-};
-
 const getReopenCount = (issue) => (isReopenedBug(issue) ? 1 : 0);
 
 const getAvailableTeams = (projects = [], projectId = ALL_PROJECTS_VALUE) => {
@@ -290,6 +265,58 @@ const SoftBadge = ({ children, className }) => (
   </span>
 );
 
+const severityBadgeClassName = (severity) =>
+  cn(
+    "inline-flex h-6 max-w-full items-center rounded-full border px-2 text-[11px] font-semibold leading-none",
+    ["Blocker", "Critical"].includes(severity)
+      ? "border-rose-200 bg-rose-50 text-rose-700"
+      : severity === "Major" || severity === "High"
+        ? "border-orange-200 bg-orange-50 text-orange-700"
+        : severity === "Medium"
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : "border-slate-200 bg-slate-50 text-slate-700"
+  );
+
+const statusBadgeClassName = (status) => {
+  const normalizedStatus = status === ISSUE_STATUS.QA ? ISSUE_STATUS.READY_FOR_QA : status;
+
+  if (normalizedStatus === ISSUE_STATUS.NEW) {
+    return "border-slate-200 bg-slate-100 text-slate-700";
+  }
+
+  if ([ISSUE_STATUS.OPEN, ISSUE_STATUS.ASSIGNED].includes(normalizedStatus)) {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.IN_PROGRESS) {
+    return "border-violet-200 bg-violet-50 text-violet-700";
+  }
+
+  if ([ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.TESTING, ISSUE_STATUS.FIXED].includes(normalizedStatus)) {
+    return "border-orange-200 bg-orange-50 text-orange-700";
+  }
+
+  if ([ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE].includes(normalizedStatus)) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.REOPEN) {
+    return "border-rose-200 bg-rose-50 text-rose-700";
+  }
+
+  return "border-slate-200 bg-slate-50 text-slate-700";
+};
+
+const ActionSelect = ({ className, ...props }) => (
+  <select
+    className={cn(
+      "h-7 max-w-full rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 shadow-sm outline-none transition hover:border-blue-200 focus:border-blue-300 focus:ring-2 focus:ring-blue-500/15 disabled:bg-slate-50 disabled:text-slate-400",
+      className
+    )}
+    {...props}
+  />
+);
+
 const MetricTile = ({ icon: Icon, label, tone, value }) => (
   <Card className="overflow-hidden rounded-[14px] border-white/70 bg-white/86 shadow-[0_14px_34px_-26px_rgba(15,23,42,0.3)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-26px_rgba(15,23,42,0.32)]">
     <CardContent className="p-3.5">
@@ -353,6 +380,7 @@ const AdminBugsPage = () => {
   const [selectedTriageIds, setSelectedTriageIds] = useState([]);
   const [bulkPriority, setBulkPriority] = useState("");
   const [bulkDeveloperId, setBulkDeveloperId] = useState("");
+  const [areTriageFiltersOpen, setAreTriageFiltersOpen] = useState(false);
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
   const [filters, setFilters] = useState({
     projectId: searchParams.get("projectId") || ALL_PROJECTS_VALUE,
@@ -879,6 +907,21 @@ const AdminBugsPage = () => {
     });
   };
 
+  const handleMoveToTriageBucket = (bugIssue) => {
+    const currentStatus = normalizeBugStatusForIssue(bugIssue);
+
+    if (currentStatus === ISSUE_STATUS.TRIAGED) {
+      return;
+    }
+
+    updateIssueMutation.mutate({
+      id: bugIssue._id,
+      payload: {
+        status: ISSUE_STATUS.TRIAGED,
+      },
+    });
+  };
+
   if (error) {
     return (
       <Card>
@@ -900,141 +943,343 @@ const AdminBugsPage = () => {
         <MetricTile icon={CheckCircle2} label="Closed" value={metrics.closed} tone="bg-emerald-50 text-emerald-700" />
       </section>
 
-      <Card className="overflow-hidden rounded-[16px] border-white/70 bg-white/92 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.38)] backdrop-blur-xl">
-        <CardHeader className="sticky top-20 z-10 border-b border-slate-200/80 bg-white/94 px-4 py-3 backdrop-blur-xl">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+      <Card className="overflow-hidden rounded-[14px] border-white/70 bg-white/94 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.38)] backdrop-blur-xl">
+        <CardHeader className="sticky top-16 z-20 border-b border-slate-200/80 bg-white/95 px-3 py-2.5 backdrop-blur-xl sm:px-4">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
-              <CardTitle className="flex items-center gap-2 text-base">
+              <CardTitle className="flex items-center gap-2 text-[15px]">
                 <ListChecks className="h-4 w-4 text-blue-600" />
                 Triage Board
               </CardTitle>
               <p className="mt-0.5 text-[12px] text-slate-500">
-                Validate new and unassigned bugs, then assign or move them to the triaged bucket.
+                Review and manage incoming bugs.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full min-w-[220px] sm:w-[280px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <CompactInput
+                  className="h-8 pl-9"
+                  placeholder="Search bugs"
+                  value={filters.search}
+                  onChange={(event) => updateFilter("search", event.target.value)}
+                />
+              </div>
+              <CompactSelect
+                className="h-8 w-[132px]"
+                value={filters.severity}
+                onChange={(event) => updateFilter("severity", event.target.value)}
+              >
+                <option value="all">Severity</option>
+                {BUG_SEVERITY_OPTIONS.map((severity) => (
+                  <option key={severity} value={severity}>{severity}</option>
+                ))}
+              </CompactSelect>
+              <CompactSelect
+                className="h-8 w-[132px]"
+                value={filters.status}
+                onChange={(event) => updateFilter("status", event.target.value)}
+              >
+                {BUG_STATUS_FILTERS.map((status) => (
+                  <option key={status.value} value={status.value}>{status.label}</option>
+                ))}
+              </CompactSelect>
+              <CompactSelect
+                className="h-8 w-[160px]"
+                value={filters.developerId}
+                onChange={(event) => updateFilter("developerId", event.target.value)}
+              >
+                <option value="all">Assign Developer</option>
+                <option value="unassigned">Unassigned</option>
+                {developers.map((developer) => (
+                  <option key={resolveUserId(developer)} value={resolveUserId(developer)}>{getUserLabel(developer)}</option>
+                ))}
+              </CompactSelect>
+              <Button
+                className="h-8 rounded-[10px] px-2.5 text-[11px]"
+                type="button"
+                variant="outline"
+                onClick={() => setAreTriageFiltersOpen((current) => !current)}
+              >
+                <Filter className="h-3.5 w-3.5" />
+                {areTriageFiltersOpen ? "Hide Filters" : "Show Filters"}
+                {areTriageFiltersOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </Button>
               <SoftBadge className="border-blue-100 bg-blue-50 text-blue-700">
-                {triageBugs.length} needs review
-              </SoftBadge>
-              <SoftBadge className="border-slate-200 bg-slate-50 text-slate-600">
-                {selectedTriageIds.length} selected
+                {triageBugs.length} review
               </SoftBadge>
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-3 p-3.5 sm:p-4">
-          <div className="grid items-end gap-2 md:grid-cols-[minmax(150px,0.8fr)_minmax(210px,1fr)_auto]">
-            <label className="space-y-1">
-              <FieldLabel>Bulk Priority</FieldLabel>
-              <CompactSelect value={bulkPriority} onChange={(event) => setBulkPriority(event.target.value)}>
-                <option value="">Keep priority</option>
+
+          {areTriageFiltersOpen ? (
+            <div className="mt-2 grid gap-2 border-t border-slate-200/80 pt-2 sm:grid-cols-2 xl:grid-cols-5">
+              <CompactSelect value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
+                <option value={ALL_PROJECTS_VALUE}>All projects</option>
+                {projects.map((project) => (
+                  <option key={project._id} value={project._id}>{project.name}</option>
+                ))}
+              </CompactSelect>
+              <CompactSelect value={filters.teamId} onChange={(event) => updateFilter("teamId", event.target.value)}>
+                <option value="all">All teams</option>
+                {teams.map((team) => (
+                  <option key={resolveTeamId(team)} value={resolveTeamId(team)}>{team.name}</option>
+                ))}
+              </CompactSelect>
+              <CompactSelect value={filters.testerId} onChange={(event) => updateFilter("testerId", event.target.value)}>
+                <option value="all">All testers</option>
+                {testers.map((tester) => (
+                  <option key={resolveUserId(tester)} value={resolveUserId(tester)}>{getUserLabel(tester)}</option>
+                ))}
+              </CompactSelect>
+              <CompactSelect value={filters.priority} onChange={(event) => updateFilter("priority", event.target.value)}>
+                <option value="all">All priorities</option>
                 {["Critical", "High", "Medium", "Low"].map((priority) => (
                   <option key={priority} value={priority}>{priority}</option>
                 ))}
               </CompactSelect>
-            </label>
-            <label className="space-y-1">
-              <FieldLabel>Bulk Assignment</FieldLabel>
-              <CompactSelect value={bulkDeveloperId} onChange={(event) => setBulkDeveloperId(event.target.value)}>
-                <option value="">Move to triaged bucket</option>
+              <CompactSelect value={filters.lifecycle} onChange={(event) => updateFilter("lifecycle", event.target.value)}>
+                <option value="all">All bugs</option>
+                <option value="reopened">Reopened bugs</option>
+                <option value="fixed">Fixed / Ready for QA</option>
+              </CompactSelect>
+            </div>
+          ) : null}
+        </CardHeader>
+
+        {selectedTriageIds.length ? (
+          <div className="sticky top-[121px] z-10 flex flex-col gap-2 border-b border-blue-100 bg-blue-50/95 px-3 py-2 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-4">
+            <p className="text-[12px] font-semibold text-blue-800">
+              {selectedTriageIds.length} Bugs Selected
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <CompactSelect className="h-8 w-[150px]" value={bulkDeveloperId} onChange={(event) => setBulkDeveloperId(event.target.value)}>
+                <option value="">Assign</option>
                 {developers.map((developer) => (
                   <option key={resolveUserId(developer)} value={resolveUserId(developer)}>
-                    Assign to {getUserLabel(developer)}
+                    {getUserLabel(developer)}
                   </option>
                 ))}
               </CompactSelect>
-            </label>
-            <Button
-              className="h-9 rounded-[10px] px-3 text-[12px]"
-              type="button"
-              disabled={!selectedTriageIds.length || updateIssueMutation.isPending}
-              onClick={handleBulkTriage}
-            >
-              Apply to {selectedTriageIds.length || 0}
-            </Button>
+              <CompactSelect className="h-8 w-[150px]" value={bulkPriority} onChange={(event) => setBulkPriority(event.target.value)}>
+                <option value="">Change Priority</option>
+                {["Critical", "High", "Medium", "Low"].map((priority) => (
+                  <option key={priority} value={priority}>{priority}</option>
+                ))}
+              </CompactSelect>
+              <Button
+                className="h-8 rounded-[10px] px-3 text-[12px]"
+                type="button"
+                disabled={updateIssueMutation.isPending}
+                onClick={handleBulkTriage}
+              >
+                Move Status
+              </Button>
+            </div>
           </div>
+        ) : null}
 
-          <div className="max-h-[360px] overflow-auto rounded-[14px] border border-slate-200/80 bg-white/70">
-            <table className="w-full min-w-[980px] border-separate border-spacing-0 text-left text-[12px]">
-              <thead className="sticky top-0 z-10 bg-slate-50/96 text-[10px] uppercase tracking-[0.14em] text-slate-500 backdrop-blur">
-                <tr>
-                  <th className="w-11 border-b border-slate-200 px-3 py-2.5 text-center">
-                    <input
-                      aria-label="Select all triage bugs"
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      type="checkbox"
-                      checked={triageBugs.length > 0 && triageBugs.every((bugIssue) => selectedTriageIds.includes(bugIssue._id))}
-                      onChange={(event) =>
-                        setSelectedTriageIds(event.target.checked ? triageBugs.map((bugIssue) => bugIssue._id) : [])
-                      }
-                    />
-                  </th>
-                  {["Bug", "Module", "Tag", "Severity", "Priority", "Developer", "Status"].map((header) => (
-                    <th key={header} className="border-b border-slate-200 px-3 py-2.5 font-semibold">{header}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {triageBugs.slice(0, 24).map((bugIssue, index) => {
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="space-y-2 p-3">
+              {Array.from({ length: 7 }).map((_, index) => (
+                <Skeleton key={`triage-row-skeleton-${index}`} className="h-11 rounded-xl" />
+              ))}
+            </div>
+          ) : triageBugs.length ? (
+            <>
+              <div className="hidden max-h-[430px] overflow-auto lg:block">
+                <table className="w-full min-w-[1180px] border-separate border-spacing-0 text-left text-[12px]">
+                  <thead className="sticky top-0 z-10 bg-slate-50/98 text-[10px] uppercase tracking-[0.14em] text-slate-500 backdrop-blur">
+                    <tr>
+                      <th className="w-10 border-b border-slate-200 px-3 py-2 text-center">
+                        <input
+                          aria-label="Select all triage bugs"
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          type="checkbox"
+                          checked={triageBugs.length > 0 && triageBugs.every((bugIssue) => selectedTriageIds.includes(bugIssue._id))}
+                          onChange={(event) =>
+                            setSelectedTriageIds(event.target.checked ? triageBugs.map((bugIssue) => bugIssue._id) : [])
+                          }
+                        />
+                      </th>
+                      {["Bug", "Module", "Severity", "Priority", "Developer", "Status", "Updated", "Quick Actions"].map((header) => (
+                        <th key={header} className="border-b border-slate-200 px-3 py-2 font-semibold">{header}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {triageBugs.slice(0, 30).map((bugIssue, index) => {
+                      const details = resolveBugDetails(bugIssue);
+                      const developer = getBugDeveloper(bugIssue);
+                      const status = normalizeBugStatusForIssue(bugIssue);
+                      const severity = getSeverity(bugIssue);
+
+                      return (
+                        <tr key={bugIssue._id} className={cn("transition hover:bg-blue-50/70", index % 2 ? "bg-slate-50/45" : "bg-white")}>
+                          <td className="border-b border-slate-100 px-3 py-2 text-center align-middle">
+                            <input
+                              aria-label={`Select ${getIssueDisplayKey(bugIssue)}`}
+                              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                              type="checkbox"
+                              checked={selectedTriageIds.includes(bugIssue._id)}
+                              onChange={(event) => handleToggleTriageBug(bugIssue._id, event.target.checked)}
+                            />
+                          </td>
+                          <td className="max-w-[300px] border-b border-slate-100 px-3 py-2 align-middle">
+                            <button type="button" className="block max-w-full text-left transition hover:text-blue-700" onClick={() => setSelectedBug(bugIssue)}>
+                              <span className="block font-mono text-[11px] font-semibold uppercase text-slate-500">{getIssueDisplayKey(bugIssue)}</span>
+                              <span className="block truncate text-[13px] font-semibold text-slate-950">{bugIssue.title}</span>
+                              <span className="block truncate text-[11px] text-slate-500">
+                                {getProjectName(bugIssue, projects)} • {details.moduleName || "Unmapped module"}
+                              </span>
+                            </button>
+                          </td>
+                          <td className="max-w-[150px] border-b border-slate-100 px-3 py-2 text-slate-600">
+                            <span className="block truncate">{details.moduleName || "Unmapped"}</span>
+                          </td>
+                          <td className="border-b border-slate-100 px-3 py-2">
+                            <span className={severityBadgeClassName(severity)}>{severity}</span>
+                          </td>
+                          <td className="border-b border-slate-100 px-3 py-2">
+                            <Badge className="h-6 px-2 text-[11px]" variant={getIssuePriorityVariant(bugIssue.priority)}>
+                              {bugIssue.priority || "Medium"}
+                            </Badge>
+                          </td>
+                          <td className="max-w-[150px] border-b border-slate-100 px-3 py-2 text-slate-600">
+                            <span className="block truncate">{getUserLabel(developer)}</span>
+                          </td>
+                          <td className="border-b border-slate-100 px-3 py-2">
+                            <span className={cn("inline-flex h-6 items-center rounded-full border px-2 text-[11px] font-semibold", statusBadgeClassName(status))}>
+                              {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
+                            </span>
+                          </td>
+                          <td className="border-b border-slate-100 px-3 py-2 text-[11px] font-medium text-slate-500">
+                            {formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}
+                          </td>
+                          <td className="border-b border-slate-100 px-3 py-2">
+                            <div className="flex min-w-[360px] flex-wrap items-center gap-1.5">
+                              <Button
+                                className="h-7 rounded-md px-2 text-[11px]"
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setSelectedBug(bugIssue)}
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                View
+                              </Button>
+                              <ActionSelect
+                                aria-label="Assign developer"
+                                value=""
+                                onChange={(event) => handleQuickAssign(bugIssue, event.target.value)}
+                              >
+                                <option value="">Assign</option>
+                                {developers.map((developerOption) => (
+                                  <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>
+                                    {getUserLabel(developerOption)}
+                                  </option>
+                                ))}
+                              </ActionSelect>
+                              <ActionSelect
+                                aria-label="Change status"
+                                value=""
+                                onChange={(event) => handleQuickStatus(bugIssue, event.target.value)}
+                              >
+                                <option value="">Status</option>
+                                {BUG_STATUS_FILTERS.filter((item) => item.value !== "all").map((item) => (
+                                  <option key={item.value} value={item.value}>{item.label}</option>
+                                ))}
+                              </ActionSelect>
+                              <ActionSelect
+                                aria-label="Change priority"
+                                value=""
+                                onChange={(event) => handleQuickPriority(bugIssue, event.target.value)}
+                              >
+                                <option value="">Priority</option>
+                                {["Critical", "High", "Medium", "Low"].map((priority) => (
+                                  <option key={priority} value={priority}>{priority}</option>
+                                ))}
+                              </ActionSelect>
+                              <Button
+                                className="h-7 rounded-md px-2 text-[11px]"
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleMoveToTriageBucket(bugIssue)}
+                              >
+                                Bucket
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="space-y-2 p-3 lg:hidden">
+                {triageBugs.slice(0, 30).map((bugIssue) => {
                   const details = resolveBugDetails(bugIssue);
                   const developer = getBugDeveloper(bugIssue);
                   const status = normalizeBugStatusForIssue(bugIssue);
-                  const categoryTag = getCategoryTag(bugIssue);
+                  const severity = getSeverity(bugIssue);
 
                   return (
-                    <tr key={bugIssue._id} className={cn("transition hover:bg-blue-50/60", index % 2 ? "bg-slate-50/38" : "bg-white/78")}>
-                      <td className="border-b border-slate-100 px-3 py-2.5 text-center align-middle">
+                    <article key={bugIssue._id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                      <div className="flex items-start gap-3">
                         <input
                           aria-label={`Select ${getIssueDisplayKey(bugIssue)}`}
-                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                           type="checkbox"
                           checked={selectedTriageIds.includes(bugIssue._id)}
                           onChange={(event) => handleToggleTriageBug(bugIssue._id, event.target.checked)}
                         />
-                      </td>
-                      <td className="max-w-[270px] border-b border-slate-100 px-3 py-2.5 align-middle">
-                        <button type="button" className="block max-w-full truncate text-left font-semibold text-slate-950 transition hover:text-blue-700" onClick={() => setSelectedBug(bugIssue)}>
-                          {getIssueDisplayKey(bugIssue)} - {bugIssue.title}
-                        </button>
-                        <p className="mt-0.5 truncate text-[11px] text-slate-500">{getProjectName(bugIssue, projects)}</p>
-                      </td>
-                      <td className="max-w-[160px] border-b border-slate-100 px-3 py-2.5 text-slate-600">
-                        <span className="block truncate">{details.moduleName || "Unmapped"}</span>
-                      </td>
-                      <td className="border-b border-slate-100 px-3 py-2.5">
-                        {categoryTag ? (
-                          <SoftBadge className={tagClassMap[categoryTag]}>{categoryTag}</SoftBadge>
-                        ) : (
-                          <span className="text-slate-400">-</span>
-                        )}
-                      </td>
-                      <td className="border-b border-slate-100 px-3 py-2.5 text-slate-600">{getSeverity(bugIssue)}</td>
-                      <td className="border-b border-slate-100 px-3 py-2.5">
-                        <Badge className="px-2 py-0.5 text-[11px]" variant={getIssuePriorityVariant(bugIssue.priority)}>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-mono text-[11px] font-semibold uppercase text-slate-500">{getIssueDisplayKey(bugIssue)}</p>
+                          <button type="button" className="mt-0.5 block max-w-full truncate text-left text-sm font-semibold text-slate-950" onClick={() => setSelectedBug(bugIssue)}>
+                            {bugIssue.title}
+                          </button>
+                          <p className="mt-0.5 truncate text-xs text-slate-500">
+                            {getProjectName(bugIssue, projects)} • {details.moduleName || "Unmapped module"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        <span className={severityBadgeClassName(severity)}>{severity}</span>
+                        <Badge className="h-6 px-2 text-[11px]" variant={getIssuePriorityVariant(bugIssue.priority)}>
                           {bugIssue.priority || "Medium"}
                         </Badge>
-                      </td>
-                      <td className="max-w-[160px] border-b border-slate-100 px-3 py-2.5 text-slate-600">
-                        <span className="block truncate">{getUserLabel(developer)}</span>
-                      </td>
-                      <td className="border-b border-slate-100 px-3 py-2.5">
-                        <Badge className="px-2 py-0.5 text-[11px]" variant={getIssueStatusVariant(status)}>
+                        <span className={cn("inline-flex h-6 items-center rounded-full border px-2 text-[11px] font-semibold", statusBadgeClassName(status))}>
                           {getIssueStatusLabel(status)}
-                        </Badge>
-                      </td>
-                    </tr>
+                        </span>
+                        <SoftBadge className="border-slate-200 bg-slate-50 text-slate-600">
+                          {getUserLabel(developer)}
+                        </SoftBadge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <Button className="h-8 rounded-lg text-[12px]" type="button" size="sm" variant="outline" onClick={() => setSelectedBug(bugIssue)}>
+                          <Eye className="h-3.5 w-3.5" />
+                          View
+                        </Button>
+                        <Button className="h-8 rounded-lg text-[12px]" type="button" size="sm" variant="outline" onClick={() => handleMoveToTriageBucket(bugIssue)}>
+                          Bucket
+                        </Button>
+                      </div>
+                    </article>
                   );
                 })}
-                {!triageBugs.length ? (
-                  <tr>
-                    <td className="px-3 py-8 text-center text-[12px] text-slate-500" colSpan={8}>
-                      No new or unassigned bugs need triage in this filtered view.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            </>
+          ) : (
+            <div className="p-6">
+              <EmptyState
+                title="No bugs need triage"
+                description="New, open, or unassigned bugs matching this view will appear here for quick review."
+                icon={<ListChecks className="h-5 w-5" />}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
