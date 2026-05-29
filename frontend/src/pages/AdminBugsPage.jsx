@@ -9,7 +9,10 @@ import {
   CheckCircle2,
   Eye,
   Filter,
+  Layers3,
   ListChecks,
+  MoreHorizontal,
+  Paperclip,
   RefreshCcw,
   Search,
   SlidersHorizontal,
@@ -267,44 +270,78 @@ const SoftBadge = ({ children, className }) => (
 
 const severityBadgeClassName = (severity) =>
   cn(
-    "inline-flex h-6 max-w-full items-center rounded-full border px-2 text-[11px] font-semibold leading-none",
+    "inline-flex h-6 max-w-full items-center rounded-full border px-2.5 text-[11px] font-bold leading-none shadow-sm",
     ["Blocker", "Critical"].includes(severity)
-      ? "border-rose-200 bg-rose-50 text-rose-700"
+      ? "border-rose-600 bg-rose-600 text-white"
       : severity === "Major" || severity === "High"
-        ? "border-orange-200 bg-orange-50 text-orange-700"
+        ? "border-orange-500 bg-orange-500 text-white"
         : severity === "Medium"
-          ? "border-amber-200 bg-amber-50 text-amber-700"
-          : "border-slate-200 bg-slate-50 text-slate-700"
+          ? "border-amber-400 bg-amber-400 text-slate-950"
+          : severity === "Low"
+            ? "border-emerald-500 bg-emerald-500 text-white"
+            : "border-slate-300 bg-slate-200 text-slate-800"
+  );
+
+const severityAccentClassName = (severity) => {
+  if (["Blocker", "Critical"].includes(severity)) {
+    return "border-l-rose-500";
+  }
+
+  if (severity === "Major" || severity === "High") {
+    return "border-l-orange-500";
+  }
+
+  if (severity === "Medium") {
+    return "border-l-amber-400";
+  }
+
+  if (severity === "Low") {
+    return "border-l-emerald-500";
+  }
+
+  return "border-l-slate-300";
+};
+
+const priorityBadgeClassName = (priority) =>
+  cn(
+    "inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-bold leading-none shadow-sm",
+    priority === "Critical"
+      ? "bg-rose-600 text-white"
+      : priority === "High"
+        ? "bg-orange-500 text-white"
+        : priority === "Low"
+          ? "bg-emerald-600 text-white"
+          : "bg-blue-600 text-white"
   );
 
 const statusBadgeClassName = (status) => {
   const normalizedStatus = status === ISSUE_STATUS.QA ? ISSUE_STATUS.READY_FOR_QA : status;
 
   if (normalizedStatus === ISSUE_STATUS.NEW) {
-    return "border-slate-200 bg-slate-100 text-slate-700";
+    return "border-slate-600 bg-slate-700 text-white";
   }
 
   if ([ISSUE_STATUS.OPEN, ISSUE_STATUS.ASSIGNED].includes(normalizedStatus)) {
-    return "border-blue-200 bg-blue-50 text-blue-700";
+    return "border-blue-600 bg-blue-600 text-white";
   }
 
   if (normalizedStatus === ISSUE_STATUS.IN_PROGRESS) {
-    return "border-violet-200 bg-violet-50 text-violet-700";
+    return "border-violet-600 bg-violet-600 text-white";
   }
 
   if ([ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.TESTING, ISSUE_STATUS.FIXED].includes(normalizedStatus)) {
-    return "border-orange-200 bg-orange-50 text-orange-700";
+    return "border-orange-500 bg-orange-500 text-white";
   }
 
   if ([ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE].includes(normalizedStatus)) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    return "border-emerald-600 bg-emerald-600 text-white";
   }
 
   if (normalizedStatus === ISSUE_STATUS.REOPEN) {
-    return "border-rose-200 bg-rose-50 text-rose-700";
+    return "border-rose-600 bg-rose-600 text-white";
   }
 
-  return "border-slate-200 bg-slate-50 text-slate-700";
+  return "border-slate-500 bg-slate-600 text-white";
 };
 
 const ActionSelect = ({ className, ...props }) => (
@@ -316,6 +353,34 @@ const ActionSelect = ({ className, ...props }) => (
     {...props}
   />
 );
+
+const getModuleTag = (issue) => {
+  const details = resolveBugDetails(issue);
+  const source = `${details?.category || ""} ${details?.affectedPlatform || ""} ${details?.moduleName || ""}`.toLowerCase();
+
+  if (source.includes("api")) return "API";
+  if (source.includes("backend")) return "Backend";
+  if (source.includes("database")) return "DB";
+  if (source.includes("mobile")) return "Mobile";
+  if (source.includes("ui") || source.includes("login") || source.includes("page")) return "UI";
+
+  return "Module";
+};
+
+const getAttachmentCount = (issue) => {
+  const details = resolveBugDetails(issue);
+
+  return [
+    issue?.attachments,
+    issue?.attachmentCount,
+    details?.attachments,
+    details?.attachmentCount,
+  ].reduce((count, value) => {
+    if (Array.isArray(value)) return Math.max(count, value.length);
+    if (Number.isFinite(Number(value))) return Math.max(count, Number(value));
+    return count;
+  }, 0);
+};
 
 const MetricTile = ({ icon: Icon, label, tone, value }) => (
   <Card className="overflow-hidden rounded-[14px] border-white/70 bg-white/86 shadow-[0_14px_34px_-26px_rgba(15,23,42,0.3)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-26px_rgba(15,23,42,0.32)]">
@@ -380,6 +445,7 @@ const AdminBugsPage = () => {
   const [selectedTriageIds, setSelectedTriageIds] = useState([]);
   const [bulkPriority, setBulkPriority] = useState("");
   const [bulkDeveloperId, setBulkDeveloperId] = useState("");
+  const [actionMenuId, setActionMenuId] = useState("");
   const [areTriageFiltersOpen, setAreTriageFiltersOpen] = useState(false);
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
   const [filters, setFilters] = useState({
@@ -922,6 +988,8 @@ const AdminBugsPage = () => {
     });
   };
 
+  const closeActionMenu = () => setActionMenuId("");
+
   if (error) {
     return (
       <Card>
@@ -943,20 +1011,20 @@ const AdminBugsPage = () => {
         <MetricTile icon={CheckCircle2} label="Closed" value={metrics.closed} tone="bg-emerald-50 text-emerald-700" />
       </section>
 
-      <Card className="overflow-hidden rounded-[14px] border-white/70 bg-white/94 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.38)] backdrop-blur-xl">
-        <CardHeader className="sticky top-16 z-20 border-b border-slate-200/80 bg-white/95 px-3 py-2.5 backdrop-blur-xl sm:px-4">
+      <Card className="overflow-hidden rounded-[14px] border border-slate-200/90 bg-white shadow-[0_18px_48px_-32px_rgba(15,23,42,0.46)]">
+        <CardHeader className="sticky top-16 z-20 border-b border-slate-300/80 bg-white/92 px-3 py-2 backdrop-blur-xl sm:px-4">
           <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
-              <CardTitle className="flex items-center gap-2 text-[15px]">
+              <CardTitle className="flex items-center gap-2 text-[15px] text-slate-950">
                 <ListChecks className="h-4 w-4 text-blue-600" />
                 Triage Board
               </CardTitle>
-              <p className="mt-0.5 text-[12px] text-slate-500">
+              <p className="mt-0.5 text-[12px] font-medium text-slate-600">
                 Review and manage incoming bugs.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative w-full min-w-[220px] sm:w-[280px]">
+            <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200/90 bg-slate-50/80 p-1 shadow-inner">
+              <div className="relative w-full min-w-[210px] sm:w-[260px]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <CompactInput
                   className="h-8 pl-9"
@@ -966,7 +1034,7 @@ const AdminBugsPage = () => {
                 />
               </div>
               <CompactSelect
-                className="h-8 w-[132px]"
+                className="h-8 w-[120px]"
                 value={filters.severity}
                 onChange={(event) => updateFilter("severity", event.target.value)}
               >
@@ -976,7 +1044,7 @@ const AdminBugsPage = () => {
                 ))}
               </CompactSelect>
               <CompactSelect
-                className="h-8 w-[132px]"
+                className="h-8 w-[124px]"
                 value={filters.status}
                 onChange={(event) => updateFilter("status", event.target.value)}
               >
@@ -985,7 +1053,7 @@ const AdminBugsPage = () => {
                 ))}
               </CompactSelect>
               <CompactSelect
-                className="h-8 w-[160px]"
+                className="h-8 w-[146px]"
                 value={filters.developerId}
                 onChange={(event) => updateFilter("developerId", event.target.value)}
               >
@@ -1012,7 +1080,7 @@ const AdminBugsPage = () => {
           </div>
 
           {areTriageFiltersOpen ? (
-            <div className="mt-2 grid gap-2 border-t border-slate-200/80 pt-2 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="mt-2 grid gap-2 border-t border-slate-300/80 bg-slate-50/70 pt-2 sm:grid-cols-2 xl:grid-cols-5">
               <CompactSelect value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
                 <option value={ALL_PROJECTS_VALUE}>All projects</option>
                 {projects.map((project) => (
@@ -1087,11 +1155,11 @@ const AdminBugsPage = () => {
             </div>
           ) : triageBugs.length ? (
             <>
-              <div className="hidden max-h-[430px] overflow-auto lg:block">
-                <table className="w-full min-w-[1180px] border-separate border-spacing-0 text-left text-[12px]">
-                  <thead className="sticky top-0 z-10 bg-slate-50/98 text-[10px] uppercase tracking-[0.14em] text-slate-500 backdrop-blur">
+              <div className="hidden max-h-[430px] overflow-auto bg-slate-100/80 p-2 lg:block">
+                <table className="w-full min-w-[1100px] border-separate border-spacing-y-1.5 text-left text-[12px]">
+                  <thead className="sticky top-0 z-10 bg-slate-800 text-[10px] uppercase tracking-[0.14em] text-slate-100 shadow-sm">
                     <tr>
-                      <th className="w-10 border-b border-slate-200 px-3 py-2 text-center">
+                      <th className="w-10 rounded-l-lg px-3 py-2 text-center">
                         <input
                           aria-label="Select all triage bugs"
                           className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
@@ -1103,7 +1171,7 @@ const AdminBugsPage = () => {
                         />
                       </th>
                       {["Bug", "Module", "Severity", "Priority", "Developer", "Status", "Updated", "Quick Actions"].map((header) => (
-                        <th key={header} className="border-b border-slate-200 px-3 py-2 font-semibold">{header}</th>
+                        <th key={header} className={cn("px-3 py-2 font-semibold", header === "Quick Actions" ? "rounded-r-lg" : "")}>{header}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1113,10 +1181,20 @@ const AdminBugsPage = () => {
                       const developer = getBugDeveloper(bugIssue);
                       const status = normalizeBugStatusForIssue(bugIssue);
                       const severity = getSeverity(bugIssue);
+                      const moduleTag = getModuleTag(bugIssue);
+                      const attachmentCount = getAttachmentCount(bugIssue);
+                      const isMenuOpen = actionMenuId === bugIssue._id;
 
                       return (
-                        <tr key={bugIssue._id} className={cn("transition hover:bg-blue-50/70", index % 2 ? "bg-slate-50/45" : "bg-white")}>
-                          <td className="border-b border-slate-100 px-3 py-2 text-center align-middle">
+                        <tr
+                          key={bugIssue._id}
+                          className={cn(
+                            "group shadow-sm transition hover:shadow-md",
+                            index % 2 ? "bg-slate-50" : "bg-white",
+                            "hover:bg-blue-50"
+                          )}
+                        >
+                          <td className={cn("rounded-l-xl border-y border-l-4 border-slate-200 px-3 py-2 text-center align-middle", severityAccentClassName(severity))}>
                             <input
                               aria-label={`Select ${getIssueDisplayKey(bugIssue)}`}
                               className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
@@ -1125,39 +1203,52 @@ const AdminBugsPage = () => {
                               onChange={(event) => handleToggleTriageBug(bugIssue._id, event.target.checked)}
                             />
                           </td>
-                          <td className="max-w-[300px] border-b border-slate-100 px-3 py-2 align-middle">
+                          <td className="max-w-[300px] border-y border-slate-200 px-3 py-2 align-middle">
                             <button type="button" className="block max-w-full text-left transition hover:text-blue-700" onClick={() => setSelectedBug(bugIssue)}>
-                              <span className="block font-mono text-[11px] font-semibold uppercase text-slate-500">{getIssueDisplayKey(bugIssue)}</span>
-                              <span className="block truncate text-[13px] font-semibold text-slate-950">{bugIssue.title}</span>
-                              <span className="block truncate text-[11px] text-slate-500">
-                                {getProjectName(bugIssue, projects)} • {details.moduleName || "Unmapped module"}
+                              <span className="block font-mono text-[11px] font-bold uppercase text-slate-600">{getIssueDisplayKey(bugIssue)}</span>
+                              <span className="block truncate text-[13px] font-bold text-slate-950">{bugIssue.title}</span>
+                              <span className="block truncate text-[11px] font-medium text-slate-500">
+                                {getProjectName(bugIssue, projects)} - {details.moduleName || "Unmapped module"}
                               </span>
                             </button>
                           </td>
-                          <td className="max-w-[150px] border-b border-slate-100 px-3 py-2 text-slate-600">
-                            <span className="block truncate">{details.moduleName || "Unmapped"}</span>
+                          <td className="max-w-[150px] border-y border-slate-200 px-3 py-2 text-slate-700">
+                            <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-300 bg-white px-2 py-1 text-[11px] font-bold text-slate-700 shadow-sm">
+                              <Layers3 className="h-3 w-3 text-slate-500" />
+                              <span className="truncate">{moduleTag}</span>
+                            </span>
+                            <span className="mt-1 block truncate text-[11px] font-medium text-slate-500">{details.moduleName || "Unmapped"}</span>
                           </td>
-                          <td className="border-b border-slate-100 px-3 py-2">
+                          <td className="border-y border-slate-200 px-3 py-2 align-middle">
                             <span className={severityBadgeClassName(severity)}>{severity}</span>
                           </td>
-                          <td className="border-b border-slate-100 px-3 py-2">
-                            <Badge className="h-6 px-2 text-[11px]" variant={getIssuePriorityVariant(bugIssue.priority)}>
+                          <td className="border-y border-slate-200 px-3 py-2 align-middle">
+                            <span className={priorityBadgeClassName(bugIssue.priority || "Medium")}>
                               {bugIssue.priority || "Medium"}
-                            </Badge>
+                            </span>
                           </td>
-                          <td className="max-w-[150px] border-b border-slate-100 px-3 py-2 text-slate-600">
-                            <span className="block truncate">{getUserLabel(developer)}</span>
+                          <td className="max-w-[150px] border-y border-slate-200 px-3 py-2 text-slate-700">
+                            <span className="block truncate font-semibold">{getUserLabel(developer)}</span>
                           </td>
-                          <td className="border-b border-slate-100 px-3 py-2">
-                            <span className={cn("inline-flex h-6 items-center rounded-full border px-2 text-[11px] font-semibold", statusBadgeClassName(status))}>
+                          <td className="border-y border-slate-200 px-3 py-2 align-middle">
+                            <span className={cn("inline-flex h-6 items-center rounded-full border px-2.5 text-[11px] font-bold shadow-sm", statusBadgeClassName(status))}>
                               {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
                             </span>
                           </td>
-                          <td className="border-b border-slate-100 px-3 py-2 text-[11px] font-medium text-slate-500">
+                          <td className="border-y border-slate-200 px-3 py-2 text-[11px] font-medium text-slate-500">
                             {formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}
+                            {isReopenedBug(bugIssue) ? (
+                              <span className="mt-1 block text-[10px] font-bold uppercase text-rose-600">Reopened</span>
+                            ) : null}
+                            {attachmentCount ? (
+                              <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                                <Paperclip className="h-3 w-3" />
+                                {attachmentCount}
+                              </span>
+                            ) : null}
                           </td>
-                          <td className="border-b border-slate-100 px-3 py-2">
-                            <div className="flex min-w-[360px] flex-wrap items-center gap-1.5">
+                          <td className="rounded-r-xl border-y border-r border-slate-200 px-3 py-2">
+                            <div className="relative flex min-w-[148px] items-center gap-1.5">
                               <Button
                                 className="h-7 rounded-md px-2 text-[11px]"
                                 type="button"
@@ -1168,47 +1259,76 @@ const AdminBugsPage = () => {
                                 <Eye className="h-3.5 w-3.5" />
                                 View
                               </Button>
-                              <ActionSelect
-                                aria-label="Assign developer"
-                                value=""
-                                onChange={(event) => handleQuickAssign(bugIssue, event.target.value)}
-                              >
-                                <option value="">Assign</option>
-                                {developers.map((developerOption) => (
-                                  <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>
-                                    {getUserLabel(developerOption)}
-                                  </option>
-                                ))}
-                              </ActionSelect>
-                              <ActionSelect
-                                aria-label="Change status"
-                                value=""
-                                onChange={(event) => handleQuickStatus(bugIssue, event.target.value)}
-                              >
-                                <option value="">Status</option>
-                                {BUG_STATUS_FILTERS.filter((item) => item.value !== "all").map((item) => (
-                                  <option key={item.value} value={item.value}>{item.label}</option>
-                                ))}
-                              </ActionSelect>
-                              <ActionSelect
-                                aria-label="Change priority"
-                                value=""
-                                onChange={(event) => handleQuickPriority(bugIssue, event.target.value)}
-                              >
-                                <option value="">Priority</option>
-                                {["Critical", "High", "Medium", "Low"].map((priority) => (
-                                  <option key={priority} value={priority}>{priority}</option>
-                                ))}
-                              </ActionSelect>
                               <Button
                                 className="h-7 rounded-md px-2 text-[11px]"
                                 type="button"
                                 size="sm"
-                                variant="ghost"
-                                onClick={() => handleMoveToTriageBucket(bugIssue)}
+                                variant="outline"
+                                onClick={() => setActionMenuId(isMenuOpen ? "" : bugIssue._id)}
                               >
-                                Bucket
+                                <MoreHorizontal className="h-3.5 w-3.5" />
+                                More
                               </Button>
+                              {isMenuOpen ? (
+                                <div className="absolute right-0 top-8 z-30 w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                                  <ActionSelect
+                                    aria-label="Assign developer"
+                                    className="mb-1.5 h-8 w-full"
+                                    value=""
+                                    onChange={(event) => {
+                                      handleQuickAssign(bugIssue, event.target.value);
+                                      closeActionMenu();
+                                    }}
+                                  >
+                                    <option value="">Assign developer</option>
+                                    {developers.map((developerOption) => (
+                                      <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>
+                                        {getUserLabel(developerOption)}
+                                      </option>
+                                    ))}
+                                  </ActionSelect>
+                                  <ActionSelect
+                                    aria-label="Change status"
+                                    className="mb-1.5 h-8 w-full"
+                                    value=""
+                                    onChange={(event) => {
+                                      handleQuickStatus(bugIssue, event.target.value);
+                                      closeActionMenu();
+                                    }}
+                                  >
+                                    <option value="">Change status</option>
+                                    {BUG_STATUS_FILTERS.filter((item) => item.value !== "all").map((item) => (
+                                      <option key={item.value} value={item.value}>{item.label}</option>
+                                    ))}
+                                  </ActionSelect>
+                                  <ActionSelect
+                                    aria-label="Change priority"
+                                    className="mb-1.5 h-8 w-full"
+                                    value=""
+                                    onChange={(event) => {
+                                      handleQuickPriority(bugIssue, event.target.value);
+                                      closeActionMenu();
+                                    }}
+                                  >
+                                    <option value="">Change priority</option>
+                                    {["Critical", "High", "Medium", "Low"].map((priority) => (
+                                      <option key={priority} value={priority}>{priority}</option>
+                                    ))}
+                                  </ActionSelect>
+                                  <Button
+                                    className="h-8 w-full rounded-lg text-[12px]"
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      handleMoveToTriageBucket(bugIssue);
+                                      closeActionMenu();
+                                    }}
+                                  >
+                                    Move to Bucket
+                                  </Button>
+                                </div>
+                              ) : null}
                             </div>
                           </td>
                         </tr>
@@ -1224,9 +1344,17 @@ const AdminBugsPage = () => {
                   const developer = getBugDeveloper(bugIssue);
                   const status = normalizeBugStatusForIssue(bugIssue);
                   const severity = getSeverity(bugIssue);
+                  const moduleTag = getModuleTag(bugIssue);
+                  const attachmentCount = getAttachmentCount(bugIssue);
 
                   return (
-                    <article key={bugIssue._id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <article
+                      key={bugIssue._id}
+                      className={cn(
+                        "rounded-xl border border-l-4 border-slate-200 bg-white p-3 shadow-sm",
+                        severityAccentClassName(severity)
+                      )}
+                    >
                       <div className="flex items-start gap-3">
                         <input
                           aria-label={`Select ${getIssueDisplayKey(bugIssue)}`}
@@ -1236,26 +1364,39 @@ const AdminBugsPage = () => {
                           onChange={(event) => handleToggleTriageBug(bugIssue._id, event.target.checked)}
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="font-mono text-[11px] font-semibold uppercase text-slate-500">{getIssueDisplayKey(bugIssue)}</p>
-                          <button type="button" className="mt-0.5 block max-w-full truncate text-left text-sm font-semibold text-slate-950" onClick={() => setSelectedBug(bugIssue)}>
+                          <p className="font-mono text-[11px] font-bold uppercase text-slate-600">{getIssueDisplayKey(bugIssue)}</p>
+                          <button type="button" className="mt-0.5 block max-w-full truncate text-left text-sm font-bold text-slate-950" onClick={() => setSelectedBug(bugIssue)}>
                             {bugIssue.title}
                           </button>
-                          <p className="mt-0.5 truncate text-xs text-slate-500">
-                            {getProjectName(bugIssue, projects)} • {details.moduleName || "Unmapped module"}
+                          <p className="mt-0.5 truncate text-xs font-medium text-slate-500">
+                            {getProjectName(bugIssue, projects)} - {details.moduleName || "Unmapped module"}
                           </p>
                         </div>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-1.5">
+                        <SoftBadge className="border-slate-300 bg-slate-100 text-slate-700">
+                          <Layers3 className="mr-1 h-3 w-3" />
+                          {moduleTag}
+                        </SoftBadge>
                         <span className={severityBadgeClassName(severity)}>{severity}</span>
-                        <Badge className="h-6 px-2 text-[11px]" variant={getIssuePriorityVariant(bugIssue.priority)}>
+                        <span className={priorityBadgeClassName(bugIssue.priority || "Medium")}>
                           {bugIssue.priority || "Medium"}
-                        </Badge>
-                        <span className={cn("inline-flex h-6 items-center rounded-full border px-2 text-[11px] font-semibold", statusBadgeClassName(status))}>
+                        </span>
+                        <span className={cn("inline-flex h-6 items-center rounded-full border px-2.5 text-[11px] font-bold shadow-sm", statusBadgeClassName(status))}>
                           {getIssueStatusLabel(status)}
                         </span>
                         <SoftBadge className="border-slate-200 bg-slate-50 text-slate-600">
                           {getUserLabel(developer)}
                         </SoftBadge>
+                        {isReopenedBug(bugIssue) ? (
+                          <SoftBadge className="border-rose-200 bg-rose-50 text-rose-700">Reopened</SoftBadge>
+                        ) : null}
+                        {attachmentCount ? (
+                          <SoftBadge className="border-slate-200 bg-slate-50 text-slate-600">
+                            <Paperclip className="mr-1 h-3 w-3" />
+                            {attachmentCount}
+                          </SoftBadge>
+                        ) : null}
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-2">
                         <Button className="h-8 rounded-lg text-[12px]" type="button" size="sm" variant="outline" onClick={() => setSelectedBug(bugIssue)}>
