@@ -406,6 +406,19 @@ export const fetchMyIssues = async (filters = {}) => {
   return response.data;
 };
 
+export const fetchBugBucket = async (filters = {}) => {
+  const params = buildParams(normalizeIssueFilters(filters));
+  const response = await api.get("/issues/bucket", {
+    params,
+  });
+  return response.data;
+};
+
+export const pickIssue = async (id) => {
+  const response = await api.post(`/issues/${id}/pick`);
+  return response.data;
+};
+
 export const fetchIssueActivity = async (filters = {}) => {
   const params = buildParams(normalizeIssueFilters(filters));
   const response = await api.get("/issues/activity", {
@@ -828,6 +841,18 @@ export const fetchEligibleSenders = async () => {
 
   console.warn("[api] Unexpected eligible senders response shape:", data);
   return [];
+};
+
+export const fetchModuleOwnerships = async () => {
+  const response = await api.get("/settings/module-ownerships");
+  return response.data?.ownerships || [];
+};
+
+export const saveModuleOwnerships = async (ownerships = []) => {
+  const response = await api.post("/settings/module-ownerships", {
+    ownerships,
+  });
+  return response.data;
 };
 
 export const importUsers = async (file) => {

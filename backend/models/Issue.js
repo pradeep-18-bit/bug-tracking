@@ -15,6 +15,38 @@ const { Schema, model, models } = mongoose;
 
 const bugDetailsSchema = new Schema(
   {
+    moduleName: {
+      type: String,
+      trim: true,
+      default: "",
+      index: true,
+    },
+    category: {
+      type: String,
+      trim: true,
+      default: "",
+      index: true,
+    },
+    affectedPlatform: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    suggestedTeam: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    addToBucket: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    estimatedEffort: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     severity: {
       type: String,
       enum: {

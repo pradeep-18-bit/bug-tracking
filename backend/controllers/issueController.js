@@ -9,6 +9,7 @@ const Sprint = require("../models/Sprint");
 const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const User = require("../models/User");
+const IssueAttachment = require("../models/IssueAttachment");
 const {
   TESTER_SMTP_REQUIRED_MESSAGE,
   ensureUserSmtpConfigured,
@@ -568,6 +569,12 @@ const resolveObjectIdValue = (value) => {
 };
 
 const serializeBugDetails = (details = {}) => ({
+  moduleName: details?.moduleName || "",
+  category: details?.category || "",
+  affectedPlatform: details?.affectedPlatform || "",
+  suggestedTeam: details?.suggestedTeam || "",
+  addToBucket: Boolean(details?.addToBucket),
+  estimatedEffort: details?.estimatedEffort || "",
   severity: details?.severity || null,
   testerOwner: resolveObjectIdValue(details?.testerOwner),
   developerLead: resolveObjectIdValue(details?.developerLead),
@@ -592,6 +599,11 @@ const buildBugDetailsDraft = (payload = {}, existingDetails = {}, defaults = {})
   }
 
   [
+    "moduleName",
+    "category",
+    "affectedPlatform",
+    "suggestedTeam",
+    "estimatedEffort",
     "stepsToReproduce",
     "expectedResult",
     "actualResult",
@@ -604,6 +616,15 @@ const buildBugDetailsDraft = (payload = {}, existingDetails = {}, defaults = {})
       nextDetails[field] = toTrimmedString(value);
     }
   });
+
+  const addToBucketInput = getBugPayloadValue(payload, "addToBucket", [
+    "assignLater",
+    "bucket",
+  ]);
+
+  if (typeof addToBucketInput !== "undefined") {
+    nextDetails.addToBucket = Boolean(addToBucketInput);
+  }
 
   const targetReleaseInput = getBugPayloadValue(payload, "targetRelease", [
     "futureRelease",
@@ -644,15 +665,15 @@ const getBugStatusForIssueStatus = (status) => {
   }
 
   if (normalizedStatus === ISSUE_STATUS.IN_PROGRESS || normalizedStatus === ISSUE_STATUS.BLOCKED) {
-    return BUG_STATUS.ASSIGNED;
+    return BUG_STATUS.IN_PROGRESS;
   }
 
   if (normalizedStatus === ISSUE_STATUS.REVIEW || normalizedStatus === ISSUE_STATUS.QA) {
-    return BUG_STATUS.FIXED;
+    return BUG_STATUS.READY_FOR_QA;
   }
 
   if (normalizedStatus === ISSUE_STATUS.DONE) {
-    return BUG_STATUS.CLOSED;
+    return BUG_STATUS.DONE;
   }
 
   return BUG_STATUS.NEW;
@@ -676,11 +697,11 @@ const getRequestedBugStatus = ({ payload = {}, currentStatus = BUG_STATUS.NEW })
   if (normalizedStatus === ISSUE_STATUS.IN_PROGRESS) {
     const currentBugStatus = getBugStatusForIssueStatus(currentStatus);
 
-    return currentBugStatus === BUG_STATUS.NEW ? BUG_STATUS.OPEN : BUG_STATUS.ASSIGNED;
+    return currentBugStatus === BUG_STATUS.NEW ? BUG_STATUS.ASSIGNED : BUG_STATUS.IN_PROGRESS;
   }
 
   if (normalizedStatus === ISSUE_STATUS.DONE) {
-    return BUG_STATUS.CLOSED;
+    return BUG_STATUS.DONE;
   }
 
   return normalizedStatus;
@@ -737,8 +758,11 @@ const validateBugTransition = ({ user, fromStatus, toStatus, payload }) => {
     return `Bug status cannot move from ${fromStatus} to ${toStatus}`;
   }
 
-  if (toStatus === BUG_STATUS.CLOSED && fromStatus !== BUG_STATUS.FIXED) {
-    return "Bug cannot be Closed unless it was previously Fixed";
+  if (
+    toStatus === BUG_STATUS.CLOSED &&
+    ![BUG_STATUS.FIXED, BUG_STATUS.READY_FOR_QA, BUG_STATUS.TESTING, BUG_STATUS.DONE].includes(fromStatus)
+  ) {
+    return "Bug cannot be Closed unless it is ready for QA, testing, fixed, or done";
   }
 
   if (toStatus === BUG_STATUS.REOPEN && !getBugTransitionReason(payload, toStatus)) {
@@ -761,21 +785,24 @@ const validateBugTransition = ({ user, fromStatus, toStatus, payload }) => {
   }
 
   if (isQaRole(user?.role)) {
-    return [BUG_STATUS.CLOSED, BUG_STATUS.REOPEN].includes(toStatus)
+    return [BUG_STATUS.TESTING, BUG_STATUS.DONE, BUG_STATUS.CLOSED, BUG_STATUS.REOPEN].includes(toStatus)
       ? ""
-      : "QA users can only Close or Reopen Fixed bugs";
+      : "QA users can only test, close, complete, or reopen QA-ready bugs";
   }
 
   if (isDevRole(user?.role)) {
     return [
       BUG_STATUS.OPEN,
+      BUG_STATUS.TRIAGED,
       BUG_STATUS.ASSIGNED,
+      BUG_STATUS.IN_PROGRESS,
+      BUG_STATUS.READY_FOR_QA,
       BUG_STATUS.FIXED,
       BUG_STATUS.REJECTED,
       BUG_STATUS.DEFERRED,
     ].includes(toStatus)
       ? ""
-      : "Developer users can only move bugs to Open, Assigned, Fixed, Rejected, or Deferred";
+      : "Developer users can only move bugs through development states";
   }
 
   return "Your role cannot change this bug status";
@@ -1364,6 +1391,22 @@ const buildIssueQueryFromRequest = async (
     query.teamId = req.query.teamId;
   }
 
+  if (req.query.bucket && req.query.bucket !== "all") {
+    const bucketMode = String(req.query.bucket).trim().toLowerCase();
+
+    if (!["true", "1", "available", "unassigned"].includes(bucketMode)) {
+      res.status(400);
+      throw new Error("Invalid bucket filter");
+    }
+
+    query.type = ISSUE_TYPES.BUG;
+    query.assignee = null;
+    query["bugDetails.developerLead"] = null;
+    query.status = {
+      $in: [BUG_STATUS.NEW, BUG_STATUS.TRIAGED, BUG_STATUS.OPEN, BUG_STATUS.REOPEN],
+    };
+  }
+
   if (req.query.epicId && req.query.epicId !== "all") {
     if (req.query.epicId === "unassigned") {
       query.epicId = null;
@@ -1548,6 +1591,212 @@ const getMyIssues = asyncHandler(async (req, res) => {
   const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
 
   res.status(200).json(serializeIssues(issues));
+});
+
+const getBugBucket = asyncHandler(async (req, res) => {
+  if (!isDevRole(req.user?.role) && !isLeadRole(req.user?.role)) {
+    res.status(403);
+    throw new Error("Only developers and leads can view the bug bucket");
+  }
+
+  const accessibleProjectIds = await getAccessibleProjectIds(req.user);
+  const query = {
+    projectId: {
+      $in: accessibleProjectIds,
+    },
+    type: ISSUE_TYPES.BUG,
+    assignee: null,
+    "bugDetails.developerLead": null,
+    status: {
+      $in: [BUG_STATUS.NEW, BUG_STATUS.TRIAGED, BUG_STATUS.OPEN, BUG_STATUS.REOPEN],
+    },
+  };
+
+  if (req.query.projectId && req.query.projectId !== "all") {
+    if (!mongoose.isValidObjectId(req.query.projectId)) {
+      res.status(400);
+      throw new Error("Invalid project id filter");
+    }
+
+    const hasProjectAccess = accessibleProjectIds.some(
+      (projectId) => String(projectId) === String(req.query.projectId)
+    );
+
+    if (!hasProjectAccess) {
+      res.status(403);
+      throw new Error("You do not have access to that project");
+    }
+
+    query.projectId = req.query.projectId;
+  }
+
+  if (req.query.teamId && req.query.teamId !== "all") {
+    if (!mongoose.isValidObjectId(req.query.teamId)) {
+      res.status(400);
+      throw new Error("Invalid team id filter");
+    }
+
+    query.teamId = req.query.teamId;
+  }
+
+  if (req.query.priority && req.query.priority !== "all") {
+    query.priority = req.query.priority;
+  }
+
+  if (req.query.category && req.query.category !== "all") {
+    query["bugDetails.category"] = req.query.category;
+  }
+
+  if (req.query.moduleName && req.query.moduleName !== "all") {
+    query["bugDetails.moduleName"] = new RegExp(
+      escapeRegExp(String(req.query.moduleName).trim()),
+      "i"
+    );
+  }
+
+  const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
+  const issueIds = issues.map((issue) => issue._id);
+  const attachmentCounts = issueIds.length
+    ? await IssueAttachment.aggregate([
+        {
+          $match: {
+            issueId: {
+              $in: issueIds,
+            },
+          },
+        },
+        {
+          $group: {
+            _id: "$issueId",
+            count: {
+              $sum: 1,
+            },
+          },
+        },
+      ])
+    : [];
+  const countsByIssueId = new Map(
+    attachmentCounts.map((item) => [String(item._id), item.count])
+  );
+
+  res.status(200).json(
+    serializeIssues(issues).map((issue) => ({
+      ...issue,
+      attachmentsCount: countsByIssueId.get(String(issue._id)) || 0,
+    }))
+  );
+});
+
+const pickIssue = asyncHandler(async (req, res) => {
+  if (!isDevRole(req.user?.role) && !isLeadRole(req.user?.role)) {
+    res.status(403);
+    throw new Error("Only developers and leads can pick bugs");
+  }
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid issue id");
+  }
+
+  const existingIssue = await Issue.findById(req.params.id);
+
+  if (!existingIssue) {
+    res.status(404);
+    throw new Error("Issue not found");
+  }
+
+  if (!isBugType(existingIssue.type)) {
+    res.status(400);
+    throw new Error("Only bugs can be picked from the bucket");
+  }
+
+  const project = await loadAccessibleProject(req.user, existingIssue.projectId);
+
+  if (!project) {
+    res.status(403);
+    throw new Error("You do not have access to this bug");
+  }
+
+  const membership = await TeamMember.findOne({
+    teamId: existingIssue.teamId,
+    userId: req.user._id,
+  }).lean();
+
+  if (!membership && !isLeadRole(req.user?.role)) {
+    res.status(403);
+    throw new Error("You can only pick bugs for teams you belong to");
+  }
+
+  const previousStatus = getBugStatusForIssueStatus(existingIssue.status);
+  const pickedIssue = await Issue.findOneAndUpdate(
+    {
+      _id: existingIssue._id,
+      type: ISSUE_TYPES.BUG,
+      assignee: null,
+      "bugDetails.developerLead": null,
+      status: {
+        $in: [BUG_STATUS.NEW, BUG_STATUS.TRIAGED, BUG_STATUS.OPEN, BUG_STATUS.REOPEN],
+      },
+    },
+    {
+      $set: {
+        assignee: req.user._id,
+        "bugDetails.developerLead": req.user._id,
+        "bugDetails.addToBucket": false,
+        status: BUG_STATUS.ASSIGNED,
+        updatedAt: new Date(),
+      },
+    },
+    {
+      new: true,
+    }
+  );
+
+  if (!pickedIssue) {
+    res.status(409);
+    throw new Error("This bug was already picked or is no longer available");
+  }
+
+  await populateIssueDocument(pickedIssue);
+  await Promise.all([
+    recordIssueHistory({
+      issueId: pickedIssue._id,
+      projectId: pickedIssue.projectId,
+      actorId: req.user._id,
+      eventType: "BUG_STATUS_CHANGED",
+      field: "status",
+      fromValue: previousStatus,
+      toValue: BUG_STATUS.ASSIGNED,
+      meta: {
+        title: pickedIssue.title,
+        action: "self_pick",
+      },
+    }),
+    recordIssueHistory({
+      issueId: pickedIssue._id,
+      projectId: pickedIssue.projectId,
+      actorId: req.user._id,
+      eventType: "ISSUE_UPDATED",
+      field: "assignee",
+      fromValue: null,
+      toValue: req.user._id,
+      meta: {
+        title: pickedIssue.title,
+        action: "self_pick",
+      },
+    }),
+  ]);
+
+  const emailNotification = await sendBugAssignmentNotification({
+    issue: pickedIssue,
+    actorUser: req.user,
+    workspaceId: normalizeWorkspaceId(project.workspaceId || req.user.workspaceId),
+  });
+
+  res.status(200).json({
+    ...serializeIssue(pickedIssue),
+    emailNotification,
+  });
 });
 
 const serializeActivityEntry = (entry) => {
@@ -2017,6 +2266,9 @@ const createIssue = asyncHandler(async (req, res) => {
   const canAssignPlanningFields = hasAdminAccess(req.user?.role);
   const normalizedType = getCanonicalIssueType(type, ISSUE_TYPES.TASK);
   const isBug = normalizedType === ISSUE_TYPES.BUG;
+  const assignLater =
+    isBug &&
+    Boolean(getBugPayloadValue(req.body, "addToBucket", ["assignLater", "bucket"]));
   const requestedStatus = isBug
     ? getRequestedBugStatus({
         payload: req.body,
@@ -2114,7 +2366,7 @@ const createIssue = asyncHandler(async (req, res) => {
     ),
   });
 
-  if (assigneeId) {
+  if (assigneeId && !assignLater) {
     const canTesterAssignBugDeveloper =
       req.user.role === ROLE_TESTER && isBug;
 
@@ -2204,7 +2456,8 @@ const createIssue = asyncHandler(async (req, res) => {
   const bugDetails = isBug
     ? buildBugDetailsDraft(req.body, {}, {
         testerOwner: req.user.role === ROLE_TESTER ? req.user._id : null,
-        developerLead: assigneeId || null,
+        developerLead: assignLater ? null : assigneeId || null,
+        addToBucket: assignLater,
       })
     : {};
   let bugAssignmentDeveloperUser = null;
@@ -2250,6 +2503,10 @@ const createIssue = asyncHandler(async (req, res) => {
 
     bugAssignmentDeveloperUser = developerLeadResult.user || null;
 
+    if (assignLater) {
+      bugDetails.developerLead = null;
+    }
+
     if (req.user.role === ROLE_TESTER && bugDetails.developerLead) {
       try {
         await ensureTesterBugAssignmentSmtpConfigured({
@@ -2281,7 +2538,7 @@ const createIssue = asyncHandler(async (req, res) => {
     type: normalizedType,
     status: statusResult.value,
     priority: normalizedPriority || priority,
-    assignee: assigneeId || null,
+    assignee: assignLater ? null : assigneeId || null,
     reporter: req.user._id,
     projectId,
     teamId,
@@ -3022,6 +3279,8 @@ module.exports = {
   getIssues,
   getIssueStats,
   getMyIssues,
+  getBugBucket,
+  pickIssue,
   getRecentIssueActivity,
   getReports,
   getProjectReports,

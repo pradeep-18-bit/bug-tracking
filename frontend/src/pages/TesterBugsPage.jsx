@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bug,
-  CalendarDays,
   FileText,
   FolderKanban,
   TimerReset,
@@ -118,6 +117,12 @@ const getDeveloperName = (issue) => {
 const getIssueSeverity = (issue) =>
   resolveBugDetails(issue)?.severity || "Not set";
 
+const getIssueModule = (issue) =>
+  resolveBugDetails(issue)?.moduleName || "Unmapped module";
+
+const getIssueCategory = (issue) =>
+  resolveBugDetails(issue)?.category || "Bug";
+
 const AttachmentIndicator = ({ issueId }) => {
   const { data: attachments = [], isLoading } = useQuery({
     queryKey: ["issue", issueId, "attachments"],
@@ -218,18 +223,26 @@ const BugCard = ({ issue, projects, onOpen }) => {
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-3 py-2">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Severity
+            Module
           </p>
           <p className="mt-1 text-sm font-semibold text-slate-900">
-            {getIssueSeverity(issue)}
+            {getIssueModule(issue)}
           </p>
         </div>
         <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-3 py-2">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Priority
+            Category
           </p>
           <p className="mt-1 text-sm font-semibold text-slate-900">
-            {issue.priority || "Not set"}
+            {getIssueCategory(issue)}
+          </p>
+        </div>
+        <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Severity / Priority
+          </p>
+          <p className="mt-1 truncate text-sm font-semibold text-slate-900">
+            {getIssueSeverity(issue)} / {issue.priority || "Not set"}
           </p>
         </div>
         <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-3 py-2">
@@ -239,17 +252,8 @@ const BugCard = ({ issue, projects, onOpen }) => {
           <p className="mt-1 truncate text-sm font-semibold text-slate-900">
             {getDeveloperName(issue)}
           </p>
-        </div>
-        <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-3 py-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Dates
-          </p>
-          <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-            <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
-            {createdDate}
-          </p>
           <p className="mt-1 text-xs text-slate-500">
-            Updated {updatedDate ? formatDate(updatedDate) : "Unknown"}
+            Created {createdDate} - Updated {updatedDate ? formatDate(updatedDate) : "Unknown"}
           </p>
         </div>
       </div>

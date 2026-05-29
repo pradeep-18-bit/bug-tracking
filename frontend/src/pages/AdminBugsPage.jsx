@@ -6,6 +6,7 @@ import {
   Bug,
   CheckCircle2,
   Eye,
+  ListChecks,
   RefreshCcw,
   Search,
   ShieldCheck,
@@ -271,6 +272,9 @@ const AdminBugsPage = () => {
     searchParams.get("filter") || searchParams.get("status")
   );
   const [selectedBug, setSelectedBug] = useState(null);
+  const [selectedTriageIds, setSelectedTriageIds] = useState([]);
+  const [bulkPriority, setBulkPriority] = useState("");
+  const [bulkDeveloperId, setBulkDeveloperId] = useState("");
   const [filters, setFilters] = useState({
     projectId: searchParams.get("projectId") || ALL_PROJECTS_VALUE,
     teamId: "all",
@@ -527,6 +531,20 @@ const AdminBugsPage = () => {
     [filteredBugs]
   );
 
+  const triageBugs = useMemo(
+    () =>
+      filteredBugs.filter((bugIssue) => {
+        const status = normalizeBugStatusForIssue(bugIssue);
+        const developer = getBugDeveloper(bugIssue);
+
+        return (
+          [ISSUE_STATUS.NEW, ISSUE_STATUS.TRIAGED, ISSUE_STATUS.OPEN].includes(status) ||
+          !resolveUserId(developer)
+        );
+      }),
+    [filteredBugs]
+  );
+
   const severityRows = useMemo(
     () =>
       BUG_SEVERITY_OPTIONS.map((severity) => ({
@@ -605,6 +623,49 @@ const AdminBugsPage = () => {
     },
   });
 
+  const handleToggleTriageBug = (issueId, checked) => {
+    setSelectedTriageIds((current) =>
+      checked
+        ? Array.from(new Set([...current, issueId]))
+        : current.filter((id) => id !== issueId)
+    );
+  };
+
+  const handleBulkTriage = async () => {
+    const selectedBugs = triageBugs.filter((bugIssue) =>
+      selectedTriageIds.includes(bugIssue._id)
+    );
+
+    if (!selectedBugs.length) {
+      return;
+    }
+
+    for (const bugIssue of selectedBugs) {
+      const currentStatus = normalizeBugStatusForIssue(bugIssue);
+
+      await updateIssueMutation.mutateAsync({
+        id: bugIssue._id,
+        payload: {
+          ...(bulkPriority ? { priority: bulkPriority } : {}),
+          ...(bulkDeveloperId
+            ? {
+                assigneeId: bulkDeveloperId,
+                bugDetails: {
+                  ...resolveBugDetails(bugIssue),
+                  developerLeadId: bulkDeveloperId,
+                },
+                status: ISSUE_STATUS.ASSIGNED,
+              }
+            : currentStatus === ISSUE_STATUS.NEW
+              ? { status: ISSUE_STATUS.TRIAGED }
+              : {}),
+        },
+      });
+    }
+
+    setSelectedTriageIds([]);
+  };
+
   const error = projectsError || bugsError;
   const isLoading = isProjectsLoading || isBugsLoading;
 
@@ -650,6 +711,118 @@ const AdminBugsPage = () => {
         <MetricTile icon={ShieldCheck} label="Ready For QA" value={metrics.readyForQa} tone="bg-cyan-50 text-cyan-700" />
         <MetricTile icon={CheckCircle2} label="Closed Bugs" value={metrics.closed} tone="bg-emerald-50 text-emerald-700" />
       </section>
+
+      <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur-xl">
+        <CardHeader className="border-b border-slate-200/80">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <ListChecks className="h-5 w-5 text-blue-600" />
+                Triage Board
+              </CardTitle>
+              <p className="mt-1 text-sm text-slate-500">
+                Review new or unassigned bugs, validate priority, and move them to a developer or bucket.
+              </p>
+            </div>
+            <Badge className="border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-50">
+              {triageBugs.length} needs review
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4 p-4 sm:p-5">
+          <div className="grid gap-3 md:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_auto]">
+            <select className="field-select" value={bulkPriority} onChange={(event) => setBulkPriority(event.target.value)}>
+              <option value="">Keep priority</option>
+              {["Critical", "High", "Medium", "Low"].map((priority) => (
+                <option key={priority} value={priority}>{priority}</option>
+              ))}
+            </select>
+            <select className="field-select" value={bulkDeveloperId} onChange={(event) => setBulkDeveloperId(event.target.value)}>
+              <option value="">Move to triaged bucket</option>
+              {developers.map((developer) => (
+                <option key={resolveUserId(developer)} value={resolveUserId(developer)}>
+                  Assign to {getUserLabel(developer)}
+                </option>
+              ))}
+            </select>
+            <Button
+              type="button"
+              disabled={!selectedTriageIds.length || updateIssueMutation.isPending}
+              onClick={handleBulkTriage}
+            >
+              Apply to {selectedTriageIds.length || 0}
+            </Button>
+          </div>
+
+          <div className="max-h-[320px] overflow-auto rounded-[16px] border border-slate-200/80">
+            <table className="w-full min-w-[940px] text-left text-sm">
+              <thead className="sticky top-0 bg-slate-50/95 text-xs uppercase tracking-[0.14em] text-slate-500">
+                <tr>
+                  <th className="w-12 px-3 py-3">
+                    <input
+                      aria-label="Select all triage bugs"
+                      type="checkbox"
+                      checked={triageBugs.length > 0 && triageBugs.every((bugIssue) => selectedTriageIds.includes(bugIssue._id))}
+                      onChange={(event) =>
+                        setSelectedTriageIds(event.target.checked ? triageBugs.map((bugIssue) => bugIssue._id) : [])
+                      }
+                    />
+                  </th>
+                  {["Bug", "Module", "Category", "Severity", "Priority", "Developer", "Status"].map((header) => (
+                    <th key={header} className="px-3 py-3 font-semibold">{header}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white/70">
+                {triageBugs.slice(0, 20).map((bugIssue) => {
+                  const details = resolveBugDetails(bugIssue);
+                  const developer = getBugDeveloper(bugIssue);
+                  const status = normalizeBugStatusForIssue(bugIssue);
+
+                  return (
+                    <tr key={bugIssue._id} className="hover:bg-blue-50/40">
+                      <td className="px-3 py-3">
+                        <input
+                          aria-label={`Select ${getIssueDisplayKey(bugIssue)}`}
+                          type="checkbox"
+                          checked={selectedTriageIds.includes(bugIssue._id)}
+                          onChange={(event) => handleToggleTriageBug(bugIssue._id, event.target.checked)}
+                        />
+                      </td>
+                      <td className="max-w-[240px] px-3 py-3">
+                        <button type="button" className="block max-w-full truncate text-left font-semibold text-slate-950" onClick={() => setSelectedBug(bugIssue)}>
+                          {getIssueDisplayKey(bugIssue)} - {bugIssue.title}
+                        </button>
+                      </td>
+                      <td className="px-3 py-3 text-slate-600">{details.moduleName || "Unmapped"}</td>
+                      <td className="px-3 py-3 text-slate-600">{details.category || "Not set"}</td>
+                      <td className="px-3 py-3 text-slate-600">{getSeverity(bugIssue)}</td>
+                      <td className="px-3 py-3">
+                        <Badge variant={getIssuePriorityVariant(bugIssue.priority)}>
+                          {bugIssue.priority || "Medium"}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-3 text-slate-600">{getUserLabel(developer)}</td>
+                      <td className="px-3 py-3">
+                        <Badge variant={getIssueStatusVariant(status)}>
+                          {getIssueStatusLabel(status)}
+                        </Badge>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!triageBugs.length ? (
+                  <tr>
+                    <td className="px-3 py-8 text-center text-sm text-slate-500" colSpan={8}>
+                      No new or unassigned bugs need triage in this filtered view.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="sticky top-24 z-20 overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur-xl">
         <CardContent className="space-y-4 p-4 sm:p-5">

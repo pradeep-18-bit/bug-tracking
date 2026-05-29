@@ -21,8 +21,10 @@ import {
 import { useNavigate } from "react-router-dom";
 import {
   fetchIssueActivity,
+  fetchBugBucket,
   fetchMyIssues,
   fetchProjects,
+  pickIssue,
   updateIssue,
 } from "@/lib/api";
 import {
@@ -75,9 +77,12 @@ const defaultFilters = createIssueListFilters({
 
 const statusStyleMap = {
   [ISSUE_STATUS.NEW]: "border-orange-200 bg-orange-50 text-orange-700",
+  [ISSUE_STATUS.TRIAGED]: "border-indigo-200 bg-indigo-50 text-indigo-700",
   [ISSUE_STATUS.OPEN]: "border-red-200 bg-red-50 text-red-700",
   [ISSUE_STATUS.ASSIGNED]: "border-violet-200 bg-violet-50 text-violet-700",
   [ISSUE_STATUS.IN_PROGRESS]: "border-blue-200 bg-blue-50 text-blue-700",
+  [ISSUE_STATUS.READY_FOR_QA]: "border-cyan-200 bg-cyan-50 text-cyan-700",
+  [ISSUE_STATUS.TESTING]: "border-sky-200 bg-sky-50 text-sky-700",
   [ISSUE_STATUS.QA]: "border-cyan-200 bg-cyan-50 text-cyan-700",
   [ISSUE_STATUS.FIXED]: "border-cyan-200 bg-cyan-50 text-cyan-700",
   [ISSUE_STATUS.REVIEW]: "border-cyan-200 bg-cyan-50 text-cyan-700",
@@ -122,9 +127,14 @@ const severityRank = {
 
 const bugWorkflowLabels = {
   [ISSUE_STATUS.NEW]: "Open",
+  [ISSUE_STATUS.TRIAGED]: "Triaged",
   [ISSUE_STATUS.OPEN]: "Open",
-  [ISSUE_STATUS.ASSIGNED]: "In Progress",
+  [ISSUE_STATUS.ASSIGNED]: "Assigned",
+  [ISSUE_STATUS.IN_PROGRESS]: "In Progress",
+  [ISSUE_STATUS.READY_FOR_QA]: "Ready for QA",
+  [ISSUE_STATUS.TESTING]: "Testing",
   [ISSUE_STATUS.FIXED]: "Testing",
+  [ISSUE_STATUS.DONE]: "Done",
   [ISSUE_STATUS.CLOSED]: "Closed",
   [ISSUE_STATUS.REOPEN]: "Reopened",
   [ISSUE_STATUS.REJECTED]: "Rejected",
@@ -132,10 +142,12 @@ const bugWorkflowLabels = {
 };
 
 const developerBugTransitions = {
-  [ISSUE_STATUS.NEW]: [ISSUE_STATUS.OPEN],
+  [ISSUE_STATUS.NEW]: [ISSUE_STATUS.ASSIGNED],
+  [ISSUE_STATUS.TRIAGED]: [ISSUE_STATUS.ASSIGNED],
   [ISSUE_STATUS.OPEN]: [ISSUE_STATUS.ASSIGNED, ISSUE_STATUS.REJECTED],
-  [ISSUE_STATUS.ASSIGNED]: [ISSUE_STATUS.FIXED, ISSUE_STATUS.REJECTED],
-  [ISSUE_STATUS.REOPEN]: [ISSUE_STATUS.ASSIGNED],
+  [ISSUE_STATUS.ASSIGNED]: [ISSUE_STATUS.IN_PROGRESS, ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.REJECTED],
+  [ISSUE_STATUS.IN_PROGRESS]: [ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.REJECTED],
+  [ISSUE_STATUS.REOPEN]: [ISSUE_STATUS.ASSIGNED, ISSUE_STATUS.IN_PROGRESS],
 };
 
 const taskStatusOptions = [
@@ -297,7 +309,9 @@ const getNextBugAction = (issue) => {
   const labels = {
     [ISSUE_STATUS.OPEN]: "Open",
     [ISSUE_STATUS.ASSIGNED]: "Start",
-    [ISSUE_STATUS.FIXED]: "Send to Testing",
+    [ISSUE_STATUS.IN_PROGRESS]: "Start",
+    [ISSUE_STATUS.READY_FOR_QA]: "Send to QA",
+    [ISSUE_STATUS.FIXED]: "Send to QA",
   };
 
   return {
@@ -667,6 +681,99 @@ const ActivityList = ({ activity, compact = false, fallbackIssues = [], onOpenIs
   );
 };
 
+const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, pickingId }) => (
+  <Card className="overflow-hidden border-white/70 bg-white/90 shadow-[0_22px_64px_-42px_rgba(15,23,42,0.42)] backdrop-blur-xl">
+    <CardHeader className="border-b border-slate-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(240,253,250,0.88),rgba(239,246,255,0.82))]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <CardTitle className="flex items-center gap-2 text-xl tracking-tight text-slate-950">
+            <FolderKanban className="h-5 w-5 text-cyan-600" />
+            Available Bugs Queue
+          </CardTitle>
+          <CardDescription>Unassigned bugs ready for developer pickup.</CardDescription>
+        </div>
+        <Pill className="border-cyan-200 bg-cyan-50 text-cyan-700">
+          {issues.length} available
+        </Pill>
+      </div>
+    </CardHeader>
+    <CardContent className="p-4 sm:p-5">
+      {isLoading ? (
+        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Skeleton key={`bucket-skeleton-${index}`} className="h-48 rounded-[18px]" />
+          ))}
+        </div>
+      ) : issues.length ? (
+        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+          {issues.map((issue) => {
+            const details = resolveBugDetails(issue);
+
+            return (
+              <article key={issue._id} className="rounded-[18px] border border-slate-200/80 bg-white/82 p-4 shadow-sm transition hover:border-cyan-200 hover:bg-white">
+                <div className="flex items-start justify-between gap-3">
+                  <button className="min-w-0 text-left" type="button" onClick={() => onOpenIssue(issue)}>
+                    <p className="font-mono text-xs font-semibold text-slate-500">
+                      {getIssueDisplayKey(issue)}
+                    </p>
+                    <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-slate-950">
+                      {issue.title}
+                    </h3>
+                  </button>
+                  <Pill className={getBadgeClass(priorityStyleMap, issue.priority)}>
+                    {issue.priority || "Medium"}
+                  </Pill>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Pill className="border-blue-200 bg-blue-50 text-blue-700">
+                    {details.affectedPlatform || "Web"}
+                  </Pill>
+                  <Pill className="border-slate-200 bg-slate-50 text-slate-700">
+                    {details.category || "Bug"}
+                  </Pill>
+                  <Pill className={getBadgeClass(severityStyleMap, getBugSeverity(issue))}>
+                    {getBugSeverity(issue)}
+                  </Pill>
+                </div>
+
+                <dl className="mt-3 grid gap-2 text-xs text-slate-600">
+                  {[
+                    ["Module", details.moduleName || "Unmapped module"],
+                    ["Reporter", getReporterName(issue)],
+                    ["Screenshots", issue.attachmentsCount || 0],
+                    ["Effort", details.estimatedEffort || "TBD"],
+                  ].map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between gap-3">
+                      <dt className="font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</dt>
+                      <dd className="min-w-0 truncate font-medium">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+
+                <div className="mt-4 flex gap-2">
+                  <Button className="h-9 flex-1 rounded-xl" type="button" disabled={pickingId === issue._id} onClick={() => onPickIssue(issue)}>
+                    {pickingId === issue._id ? "Picking" : "Pick Bug"}
+                  </Button>
+                  <Button className="h-9 rounded-xl" type="button" variant="outline" onClick={() => onOpenIssue(issue)}>
+                    View
+                  </Button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <EmptyState
+          title="No bugs in the bucket"
+          description="Unassigned tester bugs will appear here when they are added to the developer queue."
+          icon={<FolderKanban className="h-5 w-5" />}
+        />
+      )}
+    </CardContent>
+  </Card>
+);
+
 const WorkTable = ({
   issues,
   type,
@@ -1000,7 +1107,21 @@ const DeveloperDashboardPage = () => {
     enabled: Boolean(user?._id),
   });
 
+  const {
+    data: bucketIssuesData = [],
+    isLoading: isBucketLoading,
+    refetch: refetchBucket,
+  } = useQuery({
+    queryKey: ["issues", "bucket", "developer-dashboard", user?._id],
+    queryFn: () => fetchBugBucket({ limit: 60, sortBy: "priority" }),
+    enabled: Boolean(user?._id),
+  });
+
   const allIssues = useMemo(() => (Array.isArray(issues) ? issues : []), [issues]);
+  const bucketIssues = useMemo(
+    () => (Array.isArray(bucketIssuesData) ? bucketIssuesData : []),
+    [bucketIssuesData]
+  );
   const bugIssues = useMemo(
     () => allIssues.filter((issue) => isBugIssue(issue)),
     [allIssues]
@@ -1074,6 +1195,34 @@ const DeveloperDashboardPage = () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
+    },
+  });
+
+  const pickMutation = useMutation({
+    mutationFn: (issue) => pickIssue(issue._id),
+    onMutate: () => {
+      setStatusError("");
+    },
+    onSuccess: (pickedIssue) => {
+      queryClient.setQueryData(myIssuesQueryKey, (current = []) =>
+        Array.isArray(current) ? [pickedIssue, ...current] : current
+      );
+      queryClient.setQueryData(
+        ["issues", "bucket", "developer-dashboard", user?._id],
+        (current = []) =>
+          Array.isArray(current)
+            ? current.filter((issue) => issue._id !== pickedIssue._id)
+            : current
+      );
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
+    },
+    onError: (error) => {
+      setStatusError(
+        error.response?.data?.message || "Unable to pick this bug right now."
+      );
+      queryClient.invalidateQueries({ queryKey: ["issues", "bucket"] });
     },
   });
 
@@ -1235,13 +1384,24 @@ const DeveloperDashboardPage = () => {
           disabled={isIssuesFetching}
           type="button"
           variant="outline"
-          onClick={() => refetchIssues()}
+          onClick={() => {
+            refetchIssues();
+            refetchBucket();
+          }}
         >
           <RefreshCcw className={cn("h-4 w-4", isIssuesFetching && "animate-spin")} />
         </Button>
       </section>
 
       <section className="space-y-5">
+          <BugBucketPanel
+            issues={bucketIssues}
+            isLoading={isBucketLoading}
+            pickingId={pickMutation.isPending ? pickMutation.variables?._id : ""}
+            onOpenIssue={setSelectedIssue}
+            onPickIssue={(issue) => pickMutation.mutate(issue)}
+          />
+
           <Card className="overflow-hidden border-white/70 bg-white/90 shadow-[0_22px_64px_-42px_rgba(15,23,42,0.42)] backdrop-blur-xl">
             <CardHeader className="border-b border-slate-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(239,246,255,0.9),rgba(240,253,250,0.78))]">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
