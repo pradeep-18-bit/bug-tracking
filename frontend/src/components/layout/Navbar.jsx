@@ -78,11 +78,11 @@ const Navbar = () => {
   }, [isMenuOpen]);
 
   return (
-    <header className="fixed inset-x-0 top-0 z-30 h-16 border-b border-white/40 bg-gradient-to-r from-white/78 via-blue-50/72 to-sky-100/68 shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
+    <header className="fixed inset-x-0 top-0 z-[9000] h-16 overflow-visible border-b border-white/40 bg-gradient-to-r from-white/78 via-blue-50/72 to-sky-100/68 shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.14),transparent_32%),radial-gradient(circle_at_top_right,_rgba(186,230,253,0.20),transparent_40%)]" />
 
-      <div className="relative z-10 mx-auto h-full w-full max-w-screen-2xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-full items-center gap-2 lg:gap-4">
+      <div className="relative z-10 mx-auto h-full w-full max-w-screen-2xl overflow-visible px-4 sm:px-6 lg:px-8">
+        <div className="flex h-full items-center gap-2 overflow-visible lg:gap-4">
           <NavLink
             to={navigation[0]?.href || "/"}
             className="flex min-w-0 items-center gap-3"
@@ -123,7 +123,7 @@ const Navbar = () => {
             })}
           </nav>
 
-          <div className="ml-auto hidden items-center gap-2 lg:flex">
+          <div className="relative z-[100] ml-auto hidden items-center gap-2 overflow-visible lg:flex">
             <UserProfileDropdown />
           </div>
 
