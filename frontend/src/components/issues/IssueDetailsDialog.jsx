@@ -83,6 +83,12 @@ const toDateTimeLocalValue = (value) => {
 const formatDueAt = (value) => (value ? formatDateTime(value) : "No due date");
 const ATTACHMENT_ACCEPT =
   "image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.log,.csv,.json,.xml,.zip";
+const DETAIL_PANEL_TABS = [
+  { id: "discussion", label: "Discussion" },
+  { id: "attachments", label: "Attachments" },
+  { id: "activity", label: "Activity" },
+  { id: "comments", label: "Comments" },
+];
 
 const formatDependencyLabel = (issue) =>
   issue ? `${getIssueDisplayKey(issue)} ${issue.title}` : "No dependency";
@@ -135,6 +141,7 @@ const IssueDetailsDialog = ({
   canEditPriority = true,
   canEditAssignee = true,
   canDeleteIssue = true,
+  compactDrawer = false,
   contentClassName = "",
 }) => {
   const queryClient = useQueryClient();
@@ -143,6 +150,7 @@ const IssueDetailsDialog = ({
   const [selectedFile, setSelectedFile] = useState(null);
   const [detailDraft, setDetailDraft] = useState(buildDetailDraft(issue));
   const [detailsError, setDetailsError] = useState("");
+  const [activeDetailTab, setActiveDetailTab] = useState("discussion");
 
   const selectedProject = useMemo(
     () => findProjectById(projects, detailDraft.projectId),
@@ -180,6 +188,7 @@ const IssueDetailsDialog = ({
     setDetailDraft(buildDetailDraft(issue));
     setDetailsError("");
     setSelectedFile(null);
+    setActiveDetailTab("discussion");
   }, [issue]);
 
   useEffect(() => {
@@ -339,12 +348,191 @@ const IssueDetailsDialog = ({
   const testerOwner = bugDetails.testerOwner;
   const developerLead = bugDetails.developerLead;
   const canChangeStatusForRole = Boolean(role) && canEditStatus;
+  const commentComposer = (
+    <form className="space-y-3" onSubmit={handleSubmitComment}>
+      <Input
+        placeholder="Add a status update or implementation note"
+        value={commentText}
+        onChange={(event) => setCommentText(event.target.value)}
+      />
+      <Button
+        className="w-full"
+        disabled={createCommentMutation.isPending}
+        type="submit"
+      >
+        {createCommentMutation.isPending ? "Posting..." : "Add Comment"}
+      </Button>
+    </form>
+  );
+  const commentsList = (
+    <div className="space-y-4">
+      {isCommentsLoading ? (
+        <>
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-full" />
+        </>
+      ) : comments.length ? (
+        comments.map((comment) => (
+          <div
+            key={comment._id}
+            className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm"
+          >
+            <div className="flex items-start gap-3">
+              <Avatar className="h-10 w-10">
+                <AvatarFallback>
+                  {getInitials(comment.userId?.name)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold text-gray-900">
+                    {comment.userId?.name}
+                  </p>
+                  <span className="text-xs text-gray-500">
+                    {formatDate(comment.createdAt)} at {formatTime(comment.createdAt)}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-gray-600">
+                  {comment.comment || comment.text}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="rounded-[24px] border border-dashed border-gray-200 bg-white px-4 py-8 text-center text-sm leading-6 text-gray-500">
+          No comments yet. Add the first delivery note for this issue.
+        </div>
+      )}
+    </div>
+  );
+  const attachmentsPanel = (
+    <div className="space-y-4">
+      <div className="space-y-3">
+        <Input
+          type="file"
+          accept={ATTACHMENT_ACCEPT}
+          onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+        />
+        <Button
+          className="w-full"
+          disabled={!selectedFile || uploadAttachmentMutation.isPending}
+          type="button"
+          onClick={async () => {
+            if (!selectedFile) {
+              return;
+            }
+
+            try {
+              setDetailsError("");
+              await uploadAttachmentMutation.mutateAsync({
+                issueId: issue._id,
+                file: selectedFile,
+              });
+            } catch (error) {
+              setDetailsError(
+                error.response?.data?.message || "Unable to upload attachment."
+              );
+            }
+          }}
+        >
+          {uploadAttachmentMutation.isPending ? "Uploading..." : "Upload Attachment"}
+        </Button>
+      </div>
+
+      <div className="space-y-3">
+        {isAttachmentsLoading ? (
+          <Skeleton className="h-16 w-full" />
+        ) : attachments.length ? (
+          attachments.map((attachment) => (
+            <button
+              key={attachment._id}
+              type="button"
+              onClick={() => downloadAttachment(attachment, issue._id)}
+              className="block w-full cursor-pointer rounded-[20px] border border-gray-200 bg-white p-3 text-sm transition hover:border-blue-200 hover:bg-blue-50"
+            >
+              <span className="font-semibold text-gray-900">
+                {attachment.fileName}
+              </span>
+              <span className="mt-1 block text-xs text-gray-500">
+                {attachment.uploadedBy?.name || "Unknown user"} at{" "}
+                {formatDateTime(attachment.createdAt)}
+              </span>
+            </button>
+          ))
+        ) : (
+          <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">
+            No attachments uploaded yet.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  const historyPanel = (
+    <div className="space-y-3">
+      {isHistoryLoading ? (
+        <>
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </>
+      ) : history.length ? (
+        history.map((entry) => (
+          <div
+            key={entry._id}
+            className="rounded-[20px] border border-gray-200 bg-white p-3"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-gray-900">
+                {entry.actorId?.name || "Unknown user"}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                {String(entry.eventType || "Updated").replace(/_/g, " ")}
+              </span>
+            </div>
+            <p className="mt-2 text-sm leading-6 text-gray-600">
+              {entry.field === "status"
+                ? `${getIssueStatusLabel(entry.fromValue)} -> ${getIssueStatusLabel(entry.toValue)}`
+                : `${entry.field || "item"}: ${
+                    entry.toValue !== null &&
+                    typeof entry.toValue !== "undefined"
+                      ? String(entry.toValue)
+                      : "Updated"
+                  }`}
+            </p>
+            {entry.meta?.reason ? (
+              <p className="mt-1 text-sm leading-6 text-gray-500">
+                {entry.meta.reason}
+              </p>
+            ) : null}
+            <p className="mt-2 text-xs text-gray-500">
+              {formatDateTime(entry.createdAt)}
+            </p>
+          </div>
+        ))
+      ) : (
+        <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">
+          No history entries yet.
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("max-h-[92vh] overflow-y-auto", contentClassName)}>
-        <DialogHeader>
-          <div className="flex flex-wrap items-center gap-3">
+      <DialogContent
+        className={cn(
+          compactDrawer
+            ? "issue-detail-drawer grid grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden"
+            : "max-h-[92vh] overflow-y-auto",
+          contentClassName
+        )}
+      >
+        <DialogHeader
+          className={cn(
+            compactDrawer && "sticky top-0 z-10 border-b border-slate-200 bg-white/96 px-4 py-3 pr-14 shadow-sm backdrop-blur-xl"
+          )}
+        >
+          <div className={cn("flex flex-wrap items-center gap-3", compactDrawer && "gap-1.5")}>
             <Badge variant={getIssuePriorityVariant(issue.priority)}>{issue.priority}</Badge>
             <Badge variant={getIssueTypeVariant(issue.type)}>{issue.type}</Badge>
             <Badge variant={getIssueStatusVariant(issue.status)}>
@@ -356,18 +544,19 @@ const IssueDetailsDialog = ({
               </Badge>
             ) : null}
           </div>
-          <DialogTitle className="pr-10">
-            <span className="mr-3 font-mono text-sm uppercase tracking-[0.22em] text-slate-400">
+          <DialogTitle className={cn("pr-10", compactDrawer && "pr-0 text-base leading-6")}>
+            <span className={cn("mr-3 font-mono text-sm uppercase tracking-[0.22em] text-slate-400", compactDrawer && "mr-2 text-[11px] tracking-[0.16em]")}>
               {issueKey}
             </span>
             {issue.title}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className={cn(compactDrawer && "max-h-11 overflow-hidden text-xs leading-5")}>
             {issue.description || "No detailed description has been added yet."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-6 xl:grid-cols-[1.18fr_0.82fr]">
+        <div className={cn(compactDrawer && "min-h-0 overflow-y-auto overscroll-contain scroll-smooth px-4 py-4")}>
+        <div className={cn("grid gap-6 xl:grid-cols-[1.18fr_0.82fr]", compactDrawer && "gap-4 xl:grid-cols-1")}>
           <section className="space-y-6">
             {canEditCoreDetails ? (
               <form
@@ -1327,190 +1516,87 @@ const IssueDetailsDialog = ({
             ) : null}
           </section>
 
-          <section className="rounded-[28px] border border-gray-200 bg-gray-50 p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <MessageSquareText className="h-4 w-4 text-blue-600" />
-              <p className="font-semibold text-gray-900">Discussion</p>
-            </div>
-
-            <form className="space-y-3" onSubmit={handleSubmitComment}>
-              <Input
-                placeholder="Add a status update or implementation note"
-                value={commentText}
-                onChange={(event) => setCommentText(event.target.value)}
-              />
-              <Button
-                className="w-full"
-                disabled={createCommentMutation.isPending}
-                type="submit"
-              >
-                {createCommentMutation.isPending ? "Posting..." : "Add Comment"}
-              </Button>
-            </form>
-
-            <Separator className="my-5" />
-
-            <div className="space-y-4">
-              {isCommentsLoading ? (
-                <>
-                  <Skeleton className="h-20 w-full" />
-                  <Skeleton className="h-20 w-full" />
-                </>
-              ) : comments.length ? (
-                comments.map((comment) => (
-                  <div
-                    key={comment._id}
-                    className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm"
-                  >
-                    <div className="flex items-start gap-3">
-                      <Avatar className="h-10 w-10">
-                        <AvatarFallback>
-                          {getInitials(comment.userId?.name)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold text-gray-900">
-                            {comment.userId?.name}
-                          </p>
-                          <span className="text-xs text-gray-500">
-                            {formatDate(comment.createdAt)} at {formatTime(comment.createdAt)}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm leading-6 text-gray-600">
-                          {comment.comment || comment.text}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-[24px] border border-dashed border-gray-200 bg-white px-4 py-8 text-center text-sm leading-6 text-gray-500">
-                  No comments yet. Add the first delivery note for this issue.
-                </div>
-              )}
-            </div>
-
-            <Separator className="my-5" />
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-blue-600" />
-                <p className="font-semibold text-gray-900">Attachments</p>
-              </div>
-
-              <div className="space-y-3">
-                <Input
-                  type="file"
-                  accept={ATTACHMENT_ACCEPT}
-                  onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
-                />
-                <Button
-                  className="w-full"
-                  disabled={!selectedFile || uploadAttachmentMutation.isPending}
-                  type="button"
-                  onClick={async () => {
-                    if (!selectedFile) {
-                      return;
-                    }
-
-                    try {
-                      setDetailsError("");
-                      await uploadAttachmentMutation.mutateAsync({
-                        issueId: issue._id,
-                        file: selectedFile,
-                      });
-                    } catch (error) {
-                      setDetailsError(
-                        error.response?.data?.message || "Unable to upload attachment."
-                      );
-                    }
-                  }}
-                >
-                  {uploadAttachmentMutation.isPending ? "Uploading..." : "Upload Attachment"}
-                </Button>
-              </div>
-
-              <div className="space-y-3">
-                {isAttachmentsLoading ? (
-                  <Skeleton className="h-16 w-full" />
-                ) : attachments.length ? (
-                  attachments.map((attachment) => (
+          <section className={cn("rounded-[28px] border border-gray-200 bg-gray-50 p-5", compactDrawer && "rounded-2xl p-3")}>
+            {compactDrawer ? (
+              <>
+                <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:grid-cols-4">
+                  {DETAIL_PANEL_TABS.map((tab) => (
                     <button
-                      key={attachment._id}
+                      key={tab.id}
+                      className={cn(
+                        "h-8 whitespace-nowrap rounded-lg px-1.5 text-[10px] font-bold text-slate-600 transition hover:bg-blue-50 hover:text-blue-700 sm:text-[11px]",
+                        activeDetailTab === tab.id && "bg-blue-50 text-blue-700 shadow-sm"
+                      )}
                       type="button"
-                      onClick={() => downloadAttachment(attachment, issue._id)}
-                      className="block w-full rounded-[20px] border border-gray-200 bg-white p-3 text-sm transition hover:border-blue-200 hover:bg-blue-50 cursor-pointer"
+                      onClick={() => setActiveDetailTab(tab.id)}
                     >
-                      <span className="font-semibold text-gray-900">
-                        {attachment.fileName}
-                      </span>
-                      <span className="mt-1 block text-xs text-gray-500">
-                        {attachment.uploadedBy?.name || "Unknown user"} at{" "}
-                        {formatDateTime(attachment.createdAt)}
-                      </span>
+                      {tab.label}
                     </button>
-                  ))
-                ) : (
-                  <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">
-                    No attachments uploaded yet.
-                  </div>
-                )}
-              </div>
-            </div>
+                  ))}
+                </div>
 
-            <Separator className="my-5" />
-
-            <div className="space-y-4">
-              <p className="font-semibold text-gray-900">History</p>
-              <div className="space-y-3">
-                {isHistoryLoading ? (
-                  <>
-                    <Skeleton className="h-16 w-full" />
-                    <Skeleton className="h-16 w-full" />
-                  </>
-                ) : history.length ? (
-                  history.map((entry) => (
-                    <div
-                      key={entry._id}
-                      className="rounded-[20px] border border-gray-200 bg-white p-3"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-900">
-                          {entry.actorId?.name || "Unknown user"}
-                        </span>
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                          {String(entry.eventType || "Updated").replace(/_/g, " ")}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm leading-6 text-gray-600">
-                        {entry.field === "status"
-                          ? `${getIssueStatusLabel(entry.fromValue)} -> ${getIssueStatusLabel(entry.toValue)}`
-                          : `${entry.field || "item"}: ${
-                              entry.toValue !== null &&
-                              typeof entry.toValue !== "undefined"
-                                ? String(entry.toValue)
-                                : "Updated"
-                            }`}
-                      </p>
-                      {entry.meta?.reason ? (
-                        <p className="mt-1 text-sm leading-6 text-gray-500">
-                          {entry.meta.reason}
-                        </p>
-                      ) : null}
-                      <p className="mt-2 text-xs text-gray-500">
-                        {formatDateTime(entry.createdAt)}
-                      </p>
+                {activeDetailTab === "discussion" ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <MessageSquareText className="h-4 w-4 text-blue-600" />
+                      <p className="font-semibold text-gray-900">Discussion</p>
                     </div>
-                  ))
-                ) : (
-                  <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">
-                    No history entries yet.
+                    {commentComposer}
+                    <Separator />
+                    {commentsList}
                   </div>
-                )}
-              </div>
-            </div>
+                ) : null}
+
+                {activeDetailTab === "attachments" ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-blue-600" />
+                      <p className="font-semibold text-gray-900">Attachments</p>
+                    </div>
+                    {attachmentsPanel}
+                  </div>
+                ) : null}
+
+                {activeDetailTab === "activity" ? (
+                  <div className="space-y-3">
+                    <p className="font-semibold text-gray-900">Activity</p>
+                    {historyPanel}
+                  </div>
+                ) : null}
+
+                {activeDetailTab === "comments" ? (
+                  <div className="space-y-3">
+                    <p className="font-semibold text-gray-900">Comments</p>
+                    {commentsList}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <div className="mb-4 flex items-center gap-2">
+                  <MessageSquareText className="h-4 w-4 text-blue-600" />
+                  <p className="font-semibold text-gray-900">Discussion</p>
+                </div>
+                {commentComposer}
+                <Separator className="my-5" />
+                {commentsList}
+                <Separator className="my-5" />
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-blue-600" />
+                    <p className="font-semibold text-gray-900">Attachments</p>
+                  </div>
+                  {attachmentsPanel}
+                </div>
+                <Separator className="my-5" />
+                <div className="space-y-4">
+                  <p className="font-semibold text-gray-900">History</p>
+                  {historyPanel}
+                </div>
+              </>
+            )}
           </section>
+        </div>
         </div>
       </DialogContent>
     </Dialog>

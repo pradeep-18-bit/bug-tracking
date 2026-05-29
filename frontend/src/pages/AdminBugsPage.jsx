@@ -1,5 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -395,6 +396,32 @@ const quickFilterChips = [
   ["backend", "Backend"],
 ];
 
+const TRIAGE_ACTION_MENU_WIDTH = 248;
+const TRIAGE_ACTION_MENU_HEIGHT = 286;
+const TRIAGE_ACTION_MENU_GUTTER = 12;
+
+const getTriageActionMenuPosition = (triggerRect) => {
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+  const maxLeft = viewportWidth - TRIAGE_ACTION_MENU_WIDTH - TRIAGE_ACTION_MENU_GUTTER;
+  const maxTop = viewportHeight - TRIAGE_ACTION_MENU_HEIGHT - TRIAGE_ACTION_MENU_GUTTER;
+  let left = triggerRect.right - TRIAGE_ACTION_MENU_WIDTH;
+  let top = triggerRect.bottom + 8;
+
+  if (left < TRIAGE_ACTION_MENU_GUTTER) {
+    left = triggerRect.left;
+  }
+
+  if (top + TRIAGE_ACTION_MENU_HEIGHT > viewportHeight - TRIAGE_ACTION_MENU_GUTTER) {
+    top = triggerRect.top - TRIAGE_ACTION_MENU_HEIGHT - 8;
+  }
+
+  return {
+    left: Math.max(TRIAGE_ACTION_MENU_GUTTER, Math.min(left, maxLeft)),
+    top: Math.max(TRIAGE_ACTION_MENU_GUTTER, Math.min(top, maxTop)),
+  };
+};
+
 const MetricTile = ({ icon: Icon, label, tone, value }) => (
   <Card className="overflow-hidden rounded-[14px] border-white/70 bg-white/86 shadow-[0_14px_34px_-26px_rgba(15,23,42,0.3)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-26px_rgba(15,23,42,0.32)]">
     <CardContent className="p-3.5">
@@ -458,7 +485,7 @@ const AdminBugsPage = () => {
   const [selectedTriageIds, setSelectedTriageIds] = useState([]);
   const [bulkPriority, setBulkPriority] = useState("");
   const [bulkDeveloperId, setBulkDeveloperId] = useState("");
-  const [actionMenuId, setActionMenuId] = useState("");
+  const [actionMenu, setActionMenu] = useState(null);
   const [areTriageFiltersOpen, setAreTriageFiltersOpen] = useState(false);
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
   const [filters, setFilters] = useState({
@@ -562,6 +589,7 @@ const AdminBugsPage = () => {
   });
 
   const bugs = useMemo(() => (Array.isArray(bugsData) ? bugsData : []), [bugsData]);
+  const actionMenuId = actionMenu?.issueId || "";
 
   useEffect(() => {
     if (!projects.length) {
@@ -1046,7 +1074,152 @@ const AdminBugsPage = () => {
     });
   };
 
-  const closeActionMenu = () => setActionMenuId("");
+  const closeActionMenu = () => setActionMenu(null);
+
+  const handleToggleActionMenu = (event, issueId) => {
+    event.stopPropagation();
+
+    if (actionMenuId === issueId) {
+      closeActionMenu();
+      return;
+    }
+
+    setActionMenu({
+      issueId,
+      ...getTriageActionMenuPosition(event.currentTarget.getBoundingClientRect()),
+    });
+  };
+
+  useEffect(() => {
+    if (!actionMenuId) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (
+        event.target.closest("[data-triage-action-menu]") ||
+        event.target.closest("[data-triage-action-trigger]")
+      ) {
+        return;
+      }
+
+      closeActionMenu();
+    };
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        closeActionMenu();
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    window.addEventListener("resize", closeActionMenu);
+    window.addEventListener("scroll", closeActionMenu, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("resize", closeActionMenu);
+      window.removeEventListener("scroll", closeActionMenu, true);
+    };
+  }, [actionMenuId]);
+
+  const renderTriageActionMenu = (bugIssue) => {
+    if (actionMenuId !== bugIssue._id || typeof document === "undefined") {
+      return null;
+    }
+
+    return createPortal(
+      <div
+        data-triage-action-menu
+        className="fixed z-[9500] max-h-[calc(100vh-1.5rem)] w-[248px] overflow-y-auto rounded-xl border border-slate-200/90 bg-white/95 p-2 text-slate-700 shadow-[0_24px_70px_-34px_rgba(15,23,42,0.65)] backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-top-1"
+        style={{ left: actionMenu.left, top: actionMenu.top }}
+      >
+        <div className="space-y-1">
+          <div className="rounded-lg px-1.5 py-1 transition hover:bg-slate-50">
+            <div className="mb-1 flex items-center gap-2 whitespace-nowrap text-[11px] font-bold text-slate-600">
+              <UserPlus className="h-3.5 w-3.5 text-blue-600" />
+              Assign Developer
+            </div>
+            <ActionSelect
+              aria-label="Assign developer"
+              className="h-7 w-full rounded-lg text-[11px]"
+              value=""
+              onChange={(event) => {
+                handleQuickAssign(bugIssue, event.target.value);
+                closeActionMenu();
+              }}
+            >
+              <option value="">Select developer</option>
+              {developers.map((developerOption) => (
+                <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>
+                  {getUserLabel(developerOption)}
+                </option>
+              ))}
+            </ActionSelect>
+          </div>
+
+          <div className="rounded-lg px-1.5 py-1 transition hover:bg-slate-50">
+            <div className="mb-1 flex items-center gap-2 whitespace-nowrap text-[11px] font-bold text-slate-600">
+              <RefreshCcw className="h-3.5 w-3.5 text-blue-600" />
+              Change Status
+            </div>
+            <ActionSelect
+              aria-label="Change status"
+              className="h-7 w-full rounded-lg text-[11px]"
+              value=""
+              onChange={(event) => {
+                handleQuickStatus(bugIssue, event.target.value);
+                closeActionMenu();
+              }}
+            >
+              <option value="">Select status</option>
+              {BUG_STATUS_FILTERS.filter((item) => item.value !== "all").map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
+            </ActionSelect>
+          </div>
+
+          <div className="rounded-lg px-1.5 py-1 transition hover:bg-slate-50">
+            <div className="mb-1 flex items-center gap-2 whitespace-nowrap text-[11px] font-bold text-slate-600">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+              Change Priority
+            </div>
+            <ActionSelect
+              aria-label="Change priority"
+              className="h-7 w-full rounded-lg text-[11px]"
+              value=""
+              onChange={(event) => {
+                handleQuickPriority(bugIssue, event.target.value);
+                closeActionMenu();
+              }}
+            >
+              <option value="">Select priority</option>
+              {["Critical", "High", "Medium", "Low"].map((priority) => (
+                <option key={priority} value={priority}>{priority}</option>
+              ))}
+            </ActionSelect>
+          </div>
+
+          <div className="my-1 h-px bg-slate-200" />
+
+          <button className="flex h-8 w-full items-center gap-2 whitespace-nowrap rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700" type="button" onClick={() => { handleMoveToTriageBucket(bugIssue); closeActionMenu(); }}>
+            <Layers3 className="h-3.5 w-3.5" />
+            Move to Bucket
+          </button>
+          <button className="flex h-8 w-full items-center gap-2 whitespace-nowrap rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700" type="button" onClick={() => { setSelectedBug(bugIssue); closeActionMenu(); }}>
+            <MessageSquarePlus className="h-3.5 w-3.5" />
+            Add Comment
+          </button>
+          <button className="flex h-8 w-full items-center gap-2 whitespace-nowrap rounded-lg px-2 text-left text-[12px] font-semibold text-emerald-700 transition hover:bg-emerald-50" type="button" onClick={() => { handleCloseBug(bugIssue); closeActionMenu(); }}>
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Close Bug
+          </button>
+        </div>
+      </div>,
+      document.body
+    );
+  };
 
   if (error) {
     return (
@@ -1238,7 +1411,6 @@ const AdminBugsPage = () => {
                         const severity = getSeverity(bugIssue);
                         const moduleTag = getModuleTag(bugIssue);
                         const attachmentCount = getAttachmentCount(bugIssue);
-                        const isMenuOpen = actionMenuId === bugIssue._id;
 
                         return (
                           <article
@@ -1306,43 +1478,10 @@ const AdminBugsPage = () => {
                               <Button className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={() => setSelectedBug(bugIssue)} aria-label="View bug">
                                 <Eye className="h-3.5 w-3.5" />
                               </Button>
-                              <Button className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={() => setActionMenuId(isMenuOpen ? "" : bugIssue._id)} aria-label="More actions">
+                              <Button data-triage-action-trigger className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={(event) => handleToggleActionMenu(event, bugIssue._id)} aria-label="More actions">
                                 <MoreHorizontal className="h-4 w-4" />
                               </Button>
-                              {isMenuOpen ? (
-                                <div className="absolute right-0 top-8 z-30 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                                  <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickAssign(bugIssue, event.target.value); closeActionMenu(); }}>
-                                    <option value="">Assign</option>
-                                    {developers.map((developerOption) => (
-                                      <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>{getUserLabel(developerOption)}</option>
-                                    ))}
-                                  </ActionSelect>
-                                  <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickStatus(bugIssue, event.target.value); closeActionMenu(); }}>
-                                    <option value="">Change Status</option>
-                                    {BUG_STATUS_FILTERS.filter((item) => item.value !== "all").map((item) => (
-                                      <option key={item.value} value={item.value}>{item.label}</option>
-                                    ))}
-                                  </ActionSelect>
-                                  <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickPriority(bugIssue, event.target.value); closeActionMenu(); }}>
-                                    <option value="">Change Priority</option>
-                                    {["Critical", "High", "Medium", "Low"].map((priority) => (
-                                      <option key={priority} value={priority}>{priority}</option>
-                                    ))}
-                                  </ActionSelect>
-                                  <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => { handleMoveToTriageBucket(bugIssue); closeActionMenu(); }}>
-                                    <Layers3 className="h-3.5 w-3.5" />
-                                    Move to Bucket
-                                  </button>
-                                  <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => { setSelectedBug(bugIssue); closeActionMenu(); }}>
-                                    <MessageSquarePlus className="h-3.5 w-3.5" />
-                                    Add Comment
-                                  </button>
-                                  <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50" type="button" onClick={() => { handleCloseBug(bugIssue); closeActionMenu(); }}>
-                                    <CheckCircle2 className="h-3.5 w-3.5" />
-                                    Close Bug
-                                  </button>
-                                </div>
-                              ) : null}
+                              {renderTriageActionMenu(bugIssue)}
                             </div>
                           </article>
                         );
@@ -1359,7 +1498,6 @@ const AdminBugsPage = () => {
                     const status = normalizeBugStatusForIssue(bugIssue);
                     const severity = getSeverity(bugIssue);
                     const attachmentCount = getAttachmentCount(bugIssue);
-                    const isMenuOpen = actionMenuId === bugIssue._id;
 
                     return (
                       <article
@@ -1388,43 +1526,10 @@ const AdminBugsPage = () => {
                             <Button className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={() => setSelectedBug(bugIssue)} aria-label="View bug">
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
-                            <Button className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={() => setActionMenuId(isMenuOpen ? "" : bugIssue._id)} aria-label="More actions">
+                            <Button data-triage-action-trigger className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={(event) => handleToggleActionMenu(event, bugIssue._id)} aria-label="More actions">
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
-                            {isMenuOpen ? (
-                              <div className="absolute right-0 top-8 z-30 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                                <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickAssign(bugIssue, event.target.value); closeActionMenu(); }}>
-                                  <option value="">Assign</option>
-                                  {developers.map((developerOption) => (
-                                    <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>{getUserLabel(developerOption)}</option>
-                                  ))}
-                                </ActionSelect>
-                                <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickStatus(bugIssue, event.target.value); closeActionMenu(); }}>
-                                  <option value="">Change Status</option>
-                                  {BUG_STATUS_FILTERS.filter((item) => item.value !== "all").map((item) => (
-                                    <option key={item.value} value={item.value}>{item.label}</option>
-                                  ))}
-                                </ActionSelect>
-                                <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickPriority(bugIssue, event.target.value); closeActionMenu(); }}>
-                                  <option value="">Change Priority</option>
-                                  {["Critical", "High", "Medium", "Low"].map((priority) => (
-                                    <option key={priority} value={priority}>{priority}</option>
-                                  ))}
-                                </ActionSelect>
-                                <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => { handleMoveToTriageBucket(bugIssue); closeActionMenu(); }}>
-                                  <Layers3 className="h-3.5 w-3.5" />
-                                  Move to Bucket
-                                </button>
-                                <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => { setSelectedBug(bugIssue); closeActionMenu(); }}>
-                                  <MessageSquarePlus className="h-3.5 w-3.5" />
-                                  Add Comment
-                                </button>
-                                <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50" type="button" onClick={() => { handleCloseBug(bugIssue); closeActionMenu(); }}>
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                  Close Bug
-                                </button>
-                              </div>
-                            ) : null}
+                            {renderTriageActionMenu(bugIssue)}
                           </div>
                         </div>
 
@@ -1768,6 +1873,8 @@ const AdminBugsPage = () => {
         canEditPriority
         canEditAssignee
         canDeleteIssue={false}
+        compactDrawer
+        contentClassName="left-0 right-0 top-16 bottom-0 h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] w-full max-w-none translate-x-0 translate-y-0 rounded-none border-y-0 border-r-0 bg-white/96 p-0 shadow-[0_30px_90px_-46px_rgba(15,23,42,0.58)] backdrop-blur-xl sm:left-auto sm:right-3 sm:top-[72px] sm:bottom-3 sm:h-[calc(100vh-84px)] sm:max-h-[calc(100vh-84px)] sm:w-[92vw] sm:max-w-[640px] sm:rounded-2xl sm:border lg:max-w-[680px]"
       />
     </div>
   );
