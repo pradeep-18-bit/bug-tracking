@@ -39,7 +39,7 @@ const iconMap = {
 };
 
 const navItemClassName =
-  "group inline-flex items-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-medium transition duration-300 ease-out";
+  "group inline-flex items-center gap-2.5 rounded-lg border px-3.5 py-2 text-sm font-medium transition duration-200 ease-out whitespace-nowrap";
 
 const Navbar = () => {
   const location = useLocation();
@@ -78,11 +78,11 @@ const Navbar = () => {
   }, [isMenuOpen]);
 
   return (
-    <header className="fixed inset-x-0 top-0 z-30 h-16 border-b border-white/45 bg-gradient-to-r from-white/78 via-blue-50/74 to-sky-100/70 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-2xl sm:h-20">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.16),transparent_32%),radial-gradient(circle_at_top_right,_rgba(186,230,253,0.22),transparent_40%)]" />
+    <header className="fixed inset-x-0 top-0 z-30 h-16 border-b border-white/40 bg-gradient-to-r from-white/78 via-blue-50/72 to-sky-100/68 shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.14),transparent_32%),radial-gradient(circle_at_top_right,_rgba(186,230,253,0.20),transparent_40%)]" />
 
       <div className="relative z-10 mx-auto h-full w-full max-w-screen-2xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-full items-center gap-3 lg:gap-6">
+        <div className="flex h-full items-center gap-2 lg:gap-4">
           <NavLink
             to={navigation[0]?.href || "/"}
             className="flex min-w-0 items-center gap-3"
@@ -94,7 +94,7 @@ const Navbar = () => {
             />
           </NavLink>
 
-          <nav className="hidden items-center gap-2 lg:flex">
+          <nav className="hidden items-center gap-1.5 lg:flex">
             {navigation.map((item) => {
               const Icon = iconMap[item.icon] || LayoutDashboard;
 
@@ -106,8 +106,8 @@ const Navbar = () => {
                     cn(
                       navItemClassName,
                       isActive
-                        ? "border-blue-200/80 bg-gradient-to-r from-blue-500/85 via-sky-400/80 to-cyan-300/75 font-semibold text-white shadow-[0_12px_28px_rgba(37,99,235,0.3)]"
-                        : "border-white/35 bg-white/35 text-slate-700 hover:-translate-y-0.5 hover:border-blue-200/70 hover:bg-white/55 hover:text-slate-950"
+                        ? "border-blue-200/70 bg-gradient-to-r from-blue-500/80 via-sky-400/75 to-cyan-300/70 font-semibold text-white shadow-[0_10px_24px_rgba(37,99,235,0.25)]"
+                        : "border-white/30 bg-white/32 text-slate-700 hover:-translate-y-0.5 hover:border-blue-200/60 hover:bg-white/48 hover:text-slate-900"
                     )
                   }
                 >
@@ -193,10 +193,10 @@ const Navbar = () => {
                         onClick={() => setIsMenuOpen(false)}
                         className={({ isActive }) =>
                           cn(
-                            "group flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-sm font-medium transition-all duration-200",
+                            "group flex w-full items-center gap-3 rounded-lg border px-4 py-2.5 text-sm font-medium transition-all duration-200",
                             isActive
-                              ? "border-blue-200 bg-blue-50 text-blue-700 shadow-sm"
-                              : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                              ? "border-blue-200/60 bg-blue-50 text-blue-700 shadow-sm"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-blue-200/50 hover:bg-blue-50/70 hover:text-blue-700"
                           )
                         }
                       >
@@ -216,10 +216,12 @@ const Navbar = () => {
                 <div className="my-3 h-px bg-slate-200" />
 
                 {/* User info with quick actions */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm">
-                    <Avatar className="h-10 w-10 shrink-0">
-                      <AvatarFallback>{getInitials(user?.name)}</AvatarFallback>
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm">
+                    <Avatar className="h-10 w-10 shrink-0 ring-2 ring-blue-100">
+                      <AvatarFallback className="font-bold bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+                        {getInitials(user?.name)}
+                      </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-slate-900">
@@ -233,7 +235,7 @@ const Navbar = () => {
                   <NavLink
                     to="/profile"
                     onClick={() => setIsMenuOpen(false)}
-                    className="block w-full rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-center text-sm font-medium text-blue-700 transition-all hover:bg-blue-100"
+                    className="block w-full rounded-lg border border-blue-200/60 bg-blue-50 px-4 py-2.5 text-center text-sm font-medium text-blue-700 transition-all duration-200 hover:bg-blue-100 hover:border-blue-300"
                   >
                     View Profile
                   </NavLink>
@@ -241,18 +243,18 @@ const Navbar = () => {
               </div>
 
               {/* Drawer footer with logout */}
-              <div className="border-t border-slate-200 px-3 py-3 sm:px-4 sm:py-4">
-                <Button
-                  className="w-full bg-red-500 text-white hover:bg-red-600"
+              <div className="border-t border-slate-200 px-3 py-3 sm:px-4 sm:py-3.5">
+                <button
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-500 px-4 py-2.5 text-sm font-medium text-white transition-all duration-200 hover:bg-red-600 active:bg-red-700"
                   type="button"
                   onClick={() => {
                     setIsMenuOpen(false);
                     logout();
                   }}
                 >
-                  <LogOut className="h-4 w-4" />
-                  Logout
-                </Button>
+                  <LogOut className="h-4 w-4 shrink-0" />
+                  <span>Logout</span>
+                </button>
               </div>
             </motion.div>
           </>
