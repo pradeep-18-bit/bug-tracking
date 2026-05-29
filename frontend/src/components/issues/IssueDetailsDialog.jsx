@@ -47,7 +47,7 @@ import {
   getProjectTeams,
   resolveUserId,
 } from "@/lib/project-teams";
-import { formatDate, formatDateTime, formatTime, getInitials } from "@/lib/utils";
+import { cn, formatDate, formatDateTime, formatTime, getInitials } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -135,6 +135,7 @@ const IssueDetailsDialog = ({
   canEditPriority = true,
   canEditAssignee = true,
   canDeleteIssue = true,
+  contentClassName = "",
 }) => {
   const queryClient = useQueryClient();
   const { role } = useAuth();
@@ -341,7 +342,7 @@ const IssueDetailsDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto">
+      <DialogContent className={cn("max-h-[92vh] overflow-y-auto", contentClassName)}>
         <DialogHeader>
           <div className="flex flex-wrap items-center gap-3">
             <Badge variant={getIssuePriorityVariant(issue.priority)}>{issue.priority}</Badge>
