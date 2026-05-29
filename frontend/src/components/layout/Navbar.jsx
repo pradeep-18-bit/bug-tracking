@@ -23,6 +23,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useChatStore } from "@/lib/chatStore";
 import { getRoleNavigation } from "@/lib/roles";
 import { cn, getInitials } from "@/lib/utils";
+import UserProfileDropdown from "./UserProfileDropdown";
 
 const iconMap = {
   dashboard: LayoutDashboard,
@@ -122,23 +123,8 @@ const Navbar = () => {
             })}
           </nav>
 
-          <div className="ml-auto hidden min-w-0 items-center gap-3 lg:flex">
-            <div className="flex min-w-0 items-center gap-3 rounded-[24px] border border-white/40 bg-white/40 px-3 py-2.5 shadow-[0_12px_30px_rgba(148,163,184,0.14)] backdrop-blur-xl">
-              <Avatar className="h-11 w-11">
-                <AvatarFallback>{getInitials(user?.name)}</AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-900">
-                  {user?.name}
-                </p>
-                <p className="truncate text-xs text-slate-600">{user?.email}</p>
-              </div>
-            </div>
-
-            <Button type="button" variant="outline" onClick={logout}>
-              <LogOut className="h-4 w-4" />
-              Logout
-            </Button>
+          <div className="ml-auto hidden items-center gap-2 lg:flex">
+            <UserProfileDropdown />
           </div>
 
           <Button
@@ -229,17 +215,28 @@ const Navbar = () => {
                 {/* Divider */}
                 <div className="my-3 h-px bg-slate-200" />
 
-                {/* User info */}
-                <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm">
-                  <Avatar className="h-10 w-10 shrink-0">
-                    <AvatarFallback>{getInitials(user?.name)}</AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-900">
-                      {user?.name}
-                    </p>
-                    <p className="truncate text-xs text-slate-600">{user?.email}</p>
+                {/* User info with quick actions */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm">
+                    <Avatar className="h-10 w-10 shrink-0">
+                      <AvatarFallback>{getInitials(user?.name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {user?.name}
+                      </p>
+                      <p className="truncate text-xs text-slate-600">{user?.email}</p>
+                    </div>
                   </div>
+
+                  {/* Quick profile actions */}
+                  <NavLink
+                    to="/profile"
+                    onClick={() => setIsMenuOpen(false)}
+                    className="block w-full rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-center text-sm font-medium text-blue-700 transition-all hover:bg-blue-100"
+                  >
+                    View Profile
+                  </NavLink>
                 </div>
               </div>
 

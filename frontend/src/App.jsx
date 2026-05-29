@@ -26,6 +26,7 @@ const TasksPage = lazy(() => import("@/pages/TasksPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 const UserSettingsPage = lazy(() => import("@/pages/UserSettingsPage"));
 const TeamDetailsPage = lazy(() => import("@/pages/TeamDetailsPage"));
+const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 
 const PublicRouteFallback = () => (
   <main className="flex min-h-screen items-center justify-center px-6 py-12">
@@ -171,6 +172,24 @@ const App = () => (
       }
     >
       <Route path="/dashboard" element={<LegacyDashboardRedirect />} />
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute roles={[...ADMIN_PANEL_ROLES, ROLE_DEVELOPER, ROLE_TEAM_LEAD, ROLE_TESTER]}>
+            <Suspense fallback={<PublicRouteFallback />}>
+              <ProfilePage />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute roles={[ROLE_DEVELOPER, ROLE_TEAM_LEAD, ROLE_TESTER, ...ADMIN_PANEL_ROLES]}>
+            <SelfSettingsRoute />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/admin/dashboard"
         element={
