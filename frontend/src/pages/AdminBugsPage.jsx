@@ -271,16 +271,16 @@ const SoftBadge = ({ children, className }) => (
 
 const severityBadgeClassName = (severity) =>
   cn(
-    "inline-flex h-6 max-w-full items-center rounded-full border px-2.5 text-[11px] font-bold leading-none shadow-sm",
+    "inline-flex h-5 max-w-full items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none",
     ["Blocker", "Critical"].includes(severity)
-      ? "border-rose-600 bg-rose-600 text-white"
+      ? "border-rose-200 bg-rose-50 text-rose-700"
       : severity === "Major" || severity === "High"
-        ? "border-orange-500 bg-orange-500 text-white"
+        ? "border-orange-200 bg-orange-50 text-orange-700"
         : severity === "Medium"
-          ? "border-amber-400 bg-amber-400 text-slate-950"
+          ? "border-amber-200 bg-amber-50 text-amber-800"
           : severity === "Low"
-            ? "border-emerald-500 bg-emerald-500 text-white"
-            : "border-slate-300 bg-slate-200 text-slate-800"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : "border-slate-200 bg-slate-100 text-slate-700"
   );
 
 const severityAccentClassName = (severity) => {
@@ -305,44 +305,44 @@ const severityAccentClassName = (severity) => {
 
 const priorityBadgeClassName = (priority) =>
   cn(
-    "inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-bold leading-none shadow-sm",
+    "inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none",
     priority === "Critical"
-      ? "bg-rose-600 text-white"
+      ? "border-rose-200 bg-rose-50 text-rose-700"
       : priority === "High"
-        ? "bg-orange-500 text-white"
+        ? "border-orange-200 bg-orange-50 text-orange-700"
         : priority === "Low"
-          ? "bg-emerald-600 text-white"
-          : "bg-blue-600 text-white"
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-blue-200 bg-blue-50 text-blue-700"
   );
 
 const statusBadgeClassName = (status) => {
   const normalizedStatus = status === ISSUE_STATUS.QA ? ISSUE_STATUS.READY_FOR_QA : status;
 
   if (normalizedStatus === ISSUE_STATUS.NEW) {
-    return "border-slate-600 bg-slate-700 text-white";
+    return "border-slate-200 bg-slate-100 text-slate-700";
   }
 
   if ([ISSUE_STATUS.OPEN, ISSUE_STATUS.ASSIGNED].includes(normalizedStatus)) {
-    return "border-blue-600 bg-blue-600 text-white";
+    return "border-blue-200 bg-blue-50 text-blue-700";
   }
 
   if (normalizedStatus === ISSUE_STATUS.IN_PROGRESS) {
-    return "border-violet-600 bg-violet-600 text-white";
+    return "border-violet-200 bg-violet-50 text-violet-700";
   }
 
   if ([ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.TESTING, ISSUE_STATUS.FIXED].includes(normalizedStatus)) {
-    return "border-orange-500 bg-orange-500 text-white";
+    return "border-orange-200 bg-orange-50 text-orange-700";
   }
 
   if ([ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE].includes(normalizedStatus)) {
-    return "border-emerald-600 bg-emerald-600 text-white";
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
 
   if (normalizedStatus === ISSUE_STATUS.REOPEN) {
-    return "border-rose-600 bg-rose-600 text-white";
+    return "border-rose-200 bg-rose-50 text-rose-700";
   }
 
-  return "border-slate-500 bg-slate-600 text-white";
+  return "border-slate-200 bg-slate-100 text-slate-700";
 };
 
 const ActionSelect = ({ className, ...props }) => (
@@ -396,16 +396,16 @@ const quickFilterChips = [
 ];
 
 const MetricTile = ({ icon: Icon, label, tone, value }) => (
-  <Card className="overflow-hidden rounded-xl border border-white/80 bg-white/82 shadow-[0_14px_34px_-28px_rgba(15,23,42,0.34)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-blue-100 hover:bg-white">
-    <CardContent className="bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(248,250,252,0.76))] p-3">
+  <Card className="overflow-hidden rounded-[14px] border-white/70 bg-white/86 shadow-[0_14px_34px_-26px_rgba(15,23,42,0.3)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-26px_rgba(15,23,42,0.32)]">
+    <CardContent className="p-3.5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
             {label}
           </p>
-          <p className="mt-1 text-[22px] font-bold leading-none text-slate-950">{value}</p>
+          <p className="mt-1.5 text-2xl font-semibold leading-none text-slate-950">{value}</p>
         </div>
-        <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg shadow-sm", tone)}>
+        <span className={cn("flex h-9 w-9 items-center justify-center rounded-[12px]", tone)}>
           <Icon className="h-4 w-4" />
         </span>
       </div>
@@ -949,6 +949,30 @@ const AdminBugsPage = () => {
     });
   };
 
+  const isQuickFilterActive = (filterId) => {
+    if (filterId === "mine") {
+      return filters.developerId === String(user?._id || user?.id || "");
+    }
+
+    if (filterId === "critical") {
+      return filters.filter === "critical" || filters.priority === "Critical";
+    }
+
+    if (filterId === "unassigned") {
+      return filters.developerId === "unassigned";
+    }
+
+    if (filterId === "reopened") {
+      return filters.filter === "reopened" || filters.lifecycle === "reopened";
+    }
+
+    if (["api", "ui", "backend"].includes(filterId)) {
+      return filters.search.trim().toLowerCase() === filterId;
+    }
+
+    return false;
+  };
+
   const handleQuickAssign = (bugIssue, developerId) => {
     if (!developerId) {
       return;
@@ -1045,25 +1069,25 @@ const AdminBugsPage = () => {
         <MetricTile icon={CheckCircle2} label="Closed" value={metrics.closed} tone="bg-emerald-50 text-emerald-700" />
       </section>
 
-      <Card className="overflow-visible rounded-2xl border border-white/80 bg-white/86 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.42)] backdrop-blur-xl">
+      <Card className="overflow-visible rounded-[14px] border border-slate-200/90 bg-white shadow-[0_18px_48px_-32px_rgba(15,23,42,0.46)]">
         <CardContent className="p-0">
-          <div className="sticky top-16 z-20 rounded-t-2xl border-b border-slate-200/90 bg-white/92 px-3 py-2.5 backdrop-blur-xl sm:px-4">
+          <div className="sticky top-16 z-20 rounded-t-[14px] border-b border-slate-300/80 bg-white/92 px-3 py-2 backdrop-blur-xl sm:px-4">
             <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
               <div className="min-w-0">
-                <h2 className="flex items-center gap-2 text-[15px] font-bold text-slate-950">
+                <h2 className="flex items-center gap-2 text-[15px] font-semibold text-slate-950">
                   <ListChecks className="h-4 w-4 text-blue-600" />
-                  Triage Queue
+                  Triage Board
                 </h2>
-                <p className="mt-0.5 text-[12px] font-medium text-slate-500">
+                <p className="mt-0.5 text-[12px] font-medium text-slate-600">
                   {triageBugs.length} incoming bugs ready for admin review.
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/80 p-1 shadow-inner">
-                <div className="relative w-full min-w-[210px] sm:w-[260px]">
+              <div className="flex w-full flex-wrap items-center gap-1.5 rounded-xl border border-slate-200/90 bg-slate-50/80 p-1 shadow-inner xl:w-auto">
+                <div className="relative w-full min-w-[190px] sm:w-[240px] xl:w-[250px]">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                   <CompactInput
                     className="h-8 pl-9"
-                    placeholder="Search issues"
+                    placeholder="Search bugs"
                     value={filters.search}
                     onChange={(event) => updateFilter("search", event.target.value)}
                   />
@@ -1086,11 +1110,14 @@ const AdminBugsPage = () => {
                     <option key={resolveUserId(developer)} value={resolveUserId(developer)}>{getUserLabel(developer)}</option>
                   ))}
                 </CompactSelect>
-                <Button className="h-8 rounded-lg px-2.5 text-[11px]" type="button" variant="outline" onClick={() => setAreTriageFiltersOpen((current) => !current)}>
+                <Button className="h-8 rounded-[10px] px-2.5 text-[11px]" type="button" variant="outline" onClick={() => setAreTriageFiltersOpen((current) => !current)}>
                   <Filter className="h-3.5 w-3.5" />
-                  More Filters
+                  Filters
                   {areTriageFiltersOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                 </Button>
+                <SoftBadge className="border-blue-100 bg-blue-50 text-blue-700">
+                  {triageBugs.length} review
+                </SoftBadge>
               </div>
             </div>
 
@@ -1098,7 +1125,12 @@ const AdminBugsPage = () => {
               {quickFilterChips.map(([id, label]) => (
                 <button
                   key={id}
-                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm transition",
+                    isQuickFilterActive(id)
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                  )}
                   type="button"
                   onClick={() => applyQuickFilter(id)}
                 >
@@ -1166,128 +1198,262 @@ const AdminBugsPage = () => {
             </div>
           ) : null}
 
-          <div className="bg-slate-100/70 p-2 sm:p-3">
+          <div className="bg-slate-100/80 p-2">
             {isLoading ? (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {Array.from({ length: 8 }).map((_, index) => (
-                  <Skeleton key={`triage-row-skeleton-${index}`} className="h-16 rounded-xl" />
+                  <Skeleton key={`triage-row-skeleton-${index}`} className="h-12 rounded-lg" />
                 ))}
               </div>
             ) : triageBugs.length ? (
-              <div className="space-y-2">
-                {triageBugs.slice(0, 60).map((bugIssue) => {
-                  const details = resolveBugDetails(bugIssue);
-                  const developer = getBugDeveloper(bugIssue);
-                  const developerName = getUserLabel(developer);
-                  const status = normalizeBugStatusForIssue(bugIssue);
-                  const severity = getSeverity(bugIssue);
-                  const moduleTag = getModuleTag(bugIssue);
-                  const attachmentCount = getAttachmentCount(bugIssue);
-                  const isMenuOpen = actionMenuId === bugIssue._id;
-
-                  return (
-                    <article
-                      key={bugIssue._id}
-                      className={cn(
-                        "group relative grid gap-3 rounded-xl border border-l-4 border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md xl:grid-cols-[34px_minmax(0,1fr)_auto]",
-                        severityAccentClassName(severity)
-                      )}
-                    >
-                      <div className="flex items-start gap-2 xl:justify-center">
-                        <input
-                          aria-label={`Select ${getIssueDisplayKey(bugIssue)}`}
-                          className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                          type="checkbox"
-                          checked={selectedTriageIds.includes(bugIssue._id)}
-                          onChange={(event) => handleToggleTriageBug(bugIssue._id, event.target.checked)}
-                        />
+              <>
+                <div className="hidden md:block">
+                  <div className="max-h-[430px] overflow-auto pr-1">
+                    <div className="min-w-[900px] space-y-1.5 lg:min-w-0">
+                      <div className="grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]">
+                        <div className="flex justify-center">
+                          <input
+                            aria-label="Select all triage bugs"
+                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            type="checkbox"
+                            checked={triageBugs.length > 0 && triageBugs.every((bugIssue) => selectedTriageIds.includes(bugIssue._id))}
+                            onChange={(event) =>
+                              setSelectedTriageIds(event.target.checked ? triageBugs.map((bugIssue) => bugIssue._id) : [])
+                            }
+                          />
+                        </div>
+                        <span>Bug Info</span>
+                        <span>Module / Project</span>
+                        <span>Developer</span>
+                        <span>Status / Priority</span>
+                        <span>Date</span>
+                        <span className="text-right">Actions</span>
                       </div>
 
-                      <button className="min-w-0 text-left" type="button" onClick={() => setSelectedBug(bugIssue)}>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">{getIssueDisplayKey(bugIssue)}</span>
+                      {triageBugs.slice(0, 60).map((bugIssue) => {
+                        const details = resolveBugDetails(bugIssue);
+                        const developer = getBugDeveloper(bugIssue);
+                        const developerName = getUserLabel(developer);
+                        const status = normalizeBugStatusForIssue(bugIssue);
+                        const severity = getSeverity(bugIssue);
+                        const moduleTag = getModuleTag(bugIssue);
+                        const attachmentCount = getAttachmentCount(bugIssue);
+                        const isMenuOpen = actionMenuId === bugIssue._id;
+
+                        return (
+                          <article
+                            key={bugIssue._id}
+                            className={cn(
+                              "group relative grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 rounded-lg border border-l-4 border-slate-200 bg-white px-2 py-2 shadow-sm transition duration-150 hover:-translate-y-px hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-md lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]",
+                              severityAccentClassName(severity)
+                            )}
+                          >
+                            <div className="flex justify-center">
+                              <input
+                                aria-label={`Select ${getIssueDisplayKey(bugIssue)}`}
+                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                type="checkbox"
+                                checked={selectedTriageIds.includes(bugIssue._id)}
+                                onChange={(event) => handleToggleTriageBug(bugIssue._id, event.target.checked)}
+                              />
+                            </div>
+
+                            <button className="min-w-0 text-left" type="button" onClick={() => setSelectedBug(bugIssue)}>
+                              <span className="block font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">{getIssueDisplayKey(bugIssue)}</span>
+                              <span className="mt-0.5 block truncate text-[13px] font-bold leading-5 text-slate-950">{bugIssue.title}</span>
+                              <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-500">
+                                {getProjectName(bugIssue, projects)} &bull; {details.moduleName || "Unmapped module"}
+                              </span>
+                            </button>
+
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <p className="truncate text-[12px] font-semibold text-slate-800">{details.moduleName || "Unmapped"}</p>
+                                <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-600">{moduleTag}</span>
+                              </div>
+                              <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">{getIssueCategory(bugIssue)}</p>
+                            </div>
+
+                            <div className="min-w-0">
+                              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white">{getInitials(developerName)}</span>
+                                <span className="truncate">{developerName}</span>
+                              </span>
+                            </div>
+
+                            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                              <span className={cn("inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none", statusBadgeClassName(status))}>
+                                {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
+                              </span>
+                              <span className={priorityBadgeClassName(bugIssue.priority || "Medium")}>{bugIssue.priority || "Medium"}</span>
+                              <span className={severityBadgeClassName(severity)}>{severity}</span>
+                              {isReopenedBug(bugIssue) ? (
+                                <span className="inline-flex h-5 items-center rounded-full border border-rose-200 bg-rose-50 px-2 text-[10px] font-bold uppercase text-rose-700">Reopened</span>
+                              ) : null}
+                            </div>
+
+                            <div className="min-w-0 text-[11px] font-medium text-slate-600">
+                              <span className="block truncate">{formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}</span>
+                              {attachmentCount ? (
+                                <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                                  <Paperclip className="h-3 w-3" />
+                                  {attachmentCount}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <div className="relative flex items-center justify-end gap-1">
+                              <Button className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={() => setSelectedBug(bugIssue)} aria-label="View bug">
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={() => setActionMenuId(isMenuOpen ? "" : bugIssue._id)} aria-label="More actions">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                              {isMenuOpen ? (
+                                <div className="absolute right-0 top-8 z-30 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                                  <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickAssign(bugIssue, event.target.value); closeActionMenu(); }}>
+                                    <option value="">Assign</option>
+                                    {developers.map((developerOption) => (
+                                      <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>{getUserLabel(developerOption)}</option>
+                                    ))}
+                                  </ActionSelect>
+                                  <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickStatus(bugIssue, event.target.value); closeActionMenu(); }}>
+                                    <option value="">Change Status</option>
+                                    {BUG_STATUS_FILTERS.filter((item) => item.value !== "all").map((item) => (
+                                      <option key={item.value} value={item.value}>{item.label}</option>
+                                    ))}
+                                  </ActionSelect>
+                                  <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickPriority(bugIssue, event.target.value); closeActionMenu(); }}>
+                                    <option value="">Change Priority</option>
+                                    {["Critical", "High", "Medium", "Low"].map((priority) => (
+                                      <option key={priority} value={priority}>{priority}</option>
+                                    ))}
+                                  </ActionSelect>
+                                  <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => { handleMoveToTriageBucket(bugIssue); closeActionMenu(); }}>
+                                    <Layers3 className="h-3.5 w-3.5" />
+                                    Move to Bucket
+                                  </button>
+                                  <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => { setSelectedBug(bugIssue); closeActionMenu(); }}>
+                                    <MessageSquarePlus className="h-3.5 w-3.5" />
+                                    Add Comment
+                                  </button>
+                                  <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50" type="button" onClick={() => { handleCloseBug(bugIssue); closeActionMenu(); }}>
+                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                    Close Bug
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2 md:hidden">
+                  {triageBugs.slice(0, 60).map((bugIssue) => {
+                    const details = resolveBugDetails(bugIssue);
+                    const developer = getBugDeveloper(bugIssue);
+                    const developerName = getUserLabel(developer);
+                    const status = normalizeBugStatusForIssue(bugIssue);
+                    const severity = getSeverity(bugIssue);
+                    const attachmentCount = getAttachmentCount(bugIssue);
+                    const isMenuOpen = actionMenuId === bugIssue._id;
+
+                    return (
+                      <article
+                        key={bugIssue._id}
+                        className={cn(
+                          "relative rounded-lg border border-l-4 border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-px hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-md",
+                          severityAccentClassName(severity)
+                        )}
+                      >
+                        <div className="flex items-start gap-2">
+                          <input
+                            aria-label={`Select ${getIssueDisplayKey(bugIssue)}`}
+                            className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            type="checkbox"
+                            checked={selectedTriageIds.includes(bugIssue._id)}
+                            onChange={(event) => handleToggleTriageBug(bugIssue._id, event.target.checked)}
+                          />
+                          <button className="min-w-0 flex-1 text-left" type="button" onClick={() => setSelectedBug(bugIssue)}>
+                            <span className="block font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">{getIssueDisplayKey(bugIssue)}</span>
+                            <span className="mt-0.5 block truncate text-[13px] font-bold text-slate-950">{bugIssue.title}</span>
+                            <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-500">
+                              {getProjectName(bugIssue, projects)} &bull; {details.moduleName || "Unmapped module"}
+                            </span>
+                          </button>
+                          <div className="relative flex shrink-0 items-center gap-1">
+                            <Button className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={() => setSelectedBug(bugIssue)} aria-label="View bug">
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={() => setActionMenuId(isMenuOpen ? "" : bugIssue._id)} aria-label="More actions">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                            {isMenuOpen ? (
+                              <div className="absolute right-0 top-8 z-30 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                                <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickAssign(bugIssue, event.target.value); closeActionMenu(); }}>
+                                  <option value="">Assign</option>
+                                  {developers.map((developerOption) => (
+                                    <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>{getUserLabel(developerOption)}</option>
+                                  ))}
+                                </ActionSelect>
+                                <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickStatus(bugIssue, event.target.value); closeActionMenu(); }}>
+                                  <option value="">Change Status</option>
+                                  {BUG_STATUS_FILTERS.filter((item) => item.value !== "all").map((item) => (
+                                    <option key={item.value} value={item.value}>{item.label}</option>
+                                  ))}
+                                </ActionSelect>
+                                <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickPriority(bugIssue, event.target.value); closeActionMenu(); }}>
+                                  <option value="">Change Priority</option>
+                                  {["Critical", "High", "Medium", "Low"].map((priority) => (
+                                    <option key={priority} value={priority}>{priority}</option>
+                                  ))}
+                                </ActionSelect>
+                                <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => { handleMoveToTriageBucket(bugIssue); closeActionMenu(); }}>
+                                  <Layers3 className="h-3.5 w-3.5" />
+                                  Move to Bucket
+                                </button>
+                                <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => { setSelectedBug(bugIssue); closeActionMenu(); }}>
+                                  <MessageSquarePlus className="h-3.5 w-3.5" />
+                                  Add Comment
+                                </button>
+                                <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50" type="button" onClick={() => { handleCloseBug(bugIssue); closeActionMenu(); }}>
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  Close Bug
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="mt-2 grid gap-1.5 text-[11px] font-medium text-slate-600">
+                          <span className="truncate">{details.moduleName || "Unmapped"} / {getIssueCategory(bugIssue)}</span>
+                          <span className="truncate">{developerName}</span>
+                          <span className="truncate">{formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}</span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className={cn("inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none", statusBadgeClassName(status))}>
+                            {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
+                          </span>
+                          <span className={priorityBadgeClassName(bugIssue.priority || "Medium")}>{bugIssue.priority || "Medium"}</span>
                           <span className={severityBadgeClassName(severity)}>{severity}</span>
                           {isReopenedBug(bugIssue) ? (
-                            <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase text-rose-700">Reopened</span>
+                            <span className="inline-flex h-5 items-center rounded-full border border-rose-200 bg-rose-50 px-2 text-[10px] font-bold uppercase text-rose-700">Reopened</span>
                           ) : null}
-                        </div>
-                        <h3 className="mt-1 truncate text-[14px] font-bold text-slate-950">{bugIssue.title}</h3>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-medium text-slate-500">
-                          <span>{getProjectName(bugIssue, projects)}</span>
-                          <span>-</span>
-                          <span>{details.moduleName || "Unmapped module"}</span>
-                          <span>-</span>
-                          <span>{getIssueCategory(bugIssue)}</span>
-                          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-bold text-slate-600">
-                            <Layers3 className="h-3 w-3" />
-                            {moduleTag}
-                          </span>
                           {attachmentCount ? (
-                            <span className="inline-flex items-center gap-1 text-slate-500">
+                            <span className="inline-flex h-5 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 text-[10px] font-bold uppercase text-slate-600">
                               <Paperclip className="h-3 w-3" />
                               {attachmentCount}
                             </span>
                           ) : null}
                         </div>
-                      </button>
-
-                      <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-                        <span className={priorityBadgeClassName(bugIssue.priority || "Medium")}>{bugIssue.priority || "Medium"}</span>
-                        <span className={cn("inline-flex h-6 items-center rounded-full border px-2.5 text-[11px] font-bold shadow-sm", statusBadgeClassName(status))}>
-                          {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
-                        </span>
-                        <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-700">
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white">{getInitials(developerName)}</span>
-                          <span className="max-w-[120px] truncate">{developerName}</span>
-                        </span>
-                        <span className="whitespace-nowrap text-[11px] font-medium text-slate-500">{formatDateTime(bugIssue.createdAt || bugIssue.updatedAt)}</span>
-                        <Button className="h-8 w-8 rounded-lg p-0" type="button" size="icon" variant="outline" onClick={() => setSelectedBug(bugIssue)} aria-label="View bug">
-                          <Eye className="h-3.5 w-3.5" />
-                        </Button>
-                        <div className="relative">
-                          <Button className="h-8 w-8 rounded-lg p-0" type="button" size="icon" variant="outline" onClick={() => setActionMenuId(isMenuOpen ? "" : bugIssue._id)} aria-label="More actions">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                          {isMenuOpen ? (
-                            <div className="absolute right-0 top-9 z-30 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                              <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickAssign(bugIssue, event.target.value); closeActionMenu(); }}>
-                                <option value="">Assign</option>
-                                {developers.map((developerOption) => (
-                                  <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>{getUserLabel(developerOption)}</option>
-                                ))}
-                              </ActionSelect>
-                              <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickStatus(bugIssue, event.target.value); closeActionMenu(); }}>
-                                <option value="">Change Status</option>
-                                {BUG_STATUS_FILTERS.filter((item) => item.value !== "all").map((item) => (
-                                  <option key={item.value} value={item.value}>{item.label}</option>
-                                ))}
-                              </ActionSelect>
-                              <ActionSelect className="mb-1.5 h-8 w-full" value="" onChange={(event) => { handleQuickPriority(bugIssue, event.target.value); closeActionMenu(); }}>
-                                <option value="">Change Priority</option>
-                                {["Critical", "High", "Medium", "Low"].map((priority) => (
-                                  <option key={priority} value={priority}>{priority}</option>
-                                ))}
-                              </ActionSelect>
-                              <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => { handleMoveToTriageBucket(bugIssue); closeActionMenu(); }}>
-                                <Layers3 className="h-3.5 w-3.5" />
-                                Move to Bucket
-                              </button>
-                              <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => { setSelectedBug(bugIssue); closeActionMenu(); }}>
-                                <MessageSquarePlus className="h-3.5 w-3.5" />
-                                Add Comment
-                              </button>
-                              <button className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50" type="button" onClick={() => { handleCloseBug(bugIssue); closeActionMenu(); }}>
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                                Close Bug
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </>
             ) : (
               <div className="rounded-xl bg-white p-8">
                 <EmptyState
@@ -1298,6 +1464,281 @@ const AdminBugsPage = () => {
               </div>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="sticky top-20 z-20 overflow-hidden rounded-[16px] border-white/70 bg-white/94 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl">
+        <CardContent className="space-y-3 p-3.5 sm:p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-base font-semibold text-slate-950">
+                <SlidersHorizontal className="h-4 w-4 text-blue-600" />
+                Bug Tracker
+              </h2>
+              <p className="mt-0.5 text-[12px] text-slate-500">
+                {filteredBugs.length} visible bugs across QA, ownership, and lifecycle filters.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                ["mine", "My Bugs"],
+                ["critical", "Critical"],
+                ["unassigned", "Unassigned"],
+                ["reopened", "Reopened"],
+                ["ready", "Ready for QA"],
+              ].map(([id, label]) => (
+                <Button
+                  key={id}
+                  className="h-8 rounded-[10px] px-2.5 text-[11px]"
+                  type="button"
+                  variant="outline"
+                  onClick={() => applyQuickFilter(id)}
+                >
+                  {label}
+                </Button>
+              ))}
+              <Button
+                className="h-8 rounded-[10px] px-2.5 text-[11px]"
+                type="button"
+                onClick={() => setAreFiltersOpen((current) => !current)}
+              >
+                <Filter className="h-3.5 w-3.5" />
+                {areFiltersOpen ? "Hide Filters" : "Show Filters"}
+                {areFiltersOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
+          </div>
+
+          {areFiltersOpen ? (
+            <div className="grid gap-2 border-t border-slate-200/80 pt-3 md:grid-cols-2 xl:grid-cols-4">
+              <label className="space-y-1.5">
+                <FieldLabel>Project</FieldLabel>
+                <CompactSelect value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
+                  <option value={ALL_PROJECTS_VALUE}>All projects</option>
+                  {projects.map((project) => (
+                    <option key={project._id} value={project._id}>{project.name}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Team</FieldLabel>
+                <CompactSelect value={filters.teamId} onChange={(event) => updateFilter("teamId", event.target.value)}>
+                  <option value="all">All teams</option>
+                  {teams.map((team) => (
+                    <option key={resolveTeamId(team)} value={resolveTeamId(team)}>{team.name}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Tester</FieldLabel>
+                <CompactSelect value={filters.testerId} onChange={(event) => updateFilter("testerId", event.target.value)}>
+                  <option value="all">All testers</option>
+                  {testers.map((tester) => (
+                    <option key={resolveUserId(tester)} value={resolveUserId(tester)}>{getUserLabel(tester)}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Developer</FieldLabel>
+                <CompactSelect value={filters.developerId} onChange={(event) => updateFilter("developerId", event.target.value)}>
+                  <option value="all">All developers</option>
+                  <option value="unassigned">Unassigned</option>
+                  {developers.map((developer) => (
+                    <option key={resolveUserId(developer)} value={resolveUserId(developer)}>{getUserLabel(developer)}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Severity</FieldLabel>
+                <CompactSelect value={filters.severity} onChange={(event) => updateFilter("severity", event.target.value)}>
+                  <option value="all">All severities</option>
+                  {BUG_SEVERITY_OPTIONS.map((severity) => (
+                    <option key={severity} value={severity}>{severity}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Priority</FieldLabel>
+                <CompactSelect value={filters.priority} onChange={(event) => updateFilter("priority", event.target.value)}>
+                  <option value="all">All priorities</option>
+                  {["Critical", "High", "Medium", "Low"].map((priority) => (
+                    <option key={priority} value={priority}>{priority}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Status</FieldLabel>
+                <CompactSelect value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+                  {BUG_STATUS_FILTERS.map((status) => (
+                    <option key={status.value} value={status.value}>{status.label}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Epic</FieldLabel>
+                <CompactSelect value={filters.epicId} disabled={!selectedProjectId} onChange={(event) => updateFilter("epicId", event.target.value)}>
+                  <option value="all">All epics</option>
+                  <option value="unassigned">No epic</option>
+                  {epics.map((epic) => (
+                    <option key={epic._id} value={epic._id}>{epic.name}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Sprint</FieldLabel>
+                <CompactSelect value={filters.sprintId} disabled={!selectedProjectId} onChange={(event) => updateFilter("sprintId", event.target.value)}>
+                  <option value="all">All sprints</option>
+                  <option value="backlog">Backlog</option>
+                  {sprints.map((sprint) => (
+                    <option key={sprint._id} value={sprint._id}>{sprint.name}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Bug State</FieldLabel>
+                <CompactSelect value={filters.lifecycle} onChange={(event) => updateFilter("lifecycle", event.target.value)}>
+                  <option value="all">All bugs</option>
+                  <option value="reopened">Reopened bugs</option>
+                  <option value="fixed">Fixed / Ready for QA</option>
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Date From</FieldLabel>
+                <CompactInput type="date" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Date To</FieldLabel>
+                <CompactInput type="date" value={filters.dateTo} onChange={(event) => updateFilter("dateTo", event.target.value)} />
+              </label>
+              <label className="space-y-1.5 md:col-span-2 xl:col-span-4">
+                <FieldLabel>Search</FieldLabel>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <CompactInput
+                    className="pl-9"
+                    placeholder="Search bug ID, title, developer, tester, or severity"
+                    value={filters.search}
+                    onChange={(event) => updateFilter("search", event.target.value)}
+                  />
+                </div>
+              </label>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <section className="grid gap-4 lg:grid-cols-3">
+        <DistributionPanel title="Severity Distribution" rows={severityRows} />
+        <DistributionPanel title="Bug Trend By Status" rows={statusRows} />
+        <DistributionPanel title="Developer Resolution Rate" rows={developerRows} />
+      </section>
+
+      <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="space-y-3 p-4">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <Skeleton key={`bug-row-skeleton-${index}`} className="h-14 rounded-2xl" />
+              ))}
+            </div>
+          ) : filteredBugs.length ? (
+            <div className="max-h-[620px] overflow-auto">
+              <table className="w-full min-w-[1280px] border-separate border-spacing-0 text-left">
+                <thead className="sticky top-0 z-10 bg-white/95 backdrop-blur">
+                  <tr className="border-b border-slate-200 text-xs uppercase tracking-[0.16em] text-slate-500">
+                    {["Bug ID", "Title", "Project", "Tester", "Severity", "Priority", "Developer", "Status", "Reopens", "Updated", "Resolution ETA", "Actions"].map((header) => (
+                      <th key={header} className="border-b border-slate-200 px-3 py-3 font-semibold">
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredBugs.map((bugIssue) => {
+                    const reporter = getReporter(bugIssue);
+                    const developer = getBugDeveloper(bugIssue);
+                    const status = normalizeBugStatusForIssue(bugIssue);
+
+                    return (
+                      <tr
+                        key={bugIssue._id}
+                        className="cursor-pointer border-b border-slate-100 transition hover:bg-blue-50/50"
+                        onClick={() => setSelectedBug(bugIssue)}
+                      >
+                        <td className="border-b border-slate-100 px-3 py-3 font-mono text-xs font-semibold text-slate-600">
+                          {getIssueDisplayKey(bugIssue)}
+                        </td>
+                        <td className="max-w-[280px] border-b border-slate-100 px-3 py-3">
+                          <p className="truncate text-sm font-semibold text-slate-950">{bugIssue.title}</p>
+                          <p className="truncate text-xs text-slate-500">{getTeamName(bugIssue)}</p>
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                          {getProjectName(bugIssue, projects)}
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                          {getUserLabel(reporter, "Unknown tester")}
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3">
+                          <span className={cn(
+                            "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
+                            ["Blocker", "Critical"].includes(getSeverity(bugIssue))
+                              ? "bg-rose-50 text-rose-700"
+                              : "bg-slate-100 text-slate-700"
+                          )}>
+                            {getSeverity(bugIssue)}
+                          </span>
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3">
+                          <Badge variant={getIssuePriorityVariant(bugIssue.priority)}>
+                            {bugIssue.priority || "Medium"}
+                          </Badge>
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                          {getUserLabel(developer)}
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3">
+                          <Badge variant={getIssueStatusVariant(status)}>
+                            {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
+                          </Badge>
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 text-sm font-semibold text-slate-700">
+                          {getReopenCount(bugIssue)}
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                          {formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                          {getResolutionEta(bugIssue)}
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedBug(bugIssue);
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                            View
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-8">
+              <EmptyState
+                title="No bugs match this view"
+                description="Adjust project, QA, developer, lifecycle, date, or search filters to widen the bug tracker."
+                icon={<Bug className="h-5 w-5" />}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -1327,7 +1768,6 @@ const AdminBugsPage = () => {
         canEditPriority
         canEditAssignee
         canDeleteIssue={false}
-        contentClassName="bottom-0 right-0 left-auto top-0 h-screen max-h-screen w-full max-w-3xl translate-x-0 translate-y-0 rounded-none border-y-0 border-r-0 p-5 sm:p-6"
       />
     </div>
   );
