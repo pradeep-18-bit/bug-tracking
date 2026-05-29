@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import {
   Bug,
   CheckCircle2,
@@ -229,9 +230,13 @@ const BugReviewCard = ({
 const TasksPage = () => {
   const queryClient = useQueryClient();
   const { user, role } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedIssue, setSelectedIssue] = useState(null);
-  const [activeTab, setActiveTab] = useState("tasks");
   const isTester = role === ROLE_TESTER;
+  const requestedTab = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState(
+    isTester && requestedTab === "bugs" ? "bugs" : "tasks"
+  );
   const testerId = String(user?._id || user?.id || "");
 
   const {
@@ -261,6 +266,18 @@ const TasksPage = () => {
     queryFn: () => fetchIssues({ type: ISSUE_TYPES.BUG, sortBy: "recently-updated" }),
     enabled: Boolean(isTester && testerId),
   });
+
+  useEffect(() => {
+    if (isTester && requestedTab === "bugs") {
+      setActiveTab("bugs");
+    }
+  }, [isTester, requestedTab]);
+
+  useEffect(() => {
+    if (!isTester && activeTab === "bugs") {
+      setActiveTab("tasks");
+    }
+  }, [activeTab, isTester]);
 
   useEffect(() => {
     if (!selectedIssue) {
@@ -434,7 +451,15 @@ const TasksPage = () => {
                             ? "bg-blue-600 text-white shadow-sm"
                             : "text-slate-600 hover:bg-white hover:text-slate-950"
                         )}
-                        onClick={() => setActiveTab(tab.key)}
+                        onClick={() => {
+                          setActiveTab(tab.key);
+
+                          if (tab.key === "bugs") {
+                            setSearchParams({ tab: "bugs" });
+                          } else {
+                            setSearchParams({});
+                          }
+                        }}
                       >
                         <Icon className="h-4 w-4" />
                         {tab.label}
