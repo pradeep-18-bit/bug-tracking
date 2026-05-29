@@ -46,7 +46,8 @@ services:
       EMAIL_SECURE: ${EMAIL_SECURE:-true}
       EMAIL_FROM: ${EMAIL_FROM:-Pirnav Support <no-reply@example.com>}
 
-      APP_URL: ${APP_URL:-}
+      APP_URL: ${APP_URL:-https://app.renivval.com}
+      FRONTEND_URL: ${FRONTEND_URL:-https://app.renivval.com}
 
     depends_on:
       - mongo
@@ -60,7 +61,6 @@ services:
   frontend:
     build:
       context: ./frontend
-
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
         VITE_ENABLE_ADMIN_DEFAULT_LOGIN: ${VITE_ENABLE_ADMIN_DEFAULT_LOGIN:-true}
