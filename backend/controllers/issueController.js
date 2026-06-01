@@ -311,6 +311,16 @@ const ensureAssigneeExists = async (assigneeId, workspaceId) => {
 const hasOwnField = (payload, field) =>
   Object.prototype.hasOwnProperty.call(payload || {}, field);
 
+const cleanPayload = (payload = {}) => {
+  const cleaned = { ...payload };
+  Object.keys(cleaned).forEach((key) => {
+    if (cleaned[key] === null || cleaned[key] === undefined || cleaned[key] === "") {
+      delete cleaned[key];
+    }
+  });
+  return cleaned;
+};
+
 const resolveAssigneeInput = (payload = {}) =>
   hasOwnField(payload, "assigneeId") ? payload.assigneeId : payload.assignee;
 
@@ -2355,6 +2365,9 @@ const getTeamReports = asyncHandler(async (req, res) => {
 const createIssue = asyncHandler(async (req, res) => {
   logIssuePayloadReceipt("create", req);
 
+  // Clean payload to remove null/undefined fields
+  req.body = cleanPayload(req.body);
+
   const {
     title,
     description,
@@ -2740,6 +2753,9 @@ const createIssue = asyncHandler(async (req, res) => {
 const updateIssue = asyncHandler(async (req, res) => {
   logIssuePayloadReceipt("update", req);
 
+  // Clean payload to remove null/undefined fields that shouldn't trigger validation
+  req.body = cleanPayload(req.body);
+
   if (!mongoose.isValidObjectId(req.params.id)) {
     res.status(400);
     throw new Error("Invalid issue id");
@@ -3004,6 +3020,12 @@ const updateIssue = asyncHandler(async (req, res) => {
   const nextDependsOnIssueId = hasDependencyChange
     ? req.body.dependsOnIssueId || null
     : issue.dependsOnIssueId || null;
+  const hasProjectChange =
+    Boolean(req.body.projectId) && String(req.body.projectId) !== String(issue.projectId || "");
+  const isTeamChanged =
+    hasTeamChange && String(nextTeamId || "") !== String(issue.teamId || "");
+  const isAssigneeChanged =
+    hasAssigneeChange && String(nextAssigneeId || "") !== String(issue.assignee || "");
   let nextBugDetails = null;
   let nextDeveloperLeadUser = null;
 
@@ -3047,7 +3069,23 @@ const updateIssue = asyncHandler(async (req, res) => {
     }
   }
 
-  if (hasTeamChange || req.body.projectId) {
+  console.log("[issues] update validation context", {
+    issueId: String(issue._id),
+    existingTeam: issue.teamId ? String(issue.teamId) : null,
+    existingAssignee: issue.assignee ? String(issue.assignee) : null,
+    incomingTeam: hasOwnField(req.body, "teamId") ? req.body.teamId : undefined,
+    incomingAssignee: hasAssigneeInput(req.body) ? resolveAssigneeInput(req.body) : undefined,
+    incomingStatus: req.body.status,
+    hasAssigneeChange,
+    hasTeamChange,
+    isTeamChanged,
+    isAssigneeChanged,
+    hasProjectChange,
+    nextAssigneeId: nextAssigneeId ? String(nextAssigneeId) : null,
+    nextTeamId: nextTeamId ? String(nextTeamId) : null,
+  });
+
+  if (isTeamChanged || hasProjectChange) {
     const teamResult = await ensureIssueTeamForProject({
       projectId: targetProject?._id || issue.projectId,
       teamId: nextTeamId,
@@ -3073,7 +3111,7 @@ const updateIssue = asyncHandler(async (req, res) => {
     }
   }
 
-  if (hasSprintChange || req.body.projectId || (hasTeamChange && nextSprintId)) {
+  if (hasSprintChange || hasProjectChange || (isTeamChanged && nextSprintId)) {
     const sprintResult = await ensureSprintForIssue({
       sprintId: nextSprintId,
       projectId: targetProject?._id || issue.projectId,
@@ -3086,7 +3124,20 @@ const updateIssue = asyncHandler(async (req, res) => {
     }
   }
 
-  if (nextAssigneeId) {
+  // Only validate assignee team membership if:
+  // 1. Assignee is being CHANGED to a new value, OR
+  // 2. Team is being CHANGED and there is an assignee
+  // Do NOT validate if only status/other fields are changing and assignee stays the same
+  const shouldValidateAssigneeTeamMembership = nextAssigneeId && (isAssigneeChanged || isTeamChanged || hasProjectChange);
+
+  if (shouldValidateAssigneeTeamMembership) {
+    console.log("[issues] validating assignee team membership", {
+      issueId: String(issue._id),
+      assigneeId: String(nextAssigneeId),
+      teamId: nextTeamId ? String(nextTeamId) : null,
+      reason: isAssigneeChanged ? "assignee_changed" : isTeamChanged ? "team_changed" : "project_changed",
+    });
+
     const assigneeResult = await ensureAssigneeBelongsToTeam({
       assigneeId: nextAssigneeId,
       teamId: nextTeamId,
@@ -3094,37 +3145,61 @@ const updateIssue = asyncHandler(async (req, res) => {
     });
 
     if (assigneeResult.error) {
+      console.log("[issues] assignee team membership validation failed", {
+        issueId: String(issue._id),
+        assigneeId: String(nextAssigneeId),
+        teamId: nextTeamId ? String(nextTeamId) : null,
+        error: assigneeResult.error.message,
+      });
+
       res.status(assigneeResult.error.status);
       throw new Error(assigneeResult.error.message);
     }
   }
 
   if (nextIsBug && nextBugDetails) {
-    const [testerOwnerResult, developerLeadResult] = await Promise.all([
-      ensureBugOwnerInWorkspace({
+    const hasTesterOwnerChange = hasBugPayloadField(req.body, "testerOwnerId", [
+      "testerOwner",
+      "qaOwnerId",
+      "qaOwner",
+    ]);
+    const hasDeveloperLeadChange = hasBugPayloadField(req.body, "developerLeadId", [
+      "developerLead",
+      "devLeadId",
+      "devLead",
+    ]);
+    const isDeveloperLeadChanged =
+      hasDeveloperLeadChange &&
+      String(nextBugDetails.developerLead || "") !== String(issue.bugDetails?.developerLead || "");
+
+    if (hasTesterOwnerChange) {
+      const testerOwnerResult = await ensureBugOwnerInWorkspace({
         userId: nextBugDetails.testerOwner,
         workspaceId,
         label: "QA owner",
-      }),
-      ensureBugOwnerBelongsToTeam({
+      });
+
+      if (testerOwnerResult.error) {
+        res.status(testerOwnerResult.error.status);
+        throw new Error(testerOwnerResult.error.message);
+      }
+    }
+
+    if (nextBugDetails.developerLead && (isDeveloperLeadChanged || isTeamChanged || hasProjectChange)) {
+      const developerLeadResult = await ensureBugOwnerBelongsToTeam({
         userId: nextBugDetails.developerLead,
         teamId: nextTeamId,
         workspaceId,
         label: "developer lead",
-      }),
-    ]);
+      });
 
-    if (testerOwnerResult.error) {
-      res.status(testerOwnerResult.error.status);
-      throw new Error(testerOwnerResult.error.message);
+      if (developerLeadResult.error) {
+        res.status(developerLeadResult.error.status);
+        throw new Error(developerLeadResult.error.message);
+      }
+
+      nextDeveloperLeadUser = developerLeadResult.user || null;
     }
-
-    if (developerLeadResult.error) {
-      res.status(developerLeadResult.error.status);
-      throw new Error(developerLeadResult.error.message);
-    }
-
-    nextDeveloperLeadUser = developerLeadResult.user || null;
   }
 
   const nextBugDeveloperId = nextIsBug
@@ -3135,6 +3210,10 @@ const updateIssue = asyncHandler(async (req, res) => {
     Boolean(nextBugDeveloperId) &&
     (previousBugDeveloperId !== nextBugDeveloperId ||
       (previousBugStatus !== BUG_STATUS.ASSIGNED && nextStatus === BUG_STATUS.ASSIGNED));
+
+  if (shouldSendBugAssignmentEmail && nextBugDeveloperId && !nextDeveloperLeadUser) {
+    nextDeveloperLeadUser = await ensureAssigneeExists(nextBugDeveloperId, workspaceId);
+  }
 
   if (req.user.role === ROLE_TESTER && shouldSendBugAssignmentEmail) {
     logBugAssignmentEmailEvent("info", {

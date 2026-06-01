@@ -1393,6 +1393,10 @@ const DeveloperDashboardPage = () => {
       return;
     }
 
+    if (statusMutation.isPending && statusMutation.variables?.id === issue._id) {
+      return;
+    }
+
     statusMutation.mutate({
       id: issue._id,
       status,

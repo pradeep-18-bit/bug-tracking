@@ -75,14 +75,42 @@ const normalizeIssuePayload = (payload = {}) => {
     return payload;
   }
 
-  if (hasOwnField(payload, "assigneeId") || !hasOwnField(payload, "assignee")) {
-    return payload;
+  const normalizedPayload =
+    hasOwnField(payload, "assigneeId") || !hasOwnField(payload, "assignee")
+      ? { ...payload }
+      : {
+          ...payload,
+          assigneeId: payload.assignee,
+        };
+
+  Object.keys(normalizedPayload).forEach((key) => {
+    if (normalizedPayload[key] === null || typeof normalizedPayload[key] === "undefined") {
+      delete normalizedPayload[key];
+    }
+  });
+
+  return normalizedPayload;
+};
+
+const normalizeStatusOnlyPayload = (payload = {}) => {
+  const normalizedPayload = normalizeIssuePayload(payload);
+
+  if (!normalizedPayload || typeof normalizedPayload !== "object" || Array.isArray(normalizedPayload)) {
+    return normalizedPayload;
   }
 
-  return {
-    ...payload,
-    assigneeId: payload.assignee,
-  };
+  if (
+    hasOwnField(normalizedPayload, "status") &&
+    Object.keys(normalizedPayload).every((key) =>
+      ["status", "statusChangeComment", "comment", "reopenReason", "rejectionReason", "targetRelease", "futureRelease"].includes(key)
+    )
+  ) {
+    return Object.fromEntries(
+      Object.entries(normalizedPayload).filter(([, value]) => value !== "")
+    );
+  }
+
+  return normalizedPayload;
 };
 
 const logIssuePayload = (label, payload) => {
@@ -446,7 +474,7 @@ export const createIssue = async (payload) => {
 };
 
 export const updateIssue = async ({ id, payload }) => {
-  const normalizedPayload = normalizeIssuePayload(payload);
+  const normalizedPayload = normalizeStatusOnlyPayload(payload);
   logIssuePayload("Update issue", normalizedPayload);
   const response = await api.put(`/issues/${id}`, normalizedPayload);
   return response.data;
