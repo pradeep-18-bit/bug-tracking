@@ -206,6 +206,93 @@ const loadAccessibleProject = async (user, projectId) =>
     ...(await buildProjectAccessQuery(user)),
   });
 
+const getProjectTeamIds = async (projectId, project = null) => {
+  if (!projectId) {
+    return [];
+  }
+
+  const [projectTeamLinks, projectRecord] = await Promise.all([
+    ProjectTeam.find({
+      projectId,
+    })
+      .select("teamId")
+      .lean(),
+    project
+      ? Promise.resolve(typeof project.toObject === "function" ? project.toObject() : project)
+      : Project.findById(projectId)
+          .select("_id attachedTeams teamIds teams")
+          .lean(),
+  ]);
+
+  return mergeProjectTeamIds(projectRecord || { _id: projectId }, projectTeamLinks);
+};
+
+const getWorkspaceTeamIdsForUser = async (user) => {
+  const userTeamIds = await TeamMember.find({
+    userId: user?._id || user?.id,
+  }).distinct("teamId");
+
+  if (!userTeamIds.length) {
+    return [];
+  }
+
+  return Team.find({
+    _id: {
+      $in: userTeamIds,
+    },
+    workspaceId: normalizeWorkspaceId(user.workspaceId),
+  }).distinct("_id");
+};
+
+const getBugPickupProjectEligibility = async ({ user, projectId, project = null }) => {
+  const [userTeamIds, projectTeamIds] = await Promise.all([
+    getWorkspaceTeamIdsForUser(user),
+    getProjectTeamIds(projectId, project),
+  ]);
+  const userTeamIdSet = new Set(userTeamIds.map(String));
+  const matchingTeamIds = projectTeamIds
+    .map(String)
+    .filter((teamId) => userTeamIdSet.has(teamId));
+  const matchingTeams = matchingTeamIds.length
+    ? await Team.find({
+        _id: {
+          $in: matchingTeamIds,
+        },
+        workspaceId: normalizeWorkspaceId(user.workspaceId),
+      })
+        .select("_id name")
+        .lean()
+    : [];
+
+  return {
+    canPick: matchingTeamIds.length > 0,
+    reason: matchingTeamIds.length
+      ? ""
+      : "You can only pick bugs when one of your teams is attached to this project.",
+    userTeamIds: userTeamIds.map(String),
+    projectTeamIds: projectTeamIds.map(String),
+    matchingTeamIds,
+    matchingTeams: matchingTeams.map((team) => ({
+      _id: team._id,
+      name: team.name,
+    })),
+  };
+};
+
+const getBugPickupEligibilityByProject = async (user, projectIds = []) => {
+  const uniqueProjectIds = Array.from(
+    new Set(projectIds.map((projectId) => String(projectId || "")).filter(Boolean))
+  );
+  const entries = await Promise.all(
+    uniqueProjectIds.map(async (projectId) => [
+      projectId,
+      await getBugPickupProjectEligibility({ user, projectId }),
+    ])
+  );
+
+  return new Map(entries);
+};
+
 const ensureAssigneeExists = async (assigneeId, workspaceId) => {
   const assignee = await User.findOne({
     _id: assigneeId,
@@ -1660,6 +1747,10 @@ const getBugBucket = asyncHandler(async (req, res) => {
 
   const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
   const issueIds = issues.map((issue) => issue._id);
+  const pickupEligibilityByProject = await getBugPickupEligibilityByProject(
+    req.user,
+    issues.map((issue) => issue.projectId?._id || issue.projectId)
+  );
   const attachmentCounts = issueIds.length
     ? await IssueAttachment.aggregate([
         {
@@ -1686,6 +1777,18 @@ const getBugBucket = asyncHandler(async (req, res) => {
   res.status(200).json(
     serializeIssues(issues).map((issue) => ({
       ...issue,
+      pickupEligibility:
+        pickupEligibilityByProject.get(String(issue.projectId?._id || issue.projectId)) || {
+          canPick: false,
+          reason: "You can only pick bugs when one of your teams is attached to this project.",
+          userTeamIds: [],
+          projectTeamIds: [],
+          matchingTeamIds: [],
+          matchingTeams: [],
+        },
+      canPick: Boolean(
+        pickupEligibilityByProject.get(String(issue.projectId?._id || issue.projectId))?.canPick
+      ),
       attachmentsCount: countsByIssueId.get(String(issue._id)) || 0,
     }))
   );
@@ -1721,14 +1824,15 @@ const pickIssue = asyncHandler(async (req, res) => {
     throw new Error("You do not have access to this bug");
   }
 
-  const membership = await TeamMember.findOne({
-    teamId: existingIssue.teamId,
-    userId: req.user._id,
-  }).lean();
+  const pickupEligibility = await getBugPickupProjectEligibility({
+    user: req.user,
+    projectId: existingIssue.projectId,
+    project,
+  });
 
-  if (!membership && !isLeadRole(req.user?.role)) {
+  if (!pickupEligibility.canPick) {
     res.status(403);
-    throw new Error("You can only pick bugs for teams you belong to");
+    throw new Error(pickupEligibility.reason);
   }
 
   const previousStatus = getBugStatusForIssueStatus(existingIssue.status);

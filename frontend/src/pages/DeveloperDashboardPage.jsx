@@ -45,6 +45,7 @@ import {
   sortIssues,
 } from "@/lib/issues";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
+import { getProjectTeams, resolveTeamId, resolveUserId } from "@/lib/project-teams";
 import { useAuth } from "@/hooks/use-auth";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import EmptyState from "@/components/shared/EmptyState";
@@ -220,6 +221,20 @@ const getProjectName = (issue) => issue?.projectId?.name || "Unknown project";
 const getTeamName = (issue) => issue?.teamId?.name || "No team";
 
 const getProjectId = (project) => String(project?._id || project || "");
+
+const getProjectStatusClass = (status = "") => {
+  const normalizedStatus = String(status || "").toLowerCase();
+
+  if (normalizedStatus === "completed") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (normalizedStatus === "on hold") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  return "border-blue-200 bg-blue-50 text-blue-700";
+};
 
 const getSlaInfo = (issue) => {
   if (!issue?.dueAt) {
@@ -440,6 +455,84 @@ const ProjectPanel = ({ projects, issues, onOpenProject }) => {
         ) : (
           <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
             No assigned projects yet.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+const ProjectDetailsCard = ({ projects, user }) => {
+  const userId = resolveUserId(user);
+  const projectDetails = useMemo(
+    () =>
+      projects.flatMap((project) => {
+        const teams = getProjectTeams(project);
+        const matchingTeams = teams.filter((team) =>
+          (team?.members || []).some((member) => resolveUserId(member) === userId)
+        );
+        const displayTeams = matchingTeams.length ? matchingTeams : [];
+
+        return displayTeams.map((team) => {
+          const member =
+            (team?.members || []).find((item) => resolveUserId(item) === userId) || user;
+
+          return {
+            id: `${getProjectId(project)}-${resolveTeamId(team)}`,
+            projectName: project.name || "Untitled project",
+            teamName: team?.name || "Project team",
+            role: member?.role || user?.role || "Developer",
+            status: project.status || (project.isCompleted ? "Completed" : "Active"),
+          };
+        });
+      }),
+    [projects, user, userId]
+  );
+
+  return (
+    <Card className="border-white/70 bg-white/88 shadow-[0_18px_48px_-36px_rgba(15,23,42,0.36)] backdrop-blur-xl">
+      <CardHeader className="border-b border-slate-200/80 pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FolderKanban className="h-4 w-4 text-cyan-600" />
+          Project Details
+        </CardTitle>
+        <CardDescription>Current project-team associations for your developer work.</CardDescription>
+      </CardHeader>
+      <CardContent className="p-3">
+        {projectDetails.length ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {projectDetails.map((detail) => (
+              <article
+                key={detail.id}
+                className="rounded-[18px] border border-slate-200/80 bg-white/82 p-3 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-950">
+                      {detail.projectName}
+                    </p>
+                    <p className="mt-1 truncate text-xs font-medium text-slate-500">
+                      {detail.teamName}
+                    </p>
+                  </div>
+                  <Pill className={getProjectStatusClass(detail.status)}>
+                    {detail.status}
+                  </Pill>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    Role
+                  </span>
+                  <span className="truncate text-xs font-semibold text-slate-700">
+                    {detail.role}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+            No project team details are attached to your profile yet.
           </p>
         )}
       </CardContent>
@@ -708,6 +801,9 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, pickingId
         <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
           {issues.map((issue) => {
             const details = resolveBugDetails(issue);
+            const canPick = issue.canPick !== false && issue.pickupEligibility?.canPick !== false;
+            const pickDisabled = pickingId === issue._id || !canPick;
+            const pickLabel = pickingId === issue._id ? "Picking" : canPick ? "Pick Bug" : "Not Eligible";
 
             return (
               <article key={issue._id} className="rounded-[18px] border border-slate-200/80 bg-white/82 p-4 shadow-sm transition hover:border-cyan-200 hover:bg-white">
@@ -752,8 +848,14 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, pickingId
                 </dl>
 
                 <div className="mt-4 flex gap-2">
-                  <Button className="h-9 flex-1 rounded-xl" type="button" disabled={pickingId === issue._id} onClick={() => onPickIssue(issue)}>
-                    {pickingId === issue._id ? "Picking" : "Pick Bug"}
+                  <Button
+                    className="h-9 flex-1 rounded-xl"
+                    type="button"
+                    disabled={pickDisabled}
+                    title={!canPick ? issue.pickupEligibility?.reason : undefined}
+                    onClick={() => onPickIssue(issue)}
+                  >
+                    {pickLabel}
                   </Button>
                   <Button className="h-9 rounded-xl" type="button" variant="outline" onClick={() => onOpenIssue(issue)}>
                     View
@@ -1445,6 +1547,8 @@ const DeveloperDashboardPage = () => {
               </div>
             </CardHeader>
             <CardContent className="space-y-4 p-4 sm:p-5">
+              <ProjectDetailsCard projects={projects} user={user} />
+
               <div className="grid gap-3 lg:grid-cols-[minmax(240px,1.3fr)_repeat(4,minmax(140px,0.8fr))]">
                 <label className="space-y-1.5">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">

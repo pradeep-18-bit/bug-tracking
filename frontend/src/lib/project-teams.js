@@ -5,7 +5,7 @@ export const resolveProjectId = (project) =>
 
 export const resolveTeamId = (team) => String(team?._id || team || "");
 
-export const resolveUserId = (user) => String(user?._id || user || "");
+export const resolveUserId = (user) => String(user?._id || user?.id || user || "");
 
 export const sortByName = (items = []) =>
   [...items].sort((left, right) =>
