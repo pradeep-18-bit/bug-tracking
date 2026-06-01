@@ -3,13 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Eye,
   FolderKanban,
-  History,
   LoaderCircle,
   RotateCcw,
   Search,
-  TimerReset,
   Trash2,
   UserCircle2,
 } from "lucide-react";
@@ -35,7 +34,7 @@ import {
   getProjectTeams,
   resolveUserId,
 } from "@/lib/project-teams";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatDateTime } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import IssueComposer from "@/components/issues/IssueComposer";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
@@ -135,9 +134,6 @@ const getDeveloperName = (issue) => {
 const getIssueSeverity = (issue) =>
   resolveBugDetails(issue)?.severity || "Not set";
 
-const getIssueModule = (issue) =>
-  resolveBugDetails(issue)?.moduleName || "Unmapped module";
-
 const getBugReviewLabel = (issue) => {
   const status = normalizeBugStatusForIssue(issue);
 
@@ -154,13 +150,6 @@ const getBugReviewLabel = (issue) => {
 
 const getBugProgress = (issue) =>
   BUG_PROGRESS[normalizeBugStatusForIssue(issue)] ?? 10;
-
-const severityClassName = {
-  Critical: "border-rose-200 bg-rose-50 text-rose-700",
-  High: "border-orange-200 bg-orange-50 text-orange-700",
-  Medium: "border-amber-200 bg-amber-50 text-amber-700",
-  Low: "border-emerald-200 bg-emerald-50 text-emerald-700",
-};
 
 const ReviewMetric = ({ label, value, children }) => (
   <div className="min-w-0 rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-2">
@@ -356,87 +345,6 @@ const BugReviewCard = ({
   );
 };
 
-const CompactBugRow = ({ issue, projects, onOpen }) => {
-  const createdDate = issue?.createdAt ? formatDate(issue.createdAt) : "Unknown";
-  const severity = getIssueSeverity(issue);
-
-  return (
-    <button
-      className="grid w-full min-w-[920px] grid-cols-[110px_minmax(220px,1.35fr)_150px_110px_110px_120px_150px_118px] items-center gap-3 border-b border-slate-100 px-4 py-2.5 text-left text-sm transition hover:bg-blue-50/70 focus:bg-blue-50 focus:outline-none"
-      type="button"
-      onClick={() => onOpen(issue)}
-    >
-      <span className="font-mono text-xs font-semibold text-slate-500">
-        {getIssueDisplayKey(issue)}
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate font-semibold text-slate-950">
-          {issue.title || "Untitled bug"}
-        </span>
-        <span className="block truncate text-xs text-slate-500">
-          {getProjectName(issue, projects)}
-        </span>
-      </span>
-      <span className="truncate text-slate-600">{getIssueModule(issue)}</span>
-      <span
-        className={`inline-flex w-fit max-w-full items-center rounded-full border px-2 py-1 text-xs font-semibold ${
-          severityClassName[severity] || "border-slate-200 bg-slate-50 text-slate-600"
-        }`}
-      >
-        <span className="truncate">{severity}</span>
-      </span>
-      <Badge className="w-fit" variant={getIssuePriorityVariant(issue.priority)}>
-        {issue.priority || "Medium"}
-      </Badge>
-      <Badge className="w-fit" variant={getIssueStatusVariant(issue.status)}>
-        {getIssueStatusLabel(issue.status)}
-      </Badge>
-      <span className="truncate text-slate-600">{getDeveloperName(issue)}</span>
-      <span className="whitespace-nowrap text-xs font-medium text-slate-500">
-        {createdDate}
-      </span>
-    </button>
-  );
-};
-
-const CompactBugList = ({ issues, projects, onOpen, onViewAll }) => (
-  <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">
-    <div className="overflow-x-auto">
-      <div className="grid min-w-[920px] grid-cols-[110px_minmax(220px,1.35fr)_150px_110px_110px_120px_150px_118px] gap-3 border-b border-slate-200 bg-slate-50/90 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-        <span>Bug ID</span>
-        <span>Title</span>
-        <span>Module</span>
-        <span>Severity</span>
-        <span>Priority</span>
-        <span>Status</span>
-        <span>Developer</span>
-        <span>Created</span>
-      </div>
-      {issues.map((issue) => (
-        <CompactBugRow
-          key={issue._id}
-          issue={issue}
-          projects={projects}
-          onOpen={onOpen}
-        />
-      ))}
-    </div>
-    <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/60 px-4 py-3">
-      <p className="text-xs font-medium text-slate-500">
-        Showing latest {issues.length} reported bugs.
-      </p>
-      <button
-        type="button"
-        onClick={onViewAll}
-        className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-semibold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
-      >
-        <History className="h-4 w-4" />
-        View All Reported Bugs
-      </button>
-    </div>
-  </div>
-);
-
 const TesterBugsPage = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -472,16 +380,6 @@ const TesterBugsPage = () => {
     queryKey: ["issues", "tester-bugs", testerId],
     queryFn: () => fetchIssues({ type: "Bug" }),
     enabled: Boolean(testerId),
-  });
-
-  const {
-    data: overviewIssues = [],
-    isLoading: isOverviewLoading,
-    error: overviewError,
-  } = useQuery({
-    queryKey: ["issues", "tester-bug-overview", testerId],
-    queryFn: () => fetchIssues({ type: "Bug" }),
-    enabled: Boolean(testerId) && isOverviewOpen,
   });
 
   useEffect(() => {
@@ -526,43 +424,10 @@ const TesterBugsPage = () => {
     [issues, testerId]
   );
 
-  const latestReportedIssues = useMemo(
-    () => {
-      const search = overviewSearch.trim().toLowerCase();
-
-      return reportedIssues
-        .filter((issue) => {
-          if (
-            overviewStatus !== "all" &&
-            normalizeBugStatusForIssue(issue) !== overviewStatus
-          ) {
-            return false;
-          }
-
-          if (!search) {
-            return true;
-          }
-
-          return [
-            getIssueDisplayKey(issue),
-            issue.title,
-            getProjectName(issue, projects),
-            getIssueSeverity(issue),
-            getDeveloperName(issue),
-            getBugReviewLabel(issue),
-          ]
-            .filter(Boolean)
-            .some((value) => String(value).toLowerCase().includes(search));
-        })
-        .slice(0, 7);
-    },
-    [overviewSearch, overviewStatus, projects, reportedIssues]
-  );
-
   const filteredOverviewIssues = useMemo(() => {
     const search = overviewSearch.trim().toLowerCase();
 
-    return overviewIssues
+    return reportedIssues
       .filter((issue) => getReporterId(issue) === testerId || getTesterOwnerId(issue) === testerId)
       .filter((issue) => {
         const status = normalizeBugStatusForIssue(issue);
@@ -591,7 +456,7 @@ const TesterBugsPage = () => {
           new Date(b.updatedAt || b.createdAt || 0).getTime() -
           new Date(a.updatedAt || a.createdAt || 0).getTime()
       );
-  }, [overviewIssues, overviewSearch, overviewStatus, projects, testerId]);
+  }, [overviewSearch, overviewStatus, projects, reportedIssues, testerId]);
 
   const reviewStats = useMemo(
     () => ({
@@ -733,9 +598,20 @@ const TesterBugsPage = () => {
                   Keep the workspace compact, then open QA review details when you need them.
                 </CardDescription>
               </div>
-              <Button type="button" onClick={() => setIsOverviewOpen(true)}>
+              <Button
+                type="button"
+                disabled={!reportedIssues.length}
+                onClick={() => setIsOverviewOpen((current) => !current)}
+              >
                 <Eye className="h-4 w-4" />
-                View Bug Overview ({reportedIssues.length})
+                {isOverviewOpen
+                  ? "Hide Bug Overview"
+                  : `View Bug Overview (${reportedIssues.length})`}
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform duration-300 ${
+                    isOverviewOpen ? "rotate-180" : ""
+                  }`}
+                />
               </Button>
             </div>
           </CardHeader>
@@ -774,20 +650,57 @@ const TesterBugsPage = () => {
                 </div>
               ))}
             </div>
-            {latestReportedIssues.length ? (
-              <CompactBugList
-                issues={latestReportedIssues}
-                projects={projects}
-                onOpen={setSelectedIssue}
-                onViewAll={() => setIsOverviewOpen(true)}
-              />
-            ) : (
-              <p className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
-                Your reported bugs will appear here after the first submission.
+            {!reportedIssues.length ? (
+              <p className="text-center text-xs font-medium text-slate-400">
+                No reported bugs yet
               </p>
-            )}
+            ) : null}
           </CardContent>
         </Card>
+      </section>
+
+      <section
+        className={`grid min-w-0 transition-[grid-template-rows,opacity] duration-300 ease-out ${
+          isOverviewOpen
+            ? "grid-rows-[1fr] opacity-100"
+            : "grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <Card className="overflow-hidden rounded-2xl border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
+            <CardHeader className="border-b border-slate-200/80 bg-white/94 px-4 py-4 sm:px-5">
+              <CardTitle>Bug Review Progress</CardTitle>
+              <CardDescription>
+                Verify fixes, reopen issues, approve resolutions, or delete bugs you own.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="max-h-[680px] overflow-y-auto bg-slate-50/80 p-3 sm:p-5">
+              {isOverviewOpen ? (
+                filteredOverviewIssues.length ? (
+                  <div className="grid gap-3">
+                    {filteredOverviewIssues.map((issue) => (
+                      <BugReviewCard
+                        key={issue._id}
+                        issue={issue}
+                        isUpdating={updateIssueMutation.isPending && updateIssueMutation.variables?.id === issue._id}
+                        isDeleting={deleteBugMutation.isPending && deleteBugMutation.variables === issue._id}
+                        onApproveFix={handleApproveFix}
+                        onDelete={handleDeleteBug}
+                        onOpen={setSelectedIssue}
+                        onReopen={handleReopenBug}
+                        projects={projects}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="py-4 text-center text-xs font-medium text-slate-400">
+                    No reported bugs yet
+                  </p>
+                )
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
       </section>
 
       <section className="min-w-0">
@@ -859,70 +772,6 @@ const TesterBugsPage = () => {
         canEditAssignee={false}
         canDeleteIssue={false}
       />
-      <Dialog open={isOverviewOpen} onOpenChange={setIsOverviewOpen}>
-        <DialogContent className="bottom-0 left-0 right-0 top-16 grid h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] w-full max-w-none grid-rows-[auto_minmax(0,1fr)] translate-x-0 translate-y-0 gap-0 rounded-none border-y-0 border-r-0 bg-white/96 p-0 shadow-[0_30px_90px_-46px_rgba(15,23,42,0.58)] backdrop-blur-xl sm:left-auto sm:right-3 sm:top-[72px] sm:bottom-3 sm:h-[calc(100vh-84px)] sm:max-h-[calc(100vh-84px)] sm:w-[94vw] sm:max-w-[760px] sm:rounded-2xl sm:border">
-          <DialogHeader className="sticky top-0 z-10 border-b border-slate-200 bg-white/94 px-4 py-4 pr-14 backdrop-blur sm:px-5">
-            <DialogTitle>Bug Review Progress</DialogTitle>
-            <DialogDescription>
-              Verify fixes, reopen issues, approve resolutions, or delete bugs you own.
-            </DialogDescription>
-            <div className="grid gap-2 pt-2 sm:grid-cols-[1fr_180px]">
-              <label className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20"
-                  placeholder="Search overview"
-                  value={overviewSearch}
-                  onChange={(event) => setOverviewSearch(event.target.value)}
-                />
-              </label>
-              <select
-                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20"
-                value={overviewStatus}
-                onChange={(event) => setOverviewStatus(event.target.value)}
-              >
-                <option value="all">All statuses</option>
-                {Object.values(ISSUE_STATUS).map((status) => (
-                  <option key={status} value={status}>{getIssueStatusLabel(status)}</option>
-                ))}
-              </select>
-            </div>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/80 p-4 sm:p-5">
-            {isOverviewLoading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <Skeleton key={`overview-skeleton-${index}`} className="h-64 rounded-2xl" />
-                ))}
-              </div>
-            ) : overviewError ? (
-              <p className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-                {overviewError.response?.data?.message || "Unable to load bug overview."}
-              </p>
-            ) : filteredOverviewIssues.length ? (
-              <div className="grid gap-4">
-                {filteredOverviewIssues.map((issue) => (
-                  <BugReviewCard
-                    key={issue._id}
-                    issue={issue}
-                    isUpdating={updateIssueMutation.isPending && updateIssueMutation.variables?.id === issue._id}
-                    isDeleting={deleteBugMutation.isPending && deleteBugMutation.variables === issue._id}
-                    onApproveFix={handleApproveFix}
-                    onDelete={handleDeleteBug}
-                    onOpen={setSelectedIssue}
-                    onReopen={handleReopenBug}
-                    projects={projects}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
-                No reported bugs match these filters.
-              </p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
       <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
