@@ -1684,6 +1684,26 @@ const getIssueStats = asyncHandler(async (req, res) => {
   res.status(200).json(stats);
 });
 
+const getMyReportedBugs = asyncHandler(async (req, res) => {
+  const issues = await populateIssueQuery(
+    Issue.find({
+      reporter: req.user.id,
+      type: ISSUE_TYPES.BUG,
+    })
+      .sort({ updatedAt: -1 })
+      .limit(5)
+  );
+
+  res.status(200).json(
+    serializeIssues(issues).map((issue) => ({
+      ...issue,
+      bugId: issue.displayBugId || String(issue._id),
+      project: issue.projectId || null,
+      assignedTo: issue.bugDetails?.developerLead || issue.assignee || null,
+    }))
+  );
+});
+
 const getMyIssues = asyncHandler(async (req, res) => {
   if (isAdmin(req.user)) {
     res.status(403);
@@ -3543,6 +3563,7 @@ const deleteIssue = asyncHandler(async (req, res) => {
 module.exports = {
   getIssues,
   getIssueStats,
+  getMyReportedBugs,
   getMyIssues,
   getBugBucket,
   pickIssue,

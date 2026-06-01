@@ -2,6 +2,7 @@ const express = require("express");
 const {
   getIssues,
   getIssueStats,
+  getMyReportedBugs,
   getMyIssues,
   getBugBucket,
   getRecentIssueActivity,
@@ -28,6 +29,7 @@ const { protect } = require("../middleware/authMiddleware");
 const router = express.Router();
 
 router.get("/my", protect, getMyIssues);
+router.get("/reported/me", protect, getMyReportedBugs);
 router.get("/bucket", protect, getBugBucket);
 router.get("/activity", protect, getRecentIssueActivity);
 router.get("/stats", protect, getIssueStats);

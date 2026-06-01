@@ -20,7 +20,12 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
-import { fetchIssues, fetchProjects, fetchRecentTasks } from "@/lib/api";
+import {
+  fetchIssues,
+  fetchMyReportedBugs,
+  fetchProjects,
+  fetchRecentTasks,
+} from "@/lib/api";
 import {
   ISSUE_STATUS,
   getIssueDisplayKey,
@@ -453,6 +458,18 @@ const TesterDashboardPage = () => {
     enabled: Boolean(testerId && isTester),
   });
 
+  const {
+    data: latestReportedBugs = [],
+    isLoading: isReportedBugsLoading,
+    error: reportedBugsError,
+    refetch: refetchReportedBugs,
+    isFetching: isReportedBugsFetching,
+  } = useQuery({
+    queryKey: ["issues", "reported", "me", testerId],
+    queryFn: fetchMyReportedBugs,
+    enabled: Boolean(testerId && isTester),
+  });
+
   const assignedProjects = useMemo(
     () =>
       projects
@@ -479,15 +496,13 @@ const TesterDashboardPage = () => {
 
   const myReportedBugs = useMemo(
     () =>
-      [...visibleIssues]
-        .sort((left, right) => {
-          const leftDate = new Date(getBugUpdatedAt(left) || 0).getTime();
-          const rightDate = new Date(getBugUpdatedAt(right) || 0).getTime();
-
-          return rightDate - leftDate;
-        })
-        .slice(0, 8),
-    [visibleIssues]
+      filterBugs({
+        issues: latestReportedBugs,
+        projects: assignedProjects,
+        projectId: projectFilter,
+        searchTerm,
+      }),
+    [assignedProjects, latestReportedBugs, projectFilter, searchTerm]
   );
 
   const dashboardMetrics = useMemo(() => {
@@ -519,7 +534,12 @@ const TesterDashboardPage = () => {
     myReportedBugs.every((issue) => selectedBugIds.includes(issue._id));
 
   const handleRefresh = async () => {
-    await Promise.all([refetchProjects(), refetchIssues(), refetchRecentTasks()]);
+    await Promise.all([
+      refetchProjects(),
+      refetchIssues(),
+      refetchReportedBugs(),
+      refetchRecentTasks(),
+    ]);
     setLastRefreshedAt(new Date());
   };
 
@@ -543,7 +563,11 @@ const TesterDashboardPage = () => {
     );
   };
 
-  const error = projectsError || issuesError;
+  const handleOpenReportedBug = (issueId) => {
+    navigate(`/bugs?bug=${encodeURIComponent(issueId)}`);
+  };
+
+  const error = projectsError || issuesError || reportedBugsError;
   const isLoading = isProjectsLoading || isIssuesLoading;
 
   if (error) {
@@ -705,21 +729,37 @@ const TesterDashboardPage = () => {
 
       <Card className="overflow-hidden border-white/70 bg-white/90 shadow-[0_20px_56px_-36px_rgba(15,23,42,0.38)] backdrop-blur-xl">
         <CardContent className="p-0">
-          <div className="border-b border-slate-200/80 px-4 py-4 sm:px-5">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-200/80 px-4 py-4 sm:px-5">
             <h2 className="text-base font-semibold tracking-tight text-slate-950">
               My Reported Bugs
             </h2>
+            <Button type="button" size="sm" variant="outline" onClick={() => navigate("/bugs")}>
+              View All Bugs
+              <ChevronRight className="h-4 w-4" />
+            </Button>
           </div>
 
           <div className="space-y-3 p-4 md:hidden">
-            {myReportedBugs.length ? (
+            {isReportedBugsLoading ? (
+              Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={`reported-mobile-skeleton-${index}`} className="h-44 rounded-[20px]" />
+              ))
+            ) : myReportedBugs.length ? (
               myReportedBugs.map((issue) => {
                 const updatedAt = getBugUpdatedAt(issue);
 
                 return (
                   <article
-                    className="rounded-[20px] border border-slate-200/80 bg-white/78 p-4 shadow-sm"
+                    className="cursor-pointer rounded-[20px] border border-slate-200/80 bg-white/78 p-4 shadow-sm transition hover:border-blue-200 hover:bg-blue-50/42 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                     key={issue._id}
+                    onClick={() => handleOpenReportedBug(issue._id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        handleOpenReportedBug(issue._id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                   >
                     <div className="flex items-start gap-3">
                       <input
@@ -729,6 +769,7 @@ const TesterDashboardPage = () => {
                         onChange={(event) =>
                           handleToggleRow(issue._id, event.target.checked)
                         }
+                        onClick={(event) => event.stopPropagation()}
                         type="checkbox"
                       />
                       <div className="min-w-0 flex-1">
@@ -785,7 +826,7 @@ const TesterDashboardPage = () => {
               })
             ) : (
               <p className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500">
-                No reported bugs match the current dashboard filters.
+                No reported bugs yet
               </p>
             )}
           </div>
@@ -813,14 +854,23 @@ const TesterDashboardPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80">
-                {myReportedBugs.length ? (
+                {isReportedBugsLoading ? (
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <tr key={`reported-row-skeleton-${index}`}>
+                      <td className="px-5 py-4" colSpan={8}>
+                        <Skeleton className="h-8 w-full rounded-xl" />
+                      </td>
+                    </tr>
+                  ))
+                ) : myReportedBugs.length ? (
                   myReportedBugs.map((issue) => {
                     const updatedAt = getBugUpdatedAt(issue);
 
                     return (
                       <tr
-                        className="bg-white/64 transition hover:bg-blue-50/42"
+                        className="cursor-pointer bg-white/64 transition hover:bg-blue-50/60"
                         key={issue._id}
+                        onClick={() => handleOpenReportedBug(issue._id)}
                       >
                         <td className="px-5 py-4">
                           <input
@@ -830,6 +880,7 @@ const TesterDashboardPage = () => {
                             onChange={(event) =>
                               handleToggleRow(issue._id, event.target.checked)
                             }
+                            onClick={(event) => event.stopPropagation()}
                             type="checkbox"
                           />
                         </td>
@@ -873,7 +924,7 @@ const TesterDashboardPage = () => {
                       className="px-5 py-12 text-center text-sm text-slate-500"
                       colSpan={8}
                     >
-                      No reported bugs match the current dashboard filters.
+                      No reported bugs yet
                     </td>
                   </tr>
                 )}
@@ -906,13 +957,13 @@ const TesterDashboardPage = () => {
           </p>
           <DashboardIconButton
             aria-label="Refresh dashboard"
-            className={isIssuesFetching || isRecentTasksFetching ? "animate-pulse" : ""}
+            className={isIssuesFetching || isReportedBugsFetching || isRecentTasksFetching ? "animate-pulse" : ""}
             onClick={handleRefresh}
           >
             <RefreshCcw
               className={cn(
                 "h-4 w-4",
-                (isIssuesFetching || isRecentTasksFetching) && "animate-spin"
+                (isIssuesFetching || isReportedBugsFetching || isRecentTasksFetching) && "animate-spin"
               )}
             />
           </DashboardIconButton>

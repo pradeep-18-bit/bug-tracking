@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -166,6 +167,7 @@ const ReviewMetric = ({ label, value, children }) => (
 
 const BugReviewCard = ({
   issue,
+  isFocused = false,
   isUpdating,
   isDeleting = false,
   onApproveFix,
@@ -195,7 +197,14 @@ const BugReviewCard = ({
 
   return (
     <>
-      <article className="rounded-[24px] border border-white/70 bg-white/88 p-4 shadow-[0_18px_44px_-32px_rgba(15,23,42,0.38)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-white hover:shadow-[0_24px_62px_-36px_rgba(15,23,42,0.44)]">
+      <article
+        id={`bug-overview-${issue._id}`}
+        className={`scroll-mt-20 rounded-[24px] border bg-white/88 p-4 backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-white hover:shadow-[0_24px_62px_-36px_rgba(15,23,42,0.44)] ${
+          isFocused
+            ? "border-blue-400 shadow-[0_20px_58px_-26px_rgba(37,99,235,0.56)] ring-2 ring-blue-500/30"
+            : "border-white/70 shadow-[0_18px_44px_-32px_rgba(15,23,42,0.38)]"
+        }`}
+      >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
@@ -348,12 +357,14 @@ const BugReviewCard = ({
 const TesterBugsPage = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [selectedIssue, setSelectedIssue] = useState(null);
   const [toast, setToast] = useState(null);
   const [isOverviewOpen, setIsOverviewOpen] = useState(false);
   const [overviewSearch, setOverviewSearch] = useState("");
   const [overviewStatus, setOverviewStatus] = useState("all");
   const testerId = String(user?._id || user?.id || "");
+  const focusedBugId = searchParams.get("bug") || "";
 
   const showToast = (type, message) => {
     setToast({
@@ -403,6 +414,16 @@ const TesterBugsPage = () => {
 
     return () => window.clearTimeout(timeoutId);
   }, [toast?.id]);
+
+  useEffect(() => {
+    if (!focusedBugId || !issues.some((issue) => String(issue._id) === focusedBugId)) {
+      return;
+    }
+
+    setOverviewSearch("");
+    setOverviewStatus("all");
+    setIsOverviewOpen(true);
+  }, [focusedBugId, issues]);
 
   const assignedProjects = useMemo(
     () =>
@@ -457,6 +478,20 @@ const TesterBugsPage = () => {
           new Date(a.updatedAt || a.createdAt || 0).getTime()
       );
   }, [overviewSearch, overviewStatus, projects, reportedIssues, testerId]);
+
+  useEffect(() => {
+    if (!focusedBugId || !isOverviewOpen) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      document
+        .getElementById(`bug-overview-${focusedBugId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 350);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [filteredOverviewIssues, focusedBugId, isOverviewOpen]);
 
   const reviewStats = useMemo(
     () => ({
@@ -682,6 +717,7 @@ const TesterBugsPage = () => {
                       <BugReviewCard
                         key={issue._id}
                         issue={issue}
+                        isFocused={String(issue._id) === focusedBugId}
                         isUpdating={updateIssueMutation.isPending && updateIssueMutation.variables?.id === issue._id}
                         isDeleting={deleteBugMutation.isPending && deleteBugMutation.variables === issue._id}
                         onApproveFix={handleApproveFix}

@@ -434,6 +434,11 @@ export const fetchMyIssues = async (filters = {}) => {
   return response.data;
 };
 
+export const fetchMyReportedBugs = async () => {
+  const response = await api.get("/issues/reported/me");
+  return response.data;
+};
+
 export const fetchBugBucket = async (filters = {}) => {
   const params = buildParams(normalizeIssueFilters(filters));
   const response = await api.get("/issues/bucket", {
