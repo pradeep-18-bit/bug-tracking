@@ -1,14 +1,17 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Activity,
   Bug,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
   Clock3,
   FolderKanban,
+  PauseCircle,
   Plus,
   RefreshCcw,
+  RotateCcw,
   Search,
   TimerReset,
 } from "lucide-react";
@@ -63,36 +66,48 @@ const STATUS_CHART_META = [
     label: "Open",
     color: "#f59e0b",
     gradient: "from-amber-400 to-orange-500",
+    Icon: Clock3,
+    track: "bg-amber-100",
   },
   {
     key: "inProgress",
     label: "In Progress",
     color: "#6366f1",
     gradient: "from-indigo-500 to-violet-500",
+    Icon: TimerReset,
+    track: "bg-indigo-100",
   },
   {
     key: "resolved",
     label: "Resolved",
     color: "#10b981",
     gradient: "from-emerald-500 to-teal-400",
+    Icon: CheckCircle2,
+    track: "bg-emerald-100",
   },
   {
     key: "reopened",
     label: "Reopened",
     color: "#ec4899",
     gradient: "from-pink-500 to-rose-500",
+    Icon: RotateCcw,
+    track: "bg-pink-100",
   },
   {
     key: "closed",
     label: "Closed",
     color: "#64748b",
     gradient: "from-slate-500 to-slate-700",
+    Icon: CheckCircle2,
+    track: "bg-slate-200",
   },
   {
     key: "deferred",
     label: "Deferred",
     color: "#14b8a6",
     gradient: "from-cyan-500 to-teal-500",
+    Icon: PauseCircle,
+    track: "bg-cyan-100",
   },
 ];
 
@@ -288,8 +303,9 @@ const AttachedProjectsTile = ({ projects = [] }) => (
 );
 
 const SummaryCard = ({ Icon, className, label, value }) => (
-  <Card className="overflow-hidden border-white/70 bg-white/86 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.34)] backdrop-blur-xl">
-    <CardContent className="p-4">
+  <Card className="group overflow-hidden border-white/70 bg-white/86 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.34)] backdrop-blur-xl transition duration-300 hover:-translate-y-1 hover:border-blue-100 hover:shadow-[0_24px_54px_-30px_rgba(37,99,235,0.32)]">
+    <CardContent className="relative overflow-hidden p-4">
+      <div className={cn("absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br opacity-10 blur-2xl transition group-hover:opacity-20", className)} />
       <div className="flex items-center justify-between gap-3">
         <div
           className={cn(
@@ -303,13 +319,16 @@ const SummaryCard = ({ Icon, className, label, value }) => (
           {value}
         </p>
       </div>
-      <p className="mt-4 text-sm font-semibold text-slate-600">{label}</p>
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-600">{label}</p>
+        <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Live</span>
+      </div>
     </CardContent>
   </Card>
 );
 
 const ChartCard = ({ children, title }) => (
-  <Card className="min-w-0 overflow-hidden border-white/70 bg-white/88 shadow-[0_20px_56px_-36px_rgba(15,23,42,0.38)] backdrop-blur-xl">
+  <Card className="min-w-0 overflow-hidden rounded-2xl border-white/70 bg-white/88 shadow-[0_20px_56px_-36px_rgba(15,23,42,0.38)] backdrop-blur-xl">
     <CardContent className="p-5">
       <h2 className="text-base font-semibold tracking-tight text-slate-950">
         {title}
@@ -320,8 +339,9 @@ const ChartCard = ({ children, title }) => (
 );
 
 const EmptyChartState = ({ children }) => (
-  <div className="flex h-[240px] items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-slate-50/70 px-6 text-center text-sm text-slate-500">
-    {children}
+  <div className="flex min-h-[156px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-6 py-6 text-center text-sm text-slate-500">
+    <Activity className="mb-3 h-8 w-8 text-slate-300" />
+    <span>{children}</span>
   </div>
 );
 
@@ -339,7 +359,7 @@ const RecentTasksPanel = ({
 }) => (
   <ChartCard title="Recent Tasks">
     {isLoading ? (
-      <div className="space-y-3">
+      <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
         {Array.from({ length: 5 }).map((_, index) => (
           <div
             className="rounded-[20px] border border-slate-200/80 bg-white/70 p-4"
@@ -368,11 +388,12 @@ const RecentTasksPanel = ({
 
           return (
             <button
-              className="group w-full rounded-[20px] border border-slate-200/80 bg-white/74 p-4 text-left shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/46 hover:shadow-[0_18px_44px_-32px_rgba(37,99,235,0.42)] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              className="group relative w-full rounded-2xl border border-slate-200/80 bg-white/74 p-3 pl-5 text-left shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/46 hover:shadow-[0_18px_44px_-32px_rgba(37,99,235,0.42)] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               key={task._id}
               onClick={() => onOpenTask(task._id)}
               type="button"
             >
+              <span className="absolute bottom-3 left-2 top-3 w-1 rounded-full bg-gradient-to-b from-blue-500 to-cyan-400" />
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -384,7 +405,7 @@ const RecentTasksPanel = ({
                     </TableBadge>
                   </div>
 
-                  <h3 className="mt-3 line-clamp-2 text-sm font-semibold leading-5 text-slate-950 transition group-hover:text-blue-700">
+                  <h3 className="mt-2 line-clamp-1 text-sm font-semibold leading-5 text-slate-950 transition group-hover:text-blue-700">
                     {task.title || "Untitled task"}
                   </h3>
                 </div>
@@ -394,7 +415,7 @@ const RecentTasksPanel = ({
                 </span>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-medium text-slate-500">
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-medium text-slate-500">
                 <span className="min-w-0 max-w-full truncate text-slate-700">
                   {getProjectName(task)}
                 </span>
@@ -409,7 +430,7 @@ const RecentTasksPanel = ({
         })}
       </div>
     ) : (
-      <EmptyChartState>No recent tasks available</EmptyChartState>
+      <EmptyChartState>No recent activity yet</EmptyChartState>
     )}
   </ChartCard>
 );
@@ -634,7 +655,7 @@ const TesterDashboardPage = () => {
         <AttachedProjectsTile projects={assignedProjects} />
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <section className="flex snap-x gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:pb-0 xl:grid-cols-5 [&>*]:min-w-[220px] [&>*]:snap-start md:[&>*]:min-w-0">
         {SUMMARY_CARDS.map((item) => (
           <SummaryCard
             key={item.key}
@@ -687,31 +708,42 @@ const TesterDashboardPage = () => {
                 </div>
               </div>
 
-              <div className="grid gap-2.5">
-                {statusChartData.map((item) => (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {statusChartData.map((item) => {
+                  const StatusIcon = item.Icon;
+
+                  return (
                   <div
-                    className="flex items-center justify-between gap-3 rounded-[18px] border border-slate-200/80 bg-slate-50/80 px-3.5 py-3 shadow-sm"
+                    className="group rounded-2xl border border-slate-200/80 bg-white/76 p-3 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md"
                     key={item.key}
                   >
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <span
-                        className="h-3 w-3 shrink-0 rounded-full"
-                        style={{ backgroundColor: item.color }}
-                      />
-                      <span className="truncate text-sm font-semibold text-slate-700">
-                        {item.label}
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-baseline gap-2">
-                      <span className="text-sm font-semibold text-slate-950">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white", item.gradient)}>
+                          <StatusIcon className="h-4 w-4" />
+                        </span>
+                        <span className="truncate text-xs font-semibold text-slate-700">
+                          {item.label}
+                        </span>
+                      </div>
+                      <span className="text-lg font-semibold leading-none text-slate-950">
                         {item.value}
                       </span>
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <div className={cn("h-1.5 flex-1 overflow-hidden rounded-full", item.track)}>
+                      <span
+                        className={cn("block h-full rounded-full bg-gradient-to-r transition-all duration-700", item.gradient)}
+                        style={{ width: `${item.percentage}%` }}
+                      />
+                      </div>
+                      <span className="w-9 text-right text-[10px] font-bold text-slate-400">
                         {item.percentage}%
                       </span>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : (

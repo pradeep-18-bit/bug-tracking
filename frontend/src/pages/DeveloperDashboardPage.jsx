@@ -13,12 +13,20 @@ import {
   Flame,
   FolderKanban,
   ListTodo,
+  PauseCircle,
   Plus,
   RefreshCcw,
   Search,
   TimerReset,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import {
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+} from "recharts";
 import {
   fetchIssueActivity,
   fetchBugBucket,
@@ -157,6 +165,63 @@ const taskStatusOptions = [
   { value: ISSUE_STATUS.REVIEW, label: "Review" },
   { value: ISSUE_STATUS.QA, label: "Testing" },
   { value: ISSUE_STATUS.DONE, label: "Done" },
+];
+
+const BUG_STATUS_ANALYTICS = [
+  {
+    key: "open",
+    label: "Open",
+    statuses: [ISSUE_STATUS.NEW, ISSUE_STATUS.TRIAGED, ISSUE_STATUS.OPEN],
+    color: "#f59e0b",
+    gradient: "from-amber-400 to-orange-500",
+    track: "bg-amber-100",
+    Icon: AlertTriangle,
+  },
+  {
+    key: "inProgress",
+    label: "In Progress",
+    statuses: [ISSUE_STATUS.ASSIGNED, ISSUE_STATUS.IN_PROGRESS],
+    color: "#6366f1",
+    gradient: "from-indigo-500 to-violet-500",
+    track: "bg-indigo-100",
+    Icon: TimerReset,
+  },
+  {
+    key: "resolved",
+    label: "Resolved",
+    statuses: [ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.TESTING, ISSUE_STATUS.FIXED, ISSUE_STATUS.QA],
+    color: "#10b981",
+    gradient: "from-emerald-500 to-teal-400",
+    track: "bg-emerald-100",
+    Icon: CheckCircle2,
+  },
+  {
+    key: "reopened",
+    label: "Reopened",
+    statuses: [ISSUE_STATUS.REOPEN],
+    color: "#ec4899",
+    gradient: "from-pink-500 to-rose-500",
+    track: "bg-pink-100",
+    Icon: RefreshCcw,
+  },
+  {
+    key: "closed",
+    label: "Closed",
+    statuses: [ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE],
+    color: "#64748b",
+    gradient: "from-slate-500 to-slate-700",
+    track: "bg-slate-200",
+    Icon: CheckCircle2,
+  },
+  {
+    key: "deferred",
+    label: "Deferred",
+    statuses: [ISSUE_STATUS.DEFERRED, ISSUE_STATUS.REJECTED],
+    color: "#14b8a6",
+    gradient: "from-cyan-500 to-teal-500",
+    track: "bg-cyan-100",
+    Icon: PauseCircle,
+  },
 ];
 
 const getStatusLabel = (issue) =>
@@ -352,9 +417,10 @@ const activityText = (entry) => {
 };
 
 const StatCard = ({ label, value, helper, Icon, className }) => (
-  <Card className="overflow-hidden border-white/70 bg-white/86 shadow-[0_20px_52px_-36px_rgba(15,23,42,0.34)] backdrop-blur-xl">
-    <CardContent className="relative p-4">
+  <Card className="group overflow-hidden border-white/70 bg-white/86 shadow-[0_20px_52px_-36px_rgba(15,23,42,0.34)] backdrop-blur-xl transition duration-300 hover:-translate-y-1 hover:border-blue-100 hover:shadow-[0_24px_54px_-30px_rgba(37,99,235,0.32)]">
+    <CardContent className="relative overflow-hidden p-4">
       <div className={cn("absolute inset-x-0 top-0 h-1", className)} />
+      <div className={cn("absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-10 blur-2xl transition group-hover:opacity-20", className)} />
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -368,10 +434,114 @@ const StatCard = ({ label, value, helper, Icon, className }) => (
           <Icon className="h-5 w-5" />
         </div>
       </div>
-      <p className="mt-3 text-sm text-slate-500">{helper}</p>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <p className="text-sm text-slate-500">{helper}</p>
+        <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Live</span>
+      </div>
     </CardContent>
   </Card>
 );
+
+const BugStatusAnalytics = ({ issues = [] }) => {
+  const statusData = useMemo(() => {
+    const total = issues.length;
+
+    return BUG_STATUS_ANALYTICS.map((item) => {
+      const value = issues.filter((issue) =>
+        item.statuses.includes(normalizeBugStatusForIssue(issue))
+      ).length;
+
+      return {
+        ...item,
+        value,
+        percentage: total ? Math.round((value / total) * 100) : 0,
+      };
+    });
+  }, [issues]);
+  const visibleStatusData = useMemo(
+    () => statusData.filter((item) => item.value > 0),
+    [statusData]
+  );
+
+  return (
+    <Card className="overflow-hidden rounded-2xl border-white/70 bg-white/88 shadow-[0_20px_56px_-36px_rgba(15,23,42,0.38)] backdrop-blur-xl">
+      <CardHeader className="border-b border-slate-200/70 pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Activity className="h-4 w-4 text-blue-600" />
+          Bug Status
+        </CardTitle>
+        <CardDescription>Live distribution of your assigned bug workload.</CardDescription>
+      </CardHeader>
+      <CardContent className="p-4">
+        {issues.length ? (
+          <div className="grid gap-4 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-center">
+            <div className="relative mx-auto h-[230px] w-full max-w-[250px]">
+              <ResponsiveContainer height="100%" width="100%">
+                <PieChart aria-label="Developer bug status donut chart">
+                  <Pie
+                    cx="50%"
+                    cy="50%"
+                    data={visibleStatusData}
+                    dataKey="value"
+                    innerRadius={65}
+                    outerRadius={92}
+                    paddingAngle={3}
+                    stroke="rgba(255,255,255,0.96)"
+                    strokeWidth={4}
+                  >
+                    {visibleStatusData.map((entry) => (
+                      <Cell fill={entry.color} key={entry.key} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value, _name, item) => [
+                      `${value} bug${Number(value) === 1 ? "" : "s"}`,
+                      item?.payload?.label || "",
+                    ]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">Bugs</span>
+                <span className="mt-1 text-3xl font-semibold leading-none text-slate-950">{issues.length}</span>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {statusData.map((item) => {
+                const StatusIcon = item.Icon;
+
+                return (
+                  <div key={item.key} className="rounded-2xl border border-slate-200/80 bg-white/76 p-3 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white", item.gradient)}>
+                          <StatusIcon className="h-4 w-4" />
+                        </span>
+                        <span className="truncate text-xs font-semibold text-slate-700">{item.label}</span>
+                      </div>
+                      <span className="text-lg font-semibold leading-none text-slate-950">{item.value}</span>
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <div className={cn("h-1.5 flex-1 overflow-hidden rounded-full", item.track)}>
+                        <span className={cn("block h-full rounded-full bg-gradient-to-r transition-all duration-700", item.gradient)} style={{ width: `${item.percentage}%` }} />
+                      </div>
+                      <span className="w-9 text-right text-[10px] font-bold text-slate-400">{item.percentage}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="flex min-h-[156px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-6 py-6 text-center text-sm text-slate-500">
+            <Bug className="mb-3 h-8 w-8 text-slate-300" />
+            <span>No assigned bug activity yet</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const ProjectPanel = ({ projects, issues, onOpenProject }) => {
   const projectCards = useMemo(
@@ -1436,7 +1606,7 @@ const DeveloperDashboardPage = () => {
 
   return (
     <div className="page-wrapper space-y-5">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="flex snap-x gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:pb-0 xl:grid-cols-4 [&>*]:min-w-[220px] [&>*]:snap-start md:[&>*]:min-w-0">
         {isLoading
           ? Array.from({ length: 4 }, (_, index) => (
               <Skeleton
@@ -1498,6 +1668,8 @@ const DeveloperDashboardPage = () => {
           <RefreshCcw className={cn("h-4 w-4", isIssuesFetching && "animate-spin")} />
         </Button>
       </section>
+
+      <BugStatusAnalytics issues={bugIssues} />
 
       <section className="space-y-5">
           <BugBucketPanel
