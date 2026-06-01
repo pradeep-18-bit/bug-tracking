@@ -549,14 +549,14 @@ const ProjectsPage = () => {
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
         <DialogContent
           className={projectDialogContentClass(
-            "grid max-h-[calc(100svh-6.5rem)] w-[calc(100%-2rem)] max-w-[720px] grid-rows-[auto_minmax(0,1fr)] rounded-[28px] sm:max-h-[calc(100vh-7.5rem)]"
+            "grid max-h-[calc(100svh-6.5rem)] w-[92vw] max-w-[1100px] grid-rows-[auto_minmax(0,1fr)] rounded-[24px] sm:max-h-[calc(100vh-120px)]"
           )}
         >
           <DialogHeader className={projectDialogHeaderClass()}>
-            <DialogTitle className="pr-10 text-lg tracking-tight text-slate-950">
+            <DialogTitle className="pr-10 text-xl font-semibold tracking-tight text-slate-950">
               Create Project
             </DialogTitle>
-            <DialogDescription className="max-w-[34rem] pr-10 text-[13px] leading-5 text-slate-600">
+            <DialogDescription className="max-w-[42rem] pr-10 text-sm leading-6 text-slate-600">
               Capture ownership, scope, and the first workstreams for the new
               project.
             </DialogDescription>
@@ -577,14 +577,14 @@ const ProjectsPage = () => {
       <Dialog open={isCreateTeamDialogOpen} onOpenChange={setIsCreateTeamDialogOpen}>
         <DialogContent
           className={projectDialogContentClass(
-            "grid max-h-[calc(100svh-6.5rem)] w-[calc(100%-2rem)] max-w-[860px] grid-rows-[auto_minmax(0,1fr)] rounded-[28px] sm:max-h-[calc(100vh-7.5rem)]"
+            "grid max-h-[calc(100svh-6.5rem)] w-[92vw] max-w-[1100px] grid-rows-[auto_minmax(0,1fr)] rounded-[24px] sm:max-h-[calc(100vh-120px)]"
           )}
         >
           <DialogHeader className={projectDialogHeaderClass()}>
-            <DialogTitle className="pr-10 text-lg tracking-tight text-slate-950">
+            <DialogTitle className="pr-10 text-xl font-semibold tracking-tight text-slate-950">
               Create Team
             </DialogTitle>
-            <DialogDescription className="max-w-[34rem] pr-10 text-[13px] leading-5 text-slate-600">
+            <DialogDescription className="max-w-[42rem] pr-10 text-sm leading-6 text-slate-600">
               Build a workspace-scoped team and add members from the current
               workspace.
             </DialogDescription>
@@ -605,6 +605,7 @@ const ProjectsPage = () => {
                 workspaceId={workspaceScope}
                 isPending={createTeamMutation.isPending}
                 onSubmit={handleCreateTeam}
+                variant="modal"
               />
             )}
           </div>

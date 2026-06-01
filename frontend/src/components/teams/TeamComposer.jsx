@@ -19,7 +19,14 @@ import {
   memberSelectStyles,
 } from "@/components/projects/memberSelectTheme";
 
-const TeamComposer = ({ users = [], workspaceId, onSubmit, isPending = false }) => {
+const TeamComposer = ({
+  users = [],
+  workspaceId,
+  onSubmit,
+  isPending = false,
+  variant = "card",
+}) => {
+  const isModal = variant === "modal";
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -39,6 +46,10 @@ const TeamComposer = ({ users = [], workspaceId, onSubmit, isPending = false }) 
     () => memberOptions.filter((option) => formData.members.includes(option.value)),
     [formData.members, memberOptions]
   );
+  const inputClassName =
+    "h-11 rounded-xl border-slate-200 bg-white text-sm shadow-sm shadow-slate-950/[0.02] transition hover:border-slate-300 focus-visible:border-emerald-400 focus-visible:ring-4 focus-visible:ring-emerald-500/12";
+  const textAreaClassName =
+    "min-h-[96px] rounded-xl border-slate-200 bg-white text-sm shadow-sm shadow-slate-950/[0.02] transition hover:border-slate-300 focus-visible:border-emerald-400 focus-visible:ring-4 focus-visible:ring-emerald-500/12";
 
   const handleFieldChange = (event) => {
     const { name, value } = event.target;
@@ -92,20 +103,30 @@ const TeamComposer = ({ users = [], workspaceId, onSubmit, isPending = false }) 
   };
 
   return (
-    <Card className="relative overflow-hidden border-white/60 bg-white/82 shadow-[0_28px_70px_-34px_rgba(15,23,42,0.35)] backdrop-blur-xl">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_top_left,_rgba(34,197,94,0.18),_transparent_48%),radial-gradient(circle_at_top_right,_rgba(14,165,233,0.18),_transparent_42%)]" />
-      <CardHeader className="relative border-b border-white/60 pb-6">
-        <div className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-200/80 bg-white/80 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-emerald-700 shadow-sm backdrop-blur-xl">
-          <Users2 className="h-3.5 w-3.5" />
-          Workspace Teams
-        </div>
-        <CardTitle className="text-2xl text-slate-950">Create a new team</CardTitle>
-        <CardDescription className="max-w-2xl text-slate-600">
-          Group workspace users into a shared squad for planning, delivery, and
-          ownership. Only users from this workspace can be added.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="relative pt-6">
+    <Card
+      className={
+        isModal
+          ? "relative overflow-visible border-0 bg-transparent shadow-none"
+          : "relative overflow-hidden border-white/60 bg-white/82 shadow-[0_28px_70px_-34px_rgba(15,23,42,0.35)] backdrop-blur-xl"
+      }
+    >
+      {!isModal ? (
+        <>
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_top_left,_rgba(34,197,94,0.18),_transparent_48%),radial-gradient(circle_at_top_right,_rgba(14,165,233,0.18),_transparent_42%)]" />
+          <CardHeader className="relative border-b border-white/60 pb-6">
+            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-200/80 bg-white/80 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-emerald-700 shadow-sm backdrop-blur-xl">
+              <Users2 className="h-3.5 w-3.5" />
+              Workspace Teams
+            </div>
+            <CardTitle className="text-2xl text-slate-950">Create a new team</CardTitle>
+            <CardDescription className="max-w-2xl text-slate-600">
+              Group workspace users into a shared squad for planning, delivery, and
+              ownership. Only users from this workspace can be added.
+            </CardDescription>
+          </CardHeader>
+        </>
+      ) : null}
+      <CardContent className={isModal ? "relative p-0" : "relative pt-6"}>
         <form className="space-y-5" onSubmit={handleSubmit}>
           {!users.length ? (
             <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800">
@@ -120,6 +141,7 @@ const TeamComposer = ({ users = [], workspaceId, onSubmit, isPending = false }) 
               <Input
                 id="name"
                 name="name"
+                className={inputClassName}
                 placeholder="Platform Squad"
                 value={formData.name}
                 onChange={handleFieldChange}
@@ -142,13 +164,14 @@ const TeamComposer = ({ users = [], workspaceId, onSubmit, isPending = false }) 
             <Textarea
               id="description"
               name="description"
+              className={textAreaClassName}
               placeholder="Explain what this team owns, how it collaborates, or where it fits in the workspace."
               value={formData.description}
               onChange={handleFieldChange}
             />
           </label>
 
-          <div className="space-y-4 rounded-[28px] border border-white/70 bg-white/75 p-4 shadow-[0_20px_40px_-28px_rgba(15,23,42,0.35)] backdrop-blur-xl">
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-white/86 p-4 shadow-sm backdrop-blur-xl">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <label className="text-sm font-medium text-gray-700">Members</label>
@@ -162,7 +185,7 @@ const TeamComposer = ({ users = [], workspaceId, onSubmit, isPending = false }) 
               </Badge>
             </div>
 
-            <div className="rounded-[24px] border border-slate-900/10 bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-900 px-4 py-4 text-white shadow-[0_18px_40px_-28px_rgba(15,23,42,0.9)]">
+            <div className="rounded-2xl border border-slate-900/10 bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-900 px-4 py-4 text-white shadow-[0_18px_40px_-28px_rgba(15,23,42,0.9)]">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-sm font-semibold">
                   <Layers3 className="h-5 w-5" />
@@ -204,7 +227,7 @@ const TeamComposer = ({ users = [], workspaceId, onSubmit, isPending = false }) 
               }
             />
 
-            <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50/85 p-3">
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/85 p-3">
               <p className="text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
                 Selected members
               </p>
@@ -248,7 +271,13 @@ const TeamComposer = ({ users = [], workspaceId, onSubmit, isPending = false }) 
             </div>
           ) : null}
 
-          <div className="sticky bottom-0 -mx-6 border-t border-slate-200/80 bg-white/94 px-6 py-3 backdrop-blur">
+          <div
+            className={
+              isModal
+                ? "sticky bottom-0 -mx-4 border-t border-slate-200/80 bg-white/94 px-4 py-3 backdrop-blur sm:-mx-5 sm:px-5"
+                : "sticky bottom-0 -mx-6 border-t border-slate-200/80 bg-white/94 px-6 py-3 backdrop-blur"
+            }
+          >
             <Button className="w-full" disabled={isPending || !users.length} type="submit">
             {isPending ? "Creating team..." : "Create Team"}
             </Button>
