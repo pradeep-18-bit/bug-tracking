@@ -1,4 +1,6 @@
 const mongoose = require("mongoose");
+const fs = require("fs/promises");
+const path = require("path");
 const Comment = require("../models/Comment");
 const Epic = require("../models/Epic");
 const Issue = require("../models/Issue");
@@ -10,6 +12,8 @@ const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const User = require("../models/User");
 const IssueAttachment = require("../models/IssueAttachment");
+const IssueWorklog = require("../models/IssueWorklog");
+const SprintNotification = require("../models/SprintNotification");
 const {
   TESTER_SMTP_REQUIRED_MESSAGE,
   ensureUserSmtpConfigured,
@@ -3433,7 +3437,9 @@ const deleteIssue = asyncHandler(async (req, res) => {
     throw new Error("Invalid issue id");
   }
 
-  const issue = await Issue.findById(req.params.id);
+  const issue = await Issue.findById(req.params.id)
+    .populate("reporter", "_id name email role")
+    .populate("bugDetails.testerOwner", "_id name email role");
 
   if (!issue) {
     res.status(404);
@@ -3447,37 +3453,36 @@ const deleteIssue = asyncHandler(async (req, res) => {
     throw new Error("You do not have access to this project");
   }
 
-  // Permission check: Allow deletion if:
-  // 1. User is admin
-  // 2. For bugs: User is the reporter (tester who created the bug)
-  // 3. For bugs: User is the assignee (developer/tester assigned to it)
-  // 4. For non-bugs: Only admin can delete
-  const userId = String(req.user._id);
-  const reporterId = String(issue.reporter || "");
-  const assigneeId = String(issue.assignee || "");
-  const issueType = issue.type || "TASK";
-  const isBug = issueType === "BUG";
-  const isUserAdmin = isAdmin(req.user);
-  const isUserTester = req.user.role === "tester";
-  
-  // Determine if user can delete
-  const isReporter = isBug && reporterId === userId;
-  const isAssignee = isBug && assigneeId === userId;
-  const canDelete = isUserAdmin || isReporter || isAssignee;
+  const userId = String(req.user.id || req.user._id);
+  const reporterId = String(issue.reporter?._id || issue.reporter || "");
+  const testerOwnerId = String(
+    issue.bugDetails?.testerOwner?._id || issue.bugDetails?.testerOwner || ""
+  );
+  const isBug = isBugType(issue.type);
+  const isUserAdmin = req.user.role === ROLE_ADMIN;
+  const isUserManager = req.user.role === ROLE_MANAGER;
+  const isUserTester = req.user.role === ROLE_TESTER;
+  const isReporter = reporterId === userId;
+  const isTesterOwner = testerOwnerId === userId;
+  const isTesterBugOwner =
+    isBug && isUserTester && (isReporter || isTesterOwner);
+  const canDelete =
+    isUserAdmin || (isBug && isUserManager) || isTesterBugOwner;
 
-  console.log("[issues] delete permission check", {
+  console.log("DELETE BUG DEBUG", {
     issueId: String(issue._id),
-    userId,
-    issueType,
+    issueReporter: reporterId,
+    issueTesterOwner: testerOwnerId,
+    loggedInUser: userId,
+    role: req.user.role,
     isBug,
-    reporterId,
-    assigneeId,
     isUserAdmin,
+    isUserManager,
     isUserTester,
     isReporter,
-    isAssignee,
+    isTesterOwner,
+    isTesterBugOwner,
     canDelete,
-    userRole: req.user.role,
   });
 
   if (!canDelete) {
@@ -3485,11 +3490,41 @@ const deleteIssue = asyncHandler(async (req, res) => {
     throw new Error("You are not authorized to delete this bug");
   }
 
-  // Delete all related records to avoid orphans
-  await Comment.deleteMany({ issueId: issue._id });
-  await IssueAttachment.deleteMany({ issueId: issue._id });
-  await IssueHistory.deleteMany({ issueId: issue._id });
-  await IssueWorklog.deleteMany({ issueId: issue._id });
+  const attachments = await IssueAttachment.find({
+    issueId: issue._id,
+  })
+    .select("storagePath")
+    .lean();
+
+  await Promise.all([
+    Comment.deleteMany({ issueId: issue._id }),
+    IssueAttachment.deleteMany({ issueId: issue._id }),
+    IssueHistory.deleteMany({ issueId: issue._id }),
+    IssueWorklog.deleteMany({ issueId: issue._id }),
+    SprintNotification.deleteMany({ issueId: issue._id }),
+  ]);
+
+  await Promise.all(
+    attachments.map(async (attachment) => {
+      const fileName = path.basename(String(attachment.storagePath || ""));
+
+      if (!fileName) {
+        return;
+      }
+
+      try {
+        await fs.unlink(path.join(__dirname, "..", "uploads", "issue-attachments", fileName));
+      } catch (error) {
+        if (error.code !== "ENOENT") {
+          console.warn("[issues] unable to remove deleted issue attachment", {
+            issueId: String(issue._id),
+            fileName,
+            message: error.message,
+          });
+        }
+      }
+    })
+  );
   
   await issue.deleteOne();
 
@@ -3499,7 +3534,8 @@ const deleteIssue = asyncHandler(async (req, res) => {
   });
 
   res.status(200).json({
-    message: "Issue deleted successfully",
+    success: true,
+    message: isBug ? "Bug deleted successfully" : "Issue deleted successfully",
     deletedId: issue._id,
   });
 });

@@ -8,11 +8,11 @@ import {
   History,
   LoaderCircle,
   RotateCcw,
+  Search,
   TimerReset,
   Trash2,
   UserCircle2,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import {
   createIssue,
   deleteIssue,
@@ -440,9 +440,11 @@ const CompactBugList = ({ issues, projects, onOpen, onViewAll }) => (
 const TesterBugsPage = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [selectedIssue, setSelectedIssue] = useState(null);
   const [toast, setToast] = useState(null);
+  const [isOverviewOpen, setIsOverviewOpen] = useState(false);
+  const [overviewSearch, setOverviewSearch] = useState("");
+  const [overviewStatus, setOverviewStatus] = useState("all");
   const testerId = String(user?._id || user?.id || "");
 
   const showToast = (type, message) => {
@@ -470,6 +472,16 @@ const TesterBugsPage = () => {
     queryKey: ["issues", "tester-bugs", testerId],
     queryFn: () => fetchIssues({ type: "Bug" }),
     enabled: Boolean(testerId),
+  });
+
+  const {
+    data: overviewIssues = [],
+    isLoading: isOverviewLoading,
+    error: overviewError,
+  } = useQuery({
+    queryKey: ["issues", "tester-bug-overview", testerId],
+    queryFn: () => fetchIssues({ type: "Bug" }),
+    enabled: Boolean(testerId) && isOverviewOpen,
   });
 
   useEffect(() => {
@@ -515,7 +527,85 @@ const TesterBugsPage = () => {
   );
 
   const latestReportedIssues = useMemo(
-    () => reportedIssues.slice(0, 7),
+    () => {
+      const search = overviewSearch.trim().toLowerCase();
+
+      return reportedIssues
+        .filter((issue) => {
+          if (
+            overviewStatus !== "all" &&
+            normalizeBugStatusForIssue(issue) !== overviewStatus
+          ) {
+            return false;
+          }
+
+          if (!search) {
+            return true;
+          }
+
+          return [
+            getIssueDisplayKey(issue),
+            issue.title,
+            getProjectName(issue, projects),
+            getIssueSeverity(issue),
+            getDeveloperName(issue),
+            getBugReviewLabel(issue),
+          ]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(search));
+        })
+        .slice(0, 7);
+    },
+    [overviewSearch, overviewStatus, projects, reportedIssues]
+  );
+
+  const filteredOverviewIssues = useMemo(() => {
+    const search = overviewSearch.trim().toLowerCase();
+
+    return overviewIssues
+      .filter((issue) => getReporterId(issue) === testerId || getTesterOwnerId(issue) === testerId)
+      .filter((issue) => {
+        const status = normalizeBugStatusForIssue(issue);
+
+        if (overviewStatus !== "all" && status !== overviewStatus) {
+          return false;
+        }
+
+        if (!search) {
+          return true;
+        }
+
+        return [
+          getIssueDisplayKey(issue),
+          issue.title,
+          getProjectName(issue, projects),
+          getIssueSeverity(issue),
+          getDeveloperName(issue),
+          getBugReviewLabel(issue),
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(search));
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt || b.createdAt || 0).getTime() -
+          new Date(a.updatedAt || a.createdAt || 0).getTime()
+      );
+  }, [overviewIssues, overviewSearch, overviewStatus, projects, testerId]);
+
+  const reviewStats = useMemo(
+    () => ({
+      total: reportedIssues.length,
+      active: reportedIssues.filter(
+        (issue) => ![ISSUE_STATUS.CLOSED, ISSUE_STATUS.REJECTED].includes(normalizeBugStatusForIssue(issue))
+      ).length,
+      qa: reportedIssues.filter(
+        (issue) => normalizeBugStatusForIssue(issue) === ISSUE_STATUS.FIXED
+      ).length,
+      closed: reportedIssues.filter(
+        (issue) => normalizeBugStatusForIssue(issue) === ISSUE_STATUS.CLOSED
+      ).length,
+    }),
     [reportedIssues]
   );
 
@@ -550,7 +640,12 @@ const TesterBugsPage = () => {
 
   const deleteBugMutation = useMutation({
     mutationFn: deleteIssue,
-    onSuccess: () => {
+    onSuccess: (_, deletedId) => {
+      queryClient.setQueriesData({ queryKey: ["issues"] }, (current) =>
+        Array.isArray(current)
+          ? current.filter((issue) => issue._id !== deletedId)
+          : current
+      );
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
@@ -588,6 +683,10 @@ const TesterBugsPage = () => {
   };
 
   const handleDeleteBug = (issue) => {
+    if (deleteBugMutation.isPending) {
+      return Promise.resolve();
+    }
+
     return deleteBugMutation.mutateAsync(issue._id);
   };
 
@@ -624,48 +723,72 @@ const TesterBugsPage = () => {
 
   return (
     <div className="space-y-4">
-      {reportedIssues.length > 0 && (
-        <section className="min-w-0">
-          <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
-            <CardHeader className="border-b border-slate-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(239,246,255,0.92),rgba(238,242,255,0.88))]">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <CardTitle>Bug Review Progress</CardTitle>
-                  <CardDescription>
-                    Track bugs you reported, developer status, QA verification, and resolution flow.
-                  </CardDescription>
-                </div>
-                <Badge className="border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-50">
-                  {reportedIssues.length} reported
-                </Badge>
+      <section className="min-w-0">
+        <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
+          <CardHeader className="border-b border-slate-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(239,246,255,0.92),rgba(238,242,255,0.88))]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <CardTitle>Reported Bug Overview</CardTitle>
+                <CardDescription>
+                  Keep the workspace compact, then open QA review details when you need them.
+                </CardDescription>
               </div>
-            </CardHeader>
-            <CardContent className="p-4 sm:p-5">
-              <div className="grid gap-4 xl:grid-cols-2">
-                {reportedIssues.map((issue) => (
-                  <BugReviewCard
-                    key={issue._id}
-                    issue={issue}
-                    isUpdating={
-                      updateIssueMutation.isPending &&
-                      updateIssueMutation.variables?.id === issue._id
-                    }
-                    isDeleting={
-                      deleteBugMutation.isPending &&
-                      deleteBugMutation.variables === issue._id
-                    }
-                    onApproveFix={handleApproveFix}
-                    onDelete={handleDeleteBug}
-                    onOpen={setSelectedIssue}
-                    onReopen={handleReopenBug}
-                    projects={projects}
-                  />
+              <Button type="button" onClick={() => setIsOverviewOpen(true)}>
+                <Eye className="h-4 w-4" />
+                View Bug Overview ({reportedIssues.length})
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 p-4 sm:p-5">
+            <div className="grid gap-2 sm:grid-cols-[1fr_180px]">
+              <label className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="Search bug overview"
+                  value={overviewSearch}
+                  onChange={(event) => setOverviewSearch(event.target.value)}
+                />
+              </label>
+              <select
+                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20"
+                value={overviewStatus}
+                onChange={(event) => setOverviewStatus(event.target.value)}
+              >
+                <option value="all">All statuses</option>
+                {Object.values(ISSUE_STATUS).map((status) => (
+                  <option key={status} value={status}>{getIssueStatusLabel(status)}</option>
                 ))}
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-      )}
+              </select>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                ["Reported", reviewStats.total],
+                ["Active", reviewStats.active],
+                ["Ready for QA", reviewStats.qa],
+                ["Closed", reviewStats.closed],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
+                </div>
+              ))}
+            </div>
+            {latestReportedIssues.length ? (
+              <CompactBugList
+                issues={latestReportedIssues}
+                projects={projects}
+                onOpen={setSelectedIssue}
+                onViewAll={() => setIsOverviewOpen(true)}
+              />
+            ) : (
+              <p className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+                Your reported bugs will appear here after the first submission.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </section>
 
       <section className="min-w-0">
         <IssueComposer
@@ -736,6 +859,70 @@ const TesterBugsPage = () => {
         canEditAssignee={false}
         canDeleteIssue={false}
       />
+      <Dialog open={isOverviewOpen} onOpenChange={setIsOverviewOpen}>
+        <DialogContent className="bottom-0 left-0 right-0 top-16 grid h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] w-full max-w-none grid-rows-[auto_minmax(0,1fr)] translate-x-0 translate-y-0 gap-0 rounded-none border-y-0 border-r-0 bg-white/96 p-0 shadow-[0_30px_90px_-46px_rgba(15,23,42,0.58)] backdrop-blur-xl sm:left-auto sm:right-3 sm:top-[72px] sm:bottom-3 sm:h-[calc(100vh-84px)] sm:max-h-[calc(100vh-84px)] sm:w-[94vw] sm:max-w-[760px] sm:rounded-2xl sm:border">
+          <DialogHeader className="sticky top-0 z-10 border-b border-slate-200 bg-white/94 px-4 py-4 pr-14 backdrop-blur sm:px-5">
+            <DialogTitle>Bug Review Progress</DialogTitle>
+            <DialogDescription>
+              Verify fixes, reopen issues, approve resolutions, or delete bugs you own.
+            </DialogDescription>
+            <div className="grid gap-2 pt-2 sm:grid-cols-[1fr_180px]">
+              <label className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="Search overview"
+                  value={overviewSearch}
+                  onChange={(event) => setOverviewSearch(event.target.value)}
+                />
+              </label>
+              <select
+                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20"
+                value={overviewStatus}
+                onChange={(event) => setOverviewStatus(event.target.value)}
+              >
+                <option value="all">All statuses</option>
+                {Object.values(ISSUE_STATUS).map((status) => (
+                  <option key={status} value={status}>{getIssueStatusLabel(status)}</option>
+                ))}
+              </select>
+            </div>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/80 p-4 sm:p-5">
+            {isOverviewLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <Skeleton key={`overview-skeleton-${index}`} className="h-64 rounded-2xl" />
+                ))}
+              </div>
+            ) : overviewError ? (
+              <p className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                {overviewError.response?.data?.message || "Unable to load bug overview."}
+              </p>
+            ) : filteredOverviewIssues.length ? (
+              <div className="grid gap-4">
+                {filteredOverviewIssues.map((issue) => (
+                  <BugReviewCard
+                    key={issue._id}
+                    issue={issue}
+                    isUpdating={updateIssueMutation.isPending && updateIssueMutation.variables?.id === issue._id}
+                    isDeleting={deleteBugMutation.isPending && deleteBugMutation.variables === issue._id}
+                    onApproveFix={handleApproveFix}
+                    onDelete={handleDeleteBug}
+                    onOpen={setSelectedIssue}
+                    onReopen={handleReopenBug}
+                    projects={projects}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
+                No reported bugs match these filters.
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
