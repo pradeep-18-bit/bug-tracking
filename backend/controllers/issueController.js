@@ -3250,11 +3250,6 @@ const deleteIssue = asyncHandler(async (req, res) => {
     throw new Error("Invalid issue id");
   }
 
-  if (!isAdmin(req.user)) {
-    res.status(403);
-    throw new Error("Only admins can delete issues");
-  }
-
   const issue = await Issue.findById(req.params.id);
 
   if (!issue) {
@@ -3267,6 +3262,23 @@ const deleteIssue = asyncHandler(async (req, res) => {
   if (!project) {
     res.status(403);
     throw new Error("You do not have access to this issue");
+  }
+
+  // Permission check: Allow deletion if:
+  // 1. User is admin
+  // 2. For bugs: User is the reporter or assignee
+  // 3. For non-bugs: Only admin
+  const userId = String(req.user._id);
+  const reporterId = String(issue.reporter || "");
+  const assigneeId = String(issue.assignee || "");
+  const isBug = issue.type === "BUG";
+  const isUserAdmin = isAdmin(req.user);
+  const isReporter = isBug && reporterId === userId;
+  const isAssignee = isBug && assigneeId === userId;
+
+  if (!isUserAdmin && !isReporter && !isAssignee) {
+    res.status(403);
+    throw new Error("You do not have permission to delete this issue");
   }
 
   await Comment.deleteMany({ issueId: issue._id });
