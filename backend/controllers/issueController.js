@@ -293,6 +293,9 @@ const getBugDeveloperEmail = (issue) =>
 const hasBugDeveloperAssignment = (issue) =>
   Boolean(getUserIdString(issue?.bugDetails?.developerLead));
 
+const getBugTesterOwnerId = (issue) =>
+  getUserIdString(issue?.bugDetails?.testerOwner);
+
 const buildBugAssignmentEmailPayload = (issue, actorUser) => {
   const developerUser = resolveBugDeveloperUser(issue);
 
@@ -410,6 +413,7 @@ const sendBugAssignmentNotification = async ({
       {
         creatorUserId: senderUserId,
         senderUserId,
+        preferredSenderUserId: getBugTesterOwnerId(issue) || senderUserId,
         strictSenderUserId: strictTesterSender ? senderUserId : null,
         workspaceId,
       }
@@ -2508,16 +2512,15 @@ const createIssue = asyncHandler(async (req, res) => {
     }
 
     if (req.user.role === ROLE_TESTER && bugDetails.developerLead) {
-      try {
-        await ensureTesterBugAssignmentSmtpConfigured({
-          user: req.user,
-          workspaceId,
-          receiverDeveloperEmail: bugAssignmentDeveloperUser?.email || "",
-        });
-      } catch (error) {
-        res.status(400);
-        throw new Error(TESTER_SMTP_REQUIRED_MESSAGE);
-      }
+      logBugAssignmentEmailEvent("info", {
+        bugId: "pending",
+        senderUserId: getUserIdString(req.user),
+        senderEmail: req.user?.email || "",
+        receiverDeveloperEmail: bugAssignmentDeveloperUser?.email || "",
+        smtpProvider: "",
+        sendStatus: "fallback_allowed",
+        message: "Tester SMTP will be used when configured; otherwise global SMTP will be used.",
+      });
     }
   }
 
@@ -3030,16 +3033,15 @@ const updateIssue = asyncHandler(async (req, res) => {
       (previousBugStatus !== BUG_STATUS.ASSIGNED && nextStatus === BUG_STATUS.ASSIGNED));
 
   if (req.user.role === ROLE_TESTER && shouldSendBugAssignmentEmail) {
-    try {
-      await ensureTesterBugAssignmentSmtpConfigured({
-        user: req.user,
-        workspaceId,
-        receiverDeveloperEmail: nextDeveloperLeadUser?.email || "",
-      });
-    } catch (error) {
-      res.status(400);
-      throw new Error(TESTER_SMTP_REQUIRED_MESSAGE);
-    }
+    logBugAssignmentEmailEvent("info", {
+      bugId: String(issue?.displayBugId || issue?._id || "pending"),
+      senderUserId: getUserIdString(req.user),
+      senderEmail: req.user?.email || "",
+      receiverDeveloperEmail: nextDeveloperLeadUser?.email || "",
+      smtpProvider: "",
+      sendStatus: "fallback_allowed",
+      message: "Tester SMTP will be used when configured; otherwise global SMTP will be used.",
+    });
   }
 
   if (hasDueAtChange) {

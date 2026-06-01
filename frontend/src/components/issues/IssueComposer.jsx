@@ -619,46 +619,63 @@ const IssueComposer = ({
   const reporterLabel = reporterName || "Logged-in tester";
 
   const formContent = (
-    <form className="space-y-5" onSubmit={handleSubmit}>
+    <form className={isTesterBugReport ? "space-y-4" : "space-y-5"} onSubmit={handleSubmit}>
       {submitBlockedMessage ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
           {submitBlockedMessage}
         </div>
       ) : null}
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700" htmlFor="title">
-          {titleLabel}
-        </label>
-        <Input
-          id="title"
-          name="title"
-          placeholder={titlePlaceholder}
-          value={formData.title}
-          onChange={handleChange}
-        />
-      </div>
+      {!isTesterBugReport ? (
+        <>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700" htmlFor="title">
+              {titleLabel}
+            </label>
+            <Input
+              id="title"
+              name="title"
+              placeholder={titlePlaceholder}
+              value={formData.title}
+              onChange={handleChange}
+            />
+          </div>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700" htmlFor="description">
-          Description
-        </label>
-        <Textarea
-          id="description"
-          name="description"
-          placeholder={descriptionPlaceholder}
-          value={formData.description}
-          onChange={handleChange}
-        />
-      </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700" htmlFor="description">
+              Description
+            </label>
+            <Textarea
+              id="description"
+              name="description"
+              placeholder={descriptionPlaceholder}
+              value={formData.description}
+              onChange={handleChange}
+            />
+          </div>
+        </>
+      ) : null}
 
       {isTesterBugReport && isBugType ? (
-        <div className="space-y-4 rounded-[24px] border border-blue-100/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(239,246,255,0.82))] p-4 shadow-sm">
+        <div className="space-y-4 rounded-[20px] border border-blue-100/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(239,246,255,0.82))] p-3 shadow-sm sm:p-4">
           <div className="inline-flex w-fit rounded-full border border-blue-100 bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">
             Reported by: {reporterLabel}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700" htmlFor="title">
+                {titleLabel}
+              </label>
+              <Input
+                id="title"
+                name="title"
+                placeholder={titlePlaceholder}
+                value={formData.title}
+                onChange={handleChange}
+              />
+            </div>
+
             <label className="space-y-2">
               <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
                 <ClipboardList className="h-4 w-4 text-blue-600" />
@@ -681,6 +698,22 @@ const IssueComposer = ({
                 )}
               </select>
             </label>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700" htmlFor="description">
+                Description
+              </label>
+              <Textarea
+                id="description"
+                name="description"
+                className="min-h-[112px]"
+                placeholder={descriptionPlaceholder}
+                value={formData.description}
+                onChange={handleChange}
+              />
+            </div>
 
             <label className="space-y-2">
               <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -798,7 +831,7 @@ const IssueComposer = ({
             </label>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <label className="space-y-2">
               <span className="text-sm font-medium text-gray-700">Severity</span>
               <select
@@ -844,18 +877,46 @@ const IssueComposer = ({
             </label>
 
             <label className="space-y-2">
-              <span className="text-sm font-medium text-gray-700">Status</span>
-              <select className="field-select" value={ISSUE_STATUS.NEW} disabled>
-                {BUG_STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
+              <span className="text-sm font-medium text-gray-700">Reproducibility</span>
+              <select
+                className="field-select"
+                value={formData.bugDetails.estimatedEffort}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    bugDetails: {
+                      ...current.bugDetails,
+                      estimatedEffort: event.target.value,
+                    },
+                  }))
+                }
+              >
+                <option value="">Select reproducibility</option>
+                <option value="Always">Always</option>
+                <option value="Often">Often</option>
+                <option value="Sometimes">Sometimes</option>
+                <option value="Rarely">Rarely</option>
+                <option value="Unable to reproduce">Unable to reproduce</option>
+              </select>
+            </label>
+
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-gray-700">Environment</span>
+              <select
+                className="field-select"
+                value={formData.bugDetails.affectedPlatform}
+                disabled
+              >
+                {BUG_PLATFORM_OPTIONS.map((platform) => (
+                  <option key={platform} value={platform}>
+                    {platform}
                   </option>
                 ))}
               </select>
             </label>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <label className="space-y-2">
               <span className="text-sm font-medium text-gray-700">
                 Suggested Developer
@@ -1361,7 +1422,7 @@ const IssueComposer = ({
       ) : null}
 
       <Button
-        className="w-full"
+        className={isTesterBugReport ? "ml-auto flex w-full sm:w-auto" : "w-full"}
         disabled={isSubmitPending || Boolean(submitBlockedMessage)}
         type="submit"
       >
@@ -1391,8 +1452,8 @@ const IssueComposer = ({
   }
 
   return (
-    <Card className="h-full">
-      <CardHeader>
+    <Card className="h-full overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
+      <CardHeader className={isTesterBugReport ? "space-y-2 px-4 py-4 sm:px-5" : undefined}>
         <div className="inline-flex w-fit items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-blue-600">
           <Sparkle className="h-3.5 w-3.5" />
           {headerLabel}
@@ -1401,7 +1462,9 @@ const IssueComposer = ({
         <CardDescription>{cardDescription}</CardDescription>
       </CardHeader>
 
-      <CardContent>{formContent}</CardContent>
+      <CardContent className={isTesterBugReport ? "px-4 pb-4 sm:px-5" : undefined}>
+        {formContent}
+      </CardContent>
     </Card>
   );
 };

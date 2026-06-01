@@ -319,9 +319,8 @@ const TesterBugsPage = () => {
 
   if (isLoading) {
     return (
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Skeleton className="h-[760px] w-full rounded-[32px]" />
-        <Skeleton className="h-[760px] w-full rounded-[32px]" />
+      <div className="grid gap-6">
+        <Skeleton className="h-[620px] w-full rounded-[24px]" />
       </div>
     );
   }
@@ -338,88 +337,54 @@ const TesterBugsPage = () => {
 
   return (
     <div className="space-y-4">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(520px,0.95fr)] xl:items-start">
-        <div className="min-w-0">
-          <IssueComposer
-            defaultAssigneeId={testerId}
-            defaultStatus={ISSUE_STATUS.TODO}
-            defaultType="Bug"
-            isPending={
-              createIssueMutation.isPending || uploadAttachmentMutation.isPending
-            }
-            lockType
-            onSubmit={async (payload) => {
-              const createdIssue = await createIssueMutation.mutateAsync(payload);
-              const hasAssignedDeveloper = Boolean(
-                payload?.bugDetails?.developerLeadId
+      <section className="min-w-0">
+        <IssueComposer
+          defaultAssigneeId={testerId}
+          defaultStatus={ISSUE_STATUS.TODO}
+          defaultType="Bug"
+          isPending={
+            createIssueMutation.isPending || uploadAttachmentMutation.isPending
+          }
+          lockType
+          onSubmit={async (payload) => {
+            const createdIssue = await createIssueMutation.mutateAsync(payload);
+            const hasAssignedDeveloper = Boolean(
+              payload?.bugDetails?.developerLeadId
+            );
+
+            if (hasAssignedDeveloper) {
+              showToast(
+                createdIssue?.emailNotification?.status === "sent"
+                  ? "success"
+                  : "warning",
+                createdIssue?.emailNotification?.status === "sent"
+                  ? "Bug created and email sent to developer."
+                  : "Bug created, but email notification failed."
               );
-
-              if (hasAssignedDeveloper) {
-                showToast(
-                  createdIssue?.emailNotification?.status === "sent"
-                    ? "success"
-                    : "warning",
-                  createdIssue?.emailNotification?.status === "sent"
-                    ? "Bug created and email sent to developer."
-                    : "Bug created, but email notification failed."
-                );
-              }
-
-              return createdIssue;
-            }}
-            onUploadAttachment={(payload) =>
-              uploadAttachmentMutation.mutateAsync(payload)
             }
-            projects={assignedProjects}
-            allowedTypes={["Bug"]}
-            showAssigneeField={false}
-            showStatusField={false}
-            submitLabel="Report Assigned Project Bug / Issue"
-            headerLabel="Bug / Issue Reporting Form"
-            cardTitle="Report assigned project bug / issue"
-            cardDescription="Choose one of your assigned projects, describe the issue clearly, and attach screenshots, documents, PDFs, or logs."
-            projectLabel="Assigned Project"
-            titleLabel="Issue title"
-            titlePlaceholder="Describe the assigned project issue"
-            descriptionPlaceholder="Summarize the behavior, impacted area, and testing context."
-            includeAttachments
-            attachmentAccept={ATTACHMENT_ACCEPT}
-            isTesterBugReport
-            reporterName={user?.name || user?.email || "Tester"}
-          />
-        </div>
 
-        <Card className="min-w-0 overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
-          <CardHeader className="border-b border-slate-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(239,246,255,0.92),rgba(238,242,255,0.88))] px-4 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-base">My Reported Bugs</CardTitle>
-                <CardDescription className="mt-1 text-xs">
-                  Latest 7 bugs, newest first. Open any row for full details.
-                </CardDescription>
-              </div>
-              <Badge className="border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-50">
-                {reportedIssues.length} total
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="p-3 sm:p-4">
-            {reportedIssues.length ? (
-              <CompactBugList
-                issues={latestReportedIssues}
-                projects={assignedProjects}
-                onOpen={setSelectedIssue}
-                onViewAll={() => navigate("/tasks?tab=bugs")}
-              />
-            ) : (
-              <EmptyState
-                title="No reported bugs yet"
-                description="Bugs you report from the assigned project form will appear here with their status and developer progress."
-                icon={<TimerReset className="h-5 w-5" />}
-              />
-            )}
-          </CardContent>
-        </Card>
+            return createdIssue;
+          }}
+          onUploadAttachment={(payload) =>
+            uploadAttachmentMutation.mutateAsync(payload)
+          }
+          projects={assignedProjects}
+          allowedTypes={["Bug"]}
+          showAssigneeField={false}
+          showStatusField={false}
+          submitLabel="Report Assigned Project Bug / Issue"
+          headerLabel="Bug / Issue Reporting Form"
+          cardTitle="Report assigned project bug / issue"
+          cardDescription="Choose one of your assigned projects, describe the issue clearly, and attach screenshots, documents, PDFs, or logs."
+          projectLabel="Assigned Project"
+          titleLabel="Issue title"
+          titlePlaceholder="Describe the assigned project issue"
+          descriptionPlaceholder="Summarize the behavior, impacted area, and testing context."
+          includeAttachments
+          attachmentAccept={ATTACHMENT_ACCEPT}
+          isTesterBugReport
+          reporterName={user?.name || user?.email || "Tester"}
+        />
       </section>
 
       <IssueDetailsDialog

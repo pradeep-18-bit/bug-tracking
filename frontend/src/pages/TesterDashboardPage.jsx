@@ -477,7 +477,7 @@ const TesterDashboardPage = () => {
     [assignedProjects, projectFilter, reportedIssues, searchTerm]
   );
 
-  const recentlyUpdatedBugs = useMemo(
+  const myReportedBugs = useMemo(
     () =>
       [...visibleIssues]
         .sort((left, right) => {
@@ -515,8 +515,8 @@ const TesterDashboardPage = () => {
   );
 
   const allRecentRowsSelected =
-    recentlyUpdatedBugs.length > 0 &&
-    recentlyUpdatedBugs.every((issue) => selectedBugIds.includes(issue._id));
+    myReportedBugs.length > 0 &&
+    myReportedBugs.every((issue) => selectedBugIds.includes(issue._id));
 
   const handleRefresh = async () => {
     await Promise.all([refetchProjects(), refetchIssues(), refetchRecentTasks()]);
@@ -524,7 +524,7 @@ const TesterDashboardPage = () => {
   };
 
   const handleToggleAllRows = (checked) => {
-    const currentRowIds = recentlyUpdatedBugs.map((issue) => issue._id);
+    const currentRowIds = myReportedBugs.map((issue) => issue._id);
 
     setSelectedBugIds((current) => {
       if (checked) {
@@ -707,13 +707,13 @@ const TesterDashboardPage = () => {
         <CardContent className="p-0">
           <div className="border-b border-slate-200/80 px-4 py-4 sm:px-5">
             <h2 className="text-base font-semibold tracking-tight text-slate-950">
-              Recently Updated Bugs
+              My Reported Bugs
             </h2>
           </div>
 
           <div className="space-y-3 p-4 md:hidden">
-            {recentlyUpdatedBugs.length ? (
-              recentlyUpdatedBugs.map((issue) => {
+            {myReportedBugs.length ? (
+              myReportedBugs.map((issue) => {
                 const updatedAt = getBugUpdatedAt(issue);
 
                 return (
@@ -785,7 +785,7 @@ const TesterDashboardPage = () => {
               })
             ) : (
               <p className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500">
-                No bugs match the current dashboard filters.
+                No reported bugs match the current dashboard filters.
               </p>
             )}
           </div>
@@ -796,7 +796,7 @@ const TesterDashboardPage = () => {
                 <tr>
                   <th className="w-12 px-5 py-3">
                     <input
-                      aria-label="Select all recently updated bugs"
+                      aria-label="Select all reported bugs"
                       checked={allRecentRowsSelected}
                       className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                       onChange={(event) => handleToggleAllRows(event.target.checked)}
@@ -813,8 +813,8 @@ const TesterDashboardPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80">
-                {recentlyUpdatedBugs.length ? (
-                  recentlyUpdatedBugs.map((issue) => {
+                {myReportedBugs.length ? (
+                  myReportedBugs.map((issue) => {
                     const updatedAt = getBugUpdatedAt(issue);
 
                     return (
@@ -873,7 +873,7 @@ const TesterDashboardPage = () => {
                       className="px-5 py-12 text-center text-sm text-slate-500"
                       colSpan={8}
                     >
-                      No bugs match the current dashboard filters.
+                      No reported bugs match the current dashboard filters.
                     </td>
                   </tr>
                 )}
