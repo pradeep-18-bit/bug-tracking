@@ -3444,31 +3444,63 @@ const deleteIssue = asyncHandler(async (req, res) => {
 
   if (!project) {
     res.status(403);
-    throw new Error("You do not have access to this issue");
+    throw new Error("You do not have access to this project");
   }
 
   // Permission check: Allow deletion if:
   // 1. User is admin
-  // 2. For bugs: User is the reporter or assignee
-  // 3. For non-bugs: Only admin
+  // 2. For bugs: User is the reporter (tester who created the bug)
+  // 3. For bugs: User is the assignee (developer/tester assigned to it)
+  // 4. For non-bugs: Only admin can delete
   const userId = String(req.user._id);
   const reporterId = String(issue.reporter || "");
   const assigneeId = String(issue.assignee || "");
-  const isBug = issue.type === "BUG";
+  const issueType = issue.type || "TASK";
+  const isBug = issueType === "BUG";
   const isUserAdmin = isAdmin(req.user);
+  const isUserTester = req.user.role === "tester";
+  
+  // Determine if user can delete
   const isReporter = isBug && reporterId === userId;
   const isAssignee = isBug && assigneeId === userId;
+  const canDelete = isUserAdmin || isReporter || isAssignee;
 
-  if (!isUserAdmin && !isReporter && !isAssignee) {
+  console.log("[issues] delete permission check", {
+    issueId: String(issue._id),
+    userId,
+    issueType,
+    isBug,
+    reporterId,
+    assigneeId,
+    isUserAdmin,
+    isUserTester,
+    isReporter,
+    isAssignee,
+    canDelete,
+    userRole: req.user.role,
+  });
+
+  if (!canDelete) {
     res.status(403);
-    throw new Error("You do not have permission to delete this issue");
+    throw new Error("You are not authorized to delete this bug");
   }
 
+  // Delete all related records to avoid orphans
   await Comment.deleteMany({ issueId: issue._id });
+  await IssueAttachment.deleteMany({ issueId: issue._id });
+  await IssueHistory.deleteMany({ issueId: issue._id });
+  await IssueWorklog.deleteMany({ issueId: issue._id });
+  
   await issue.deleteOne();
+
+  console.log("[issues] issue deleted successfully", {
+    issueId: String(issue._id),
+    deletedBy: userId,
+  });
 
   res.status(200).json({
     message: "Issue deleted successfully",
+    deletedId: issue._id,
   });
 });
 
