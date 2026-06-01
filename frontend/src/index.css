@@ -255,6 +255,30 @@
     mask-image: linear-gradient(to bottom, transparent 0, black 18px, black calc(100% - 18px), transparent 100%);
   }
 
+  .project-modal-scrollbar {
+    scrollbar-color: rgba(100, 116, 139, 0.34) transparent;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scroll-behavior: smooth;
+  }
+
+  .project-modal-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .project-modal-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .project-modal-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.28);
+    border-radius: 999px;
+  }
+
+  .project-modal-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(51, 65, 85, 0.44);
+  }
+
   .profile-dropdown-scrollbar {
     scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
     scrollbar-gutter: stable;

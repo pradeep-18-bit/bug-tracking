@@ -248,9 +248,11 @@ const TeamComposer = ({ users = [], workspaceId, onSubmit, isPending = false }) 
             </div>
           ) : null}
 
-          <Button className="w-full" disabled={isPending || !users.length} type="submit">
+          <div className="sticky bottom-0 -mx-6 border-t border-slate-200/80 bg-white/94 px-6 py-3 backdrop-blur">
+            <Button className="w-full" disabled={isPending || !users.length} type="submit">
             {isPending ? "Creating team..." : "Create Team"}
-          </Button>
+            </Button>
+          </div>
         </form>
       </CardContent>
     </Card>

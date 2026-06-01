@@ -289,7 +289,7 @@ const ProjectComposer = ({
         </div>
       ) : null}
 
-      <div className="flex flex-col-reverse gap-2 border-t border-slate-200/80 pt-3 sm:flex-row sm:items-center sm:justify-end">
+      <div className="sticky bottom-0 -mx-4 flex flex-col-reverse gap-2 border-t border-slate-200/80 bg-white/94 px-4 py-3 backdrop-blur sm:-mx-5 sm:flex-row sm:items-center sm:justify-end sm:px-5">
         {onCancel ? (
           <Button
             type="button"

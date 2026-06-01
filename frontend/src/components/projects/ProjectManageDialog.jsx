@@ -23,6 +23,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { getInitials } from "@/lib/utils";
 import { getProjectTeams } from "@/lib/project-teams";
+import {
+  projectDialogBodyClass,
+  projectDialogContentClass,
+  projectDialogFooterClass,
+  projectDialogHeaderClass,
+} from "@/components/projects/projectDialogStyles";
 
 const MANAGER_ROLES = ["Admin", "Manager"];
 const TEAM_LEAD_ROLES = ["Admin", "Manager", "Developer"];
@@ -318,13 +324,17 @@ const ProjectManageDialog = ({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="grid-rows-[auto_minmax(0,1fr)] max-h-[90vh] w-[calc(100%-2rem)] max-w-5xl gap-0 overflow-hidden rounded-[26px] border-white/80 bg-white/96 p-0 shadow-[0_34px_90px_-54px_rgba(15,23,42,0.48)] backdrop-blur-xl">
-          <DialogHeader className="border-b border-slate-200/80 bg-slate-50/90 px-5 py-4">
+        <DialogContent
+          className={projectDialogContentClass(
+            "grid max-h-[calc(100svh-6.25rem)] w-[calc(100%-2rem)] max-w-5xl grid-rows-[auto_minmax(0,1fr)] rounded-[28px] sm:max-h-[calc(100vh-7.5rem)]"
+          )}
+        >
+          <DialogHeader className={projectDialogHeaderClass()}>
             <DialogTitle>Manage Project</DialogTitle>
             <DialogDescription>{project.name}</DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 space-y-5 overflow-y-auto px-5 py-5">
+          <div className={projectDialogBodyClass("space-y-5 py-5")}>
             {!canManageProject ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 Project structure is read-only for this role.
@@ -715,8 +725,12 @@ const ProjectManageDialog = ({
       </Dialog>
 
       <Dialog open={Boolean(teamToDetach)} onOpenChange={(nextOpen) => !nextOpen && setTeamToDetach(null)}>
-        <DialogContent className="max-w-md rounded-2xl border-white/80 bg-white">
-          <DialogHeader>
+        <DialogContent
+          className={projectDialogContentClass(
+            "grid max-h-[calc(100svh-6.25rem)] w-[calc(100%-2rem)] max-w-md grid-rows-[auto_auto] rounded-[24px] sm:max-h-[calc(100vh-7.5rem)]"
+          )}
+        >
+          <DialogHeader className={projectDialogHeaderClass()}>
             <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 text-amber-700">
               <AlertTriangle className="h-5 w-5" />
             </div>
@@ -725,7 +739,7 @@ const ProjectManageDialog = ({
               Detach {teamToDetach?.name} from {project.name}?
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className={projectDialogFooterClass()}>
             <Button type="button" variant="ghost" onClick={() => setTeamToDetach(null)}>
               Cancel
             </Button>
@@ -747,8 +761,12 @@ const ProjectManageDialog = ({
       </Dialog>
 
       <Dialog open={Boolean(epicToDelete)} onOpenChange={(nextOpen) => !nextOpen && setEpicToDelete(null)}>
-        <DialogContent className="max-w-md rounded-2xl border-white/80 bg-white">
-          <DialogHeader>
+        <DialogContent
+          className={projectDialogContentClass(
+            "grid max-h-[calc(100svh-6.25rem)] w-[calc(100%-2rem)] max-w-md grid-rows-[auto_auto] rounded-[24px] sm:max-h-[calc(100vh-7.5rem)]"
+          )}
+        >
+          <DialogHeader className={projectDialogHeaderClass()}>
             <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700">
               <AlertTriangle className="h-5 w-5" />
             </div>
@@ -757,7 +775,7 @@ const ProjectManageDialog = ({
               Delete {epicToDelete?.name}? Linked work items will move to no epic.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className={projectDialogFooterClass()}>
             <Button type="button" variant="ghost" onClick={() => setEpicToDelete(null)}>
               Cancel
             </Button>
