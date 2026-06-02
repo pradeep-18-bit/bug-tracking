@@ -1132,7 +1132,7 @@ const AdminBugsPage = () => {
     return createPortal(
       <div
         data-triage-action-menu
-        className="fixed z-[9500] max-h-[calc(100vh-1.5rem)] w-[248px] overflow-y-auto rounded-xl border border-slate-200/90 bg-white/95 p-2 text-slate-700 shadow-[0_24px_70px_-34px_rgba(15,23,42,0.65)] backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-top-1"
+        className="fixed z-[45] max-h-[calc(100vh-1.5rem)] w-[248px] overflow-y-auto rounded-xl border border-slate-200/90 bg-white/95 p-2 text-slate-700 shadow-[0_24px_70px_-34px_rgba(15,23,42,0.65)] backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-top-1"
         style={{ left: actionMenu.left, top: actionMenu.top }}
       >
         <div className="space-y-1">
@@ -1873,8 +1873,6 @@ const AdminBugsPage = () => {
         canEditPriority
         canEditAssignee
         canDeleteIssue={false}
-        compactDrawer
-        contentClassName="left-0 right-0 top-16 bottom-0 h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] w-full max-w-none translate-x-0 translate-y-0 rounded-none border-y-0 border-r-0 bg-white/96 p-0 shadow-[0_30px_90px_-46px_rgba(15,23,42,0.58)] backdrop-blur-xl sm:left-auto sm:right-3 sm:top-[72px] sm:bottom-3 sm:h-[calc(100vh-84px)] sm:max-h-[calc(100vh-84px)] sm:w-[92vw] sm:max-w-[640px] sm:rounded-2xl sm:border lg:max-w-[680px]"
       />
     </div>
   );
