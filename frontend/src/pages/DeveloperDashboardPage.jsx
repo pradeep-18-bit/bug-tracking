@@ -14,7 +14,6 @@ import {
   FolderKanban,
   ListTodo,
   PauseCircle,
-  Plus,
   RefreshCcw,
   Search,
   TimerReset,
@@ -995,30 +994,33 @@ const ActivityList = ({ activity, compact = false, fallbackIssues = [], onOpenIs
 };
 
 const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, pickingId }) => (
-  <Card className="overflow-hidden border-white/70 bg-white/90 shadow-[0_22px_64px_-42px_rgba(15,23,42,0.42)] backdrop-blur-xl">
-    <CardHeader className="border-b border-slate-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(240,253,250,0.88),rgba(239,246,255,0.82))]">
+  <Card className="overflow-hidden border-cyan-100/80 bg-white/94 shadow-[0_28px_80px_-42px_rgba(8,145,178,0.5)] ring-1 ring-cyan-100/70 backdrop-blur-xl">
+    <CardHeader className="border-b border-cyan-100/90 bg-[linear-gradient(135deg,rgba(236,254,255,0.98),rgba(239,246,255,0.94),rgba(255,255,255,0.92))]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <CardTitle className="flex items-center gap-2 text-xl tracking-tight text-slate-950">
-            <FolderKanban className="h-5 w-5 text-cyan-600" />
+          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-600">
+            Primary workflow
+          </p>
+          <CardTitle className="flex items-center gap-2 text-2xl tracking-tight text-slate-950">
+            <FolderKanban className="h-6 w-6 text-cyan-600" />
             Available Bugs Queue
           </CardTitle>
-          <CardDescription>Unassigned bugs ready for developer pickup.</CardDescription>
+          <CardDescription>Pickup-ready bugs waiting for developer ownership.</CardDescription>
         </div>
-        <Pill className="border-cyan-200 bg-cyan-50 text-cyan-700">
+        <Pill className="h-8 border-cyan-200 bg-cyan-50 px-3 text-cyan-700">
           {issues.length} available
         </Pill>
       </div>
     </CardHeader>
     <CardContent className="p-4 sm:p-5">
       {isLoading ? (
-        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, index) => (
+        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
             <Skeleton key={`bucket-skeleton-${index}`} className="h-48 rounded-[18px]" />
           ))}
         </div>
       ) : issues.length ? (
-        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
           {issues.map((issue) => {
             const details = resolveBugDetails(issue);
             const canPick = issue.canPick !== false && issue.pickupEligibility?.canPick !== false;
@@ -1026,7 +1028,7 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, pickingId
             const pickLabel = pickingId === issue._id ? "Picking" : canPick ? "Pick Bug" : "Not Eligible";
 
             return (
-              <article key={issue._id} className="rounded-[18px] border border-slate-200/80 bg-white/82 p-4 shadow-sm transition hover:border-cyan-200 hover:bg-white">
+              <article key={issue._id} className="rounded-[18px] border border-cyan-100/80 bg-white/88 p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-200 hover:bg-white hover:shadow-md">
                 <div className="flex items-start justify-between gap-3">
                   <button className="min-w-0 text-left" type="button" onClick={() => onOpenIssue(issue)}>
                     <p className="font-mono text-xs font-semibold text-slate-500">
@@ -1656,29 +1658,7 @@ const DeveloperDashboardPage = () => {
 
   return (
     <div className="page-wrapper space-y-5">
-      <section className="flex snap-x gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:pb-0 xl:grid-cols-4 [&>*]:min-w-[220px] [&>*]:snap-start md:[&>*]:min-w-0">
-        {isLoading
-          ? Array.from({ length: 4 }, (_, index) => (
-              <Skeleton
-                key={`developer-stat-${index}`}
-                className="h-[132px] w-full rounded-[24px]"
-              />
-            ))
-          : statCards.map((card) => <StatCard key={card.label} {...card} />)}
-      </section>
-
       <section className="flex flex-wrap gap-3 rounded-[26px] border border-white/70 bg-white/78 p-3 shadow-sm backdrop-blur-xl">
-        <Button
-          className="h-11 rounded-2xl"
-          type="button"
-          variant="outline"
-          onClick={() =>
-            setStatusError("Developers can update assigned work here. Issue creation remains restricted by workspace permissions.")
-          }
-        >
-          <Plus className="h-4 w-4" />
-          Create Issue
-        </Button>
         <Button
           className="h-11 rounded-2xl"
           type="button"
@@ -1705,30 +1685,27 @@ const DeveloperDashboardPage = () => {
           <Flame className="h-4 w-4" />
           Priority Queue
         </Button>
-        <Button
-          className="ml-auto h-11 w-11 rounded-2xl p-0"
-          disabled={isIssuesFetching}
-          type="button"
-          variant="outline"
-          onClick={() => {
-            refetchIssues();
-            refetchBucket();
-          }}
-        >
-          <RefreshCcw className={cn("h-4 w-4", isIssuesFetching && "animate-spin")} />
-        </Button>
       </section>
 
-      <BugStatusAnalytics issues={bugIssues} />
+      <BugBucketPanel
+        issues={bucketIssues}
+        isLoading={isBucketLoading}
+        pickingId={pickMutation.isPending ? pickMutation.variables?._id : ""}
+        onOpenIssue={setSelectedIssue}
+        onPickIssue={(issue) => pickMutation.mutate(issue)}
+      />
 
       <section className="space-y-5">
-          <BugBucketPanel
-            issues={bucketIssues}
-            isLoading={isBucketLoading}
-            pickingId={pickMutation.isPending ? pickMutation.variables?._id : ""}
-            onOpenIssue={setSelectedIssue}
-            onPickIssue={(issue) => pickMutation.mutate(issue)}
-          />
+          <section className="flex snap-x gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:pb-0 xl:grid-cols-4 [&>*]:min-w-[220px] [&>*]:snap-start md:[&>*]:min-w-0">
+            {isLoading
+              ? Array.from({ length: 4 }, (_, index) => (
+                  <Skeleton
+                    key={`developer-stat-${index}`}
+                    className="h-[132px] w-full rounded-[24px]"
+                  />
+                ))
+              : statCards.map((card) => <StatCard key={card.label} {...card} />)}
+          </section>
 
           <Card className="overflow-hidden border-white/70 bg-white/90 shadow-[0_22px_64px_-42px_rgba(15,23,42,0.42)] backdrop-blur-xl">
             <CardHeader className="border-b border-slate-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(239,246,255,0.9),rgba(240,253,250,0.78))]">
@@ -1742,33 +1719,47 @@ const DeveloperDashboardPage = () => {
                   </CardDescription>
                 </div>
 
-                <div className="grid grid-cols-2 gap-1 rounded-[22px] border border-white/80 bg-slate-100/80 p-1 shadow-inner sm:w-auto">
-                  {TABS.map(({ id, label, Icon }) => {
-                    const active = activeTab === id;
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="grid grid-cols-2 gap-1 rounded-[22px] border border-white/80 bg-slate-100/80 p-1 shadow-inner sm:w-auto">
+                    {TABS.map(({ id, label, Icon }) => {
+                      const active = activeTab === id;
 
-                    return (
-                      <button
-                        key={id}
-                        className={cn(
-                          "inline-flex h-11 items-center justify-center gap-2 rounded-[18px] px-4 text-sm font-semibold transition-all duration-300",
-                          active
-                            ? "bg-[linear-gradient(90deg,#2563EB_0%,#7C3AED_55%,#0891B2_100%)] text-white shadow-[0_14px_28px_-18px_rgba(37,99,235,0.8)]"
-                            : "text-slate-600 hover:bg-white/80 hover:text-slate-950"
-                        )}
-                        type="button"
-                        onClick={() => {
-                          setActiveTab(id);
-                          setFilters((current) => ({
-                            ...current,
-                            status: "all",
-                          }));
-                        }}
-                      >
-                        <Icon className="h-4 w-4" />
-                        {label}
-                      </button>
-                    );
-                  })}
+                      return (
+                        <button
+                          key={id}
+                          className={cn(
+                            "inline-flex h-11 items-center justify-center gap-2 rounded-[18px] px-4 text-sm font-semibold transition-all duration-300",
+                            active
+                              ? "bg-[linear-gradient(90deg,#2563EB_0%,#7C3AED_55%,#0891B2_100%)] text-white shadow-[0_14px_28px_-18px_rgba(37,99,235,0.8)]"
+                              : "text-slate-600 hover:bg-white/80 hover:text-slate-950"
+                          )}
+                          type="button"
+                          onClick={() => {
+                            setActiveTab(id);
+                            setFilters((current) => ({
+                              ...current,
+                              status: "all",
+                            }));
+                          }}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    className="h-11 w-11 rounded-2xl p-0"
+                    disabled={isIssuesFetching}
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      refetchIssues();
+                      refetchBucket();
+                    }}
+                  >
+                    <RefreshCcw className={cn("h-4 w-4", isIssuesFetching && "animate-spin")} />
+                  </Button>
                 </div>
               </div>
             </CardHeader>
@@ -1985,6 +1976,8 @@ const DeveloperDashboardPage = () => {
             </Card>
           </section>
       </section>
+
+      <BugStatusAnalytics issues={bugIssues} />
 
       <Dialog open={isPriorityOpen} onOpenChange={setIsPriorityOpen}>
         <DialogContent className="max-w-6xl border-white/70 bg-white/95 p-5 shadow-[0_30px_90px_-48px_rgba(15,23,42,0.5)] backdrop-blur-xl sm:p-6">
