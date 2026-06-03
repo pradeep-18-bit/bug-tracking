@@ -21,6 +21,7 @@ const {
   sendIssueEmail,
 } = require("../services/emailService");
 const { scheduleIssueStateNotifications } = require("../services/sprintNotificationService");
+const { emitBugWorkflowEvent } = require("../socket");
 const asyncHandler = require("../utils/asyncHandler");
 const { recordIssueHistory } = require("../utils/issueHistory");
 const {
@@ -579,6 +580,60 @@ const logIssuePayloadReceipt = (action, req) => {
   });
 };
 
+const getIssueWorkspaceId = async (issue, fallbackWorkspaceId = "") => {
+  if (issue?.projectId && typeof issue.projectId === "object" && issue.projectId.workspaceId) {
+    return normalizeWorkspaceId(issue.projectId.workspaceId);
+  }
+
+  if (issue?.projectId) {
+    const project = await Project.findById(issue.projectId).select("workspaceId").lean();
+
+    if (project?.workspaceId) {
+      return normalizeWorkspaceId(project.workspaceId);
+    }
+  }
+
+  return normalizeWorkspaceId(fallbackWorkspaceId);
+};
+
+const emitIssueWorkflowChange = async ({
+  issue,
+  req,
+  eventName = "BugUpdated",
+  action = "",
+  meta = {},
+}) => {
+  if (!issue || !isBugType(issue.type)) {
+    return;
+  }
+
+  emitBugWorkflowEvent({
+    workspaceId: await getIssueWorkspaceId(issue, req?.user?.workspaceId),
+    eventName,
+    bug: serializeIssue(issue),
+    actor: req?.user || null,
+    action,
+    meta,
+  });
+};
+
+const buildActivityLogEntry = ({
+  action,
+  from = null,
+  to = null,
+  by = null,
+  time = new Date(),
+  meta = {},
+}) => ({
+  action,
+  from,
+  to,
+  by: by?.role || by?.name || by?.email || by || "",
+  userId: by?._id || by?.id || null,
+  time,
+  ...meta,
+});
+
 const parseOptionalDateInput = (value, label) => {
   if (value === null || value === "" || typeof value === "undefined") {
     return {
@@ -857,6 +912,10 @@ const validateBugTransition = ({ user, fromStatus, toStatus, payload }) => {
     return "";
   }
 
+  if (isLeadRole(user?.role)) {
+    return "";
+  }
+
   const allowedTargets = BUG_ALLOWED_TRANSITIONS[fromStatus] || [];
 
   if (!allowedTargets.includes(toStatus)) {
@@ -883,10 +942,6 @@ const validateBugTransition = ({ user, fromStatus, toStatus, payload }) => {
     !toTrimmedString(getBugPayloadValue(payload, "targetRelease", ["futureRelease"]))
   ) {
     return "Deferred requires a target future release";
-  }
-
-  if (isLeadRole(user?.role)) {
-    return "";
   }
 
   if (isQaRole(user?.role)) {
@@ -1883,10 +1938,22 @@ const pickIssue = asyncHandler(async (req, res) => {
     {
       $set: {
         assignee: req.user._id,
+        assignedDeveloperId: req.user._id,
+        assignedDeveloperName: req.user.name || req.user.email || "Assigned developer",
         "bugDetails.developerLead": req.user._id,
         "bugDetails.addToBucket": false,
-        status: BUG_STATUS.ASSIGNED,
+        status: BUG_STATUS.IN_PROGRESS,
         updatedAt: new Date(),
+        updatedBy: req.user._id,
+        startedAt: new Date(),
+      },
+      $push: {
+        activityLogs: buildActivityLogEntry({
+          action: "BUG_PICKED",
+          from: previousStatus,
+          to: BUG_STATUS.IN_PROGRESS,
+          by: req.user,
+        }),
       },
     },
     {
@@ -1908,7 +1975,7 @@ const pickIssue = asyncHandler(async (req, res) => {
       eventType: "BUG_STATUS_CHANGED",
       field: "status",
       fromValue: previousStatus,
-      toValue: BUG_STATUS.ASSIGNED,
+      toValue: BUG_STATUS.IN_PROGRESS,
       meta: {
         title: pickedIssue.title,
         action: "self_pick",
@@ -1933,6 +2000,17 @@ const pickIssue = asyncHandler(async (req, res) => {
     issue: pickedIssue,
     actorUser: req.user,
     workspaceId: normalizeWorkspaceId(project.workspaceId || req.user.workspaceId),
+  });
+
+  await emitIssueWorkflowChange({
+    issue: pickedIssue,
+    req,
+    eventName: "BugPicked",
+    action: "BUG_PICKED",
+    meta: {
+      fromStatus: previousStatus,
+      toStatus: BUG_STATUS.IN_PROGRESS,
+    },
   });
 
   res.status(200).json({
@@ -2683,6 +2761,11 @@ const createIssue = asyncHandler(async (req, res) => {
     status: statusResult.value,
     priority: normalizedPriority || priority,
     assignee: assignLater ? null : assigneeId || null,
+    assignedDeveloperId: isBug && !assignLater ? assigneeId || null : null,
+    assignedDeveloperName:
+      isBug && !assignLater
+        ? bugAssignmentDeveloperUser?.name || bugAssignmentDeveloperUser?.email || ""
+        : "",
     reporter: req.user._id,
     projectId,
     teamId,
@@ -2693,6 +2776,20 @@ const createIssue = asyncHandler(async (req, res) => {
     bugDetails,
     planningOrder,
     startedAt: isInProgressIssueStatus(statusResult.value) ? new Date() : null,
+    updatedBy: req.user._id,
+    activityLogs: isBug
+      ? [
+          buildActivityLogEntry({
+            action: "BUG_CREATED",
+            from: null,
+            to: statusResult.value,
+            by: req.user,
+            meta: {
+              priority: normalizedPriority || priority,
+            },
+          }),
+        ]
+      : [],
   });
 
   await populateIssueDocument(issue);
@@ -2767,6 +2864,13 @@ const createIssue = asyncHandler(async (req, res) => {
       }
     }
   }
+
+  await emitIssueWorkflowChange({
+    issue,
+    req,
+    eventName: "BugCreated",
+    action: "BUG_CREATED",
+  });
 
   res.status(201).json({
     ...serializeIssue(issue),
@@ -3362,8 +3466,77 @@ const updateIssue = asyncHandler(async (req, res) => {
     issue.bugDetails = {};
   }
 
-  if (changeEntries.some((entry) => String(entry.fromValue || "") !== String(entry.toValue || ""))) {
+  const meaningfulChangeEntries = changeEntries.filter(
+    (entry) => String(entry.fromValue || "") !== String(entry.toValue || "")
+  );
+  const preSaveStatusChangeEntry = meaningfulChangeEntries.find(
+    (entry) => entry.field === "status"
+  );
+
+  if (nextIsBug) {
+    const assignedDeveloperId = getUserIdString(issue.bugDetails?.developerLead || issue.assignee);
+
+    if (assignedDeveloperId) {
+      const assignedDeveloper =
+        nextDeveloperLeadUser ||
+        (await User.findById(assignedDeveloperId).select("_id name email").lean());
+
+      issue.assignedDeveloperId = assignedDeveloperId;
+      issue.assignedDeveloperName =
+        assignedDeveloper?.name || assignedDeveloper?.email || issue.assignedDeveloperName || "";
+    } else {
+      issue.assignedDeveloperId = null;
+      issue.assignedDeveloperName = "";
+    }
+  } else if (isBugType(previousType) && !nextIsBug) {
+    issue.assignedDeveloperId = null;
+    issue.assignedDeveloperName = "";
+  }
+
+  if (meaningfulChangeEntries.length) {
     issue.updatedAt = new Date();
+    issue.updatedBy = req.user._id;
+    issue.activityLogs = issue.activityLogs || [];
+
+    meaningfulChangeEntries.forEach((entry) => {
+      const action =
+        isBugType(issue.type) && entry.field === "status"
+          ? "STATUS_CHANGED"
+          : entry.field === "priority"
+            ? "PRIORITY_CHANGED"
+            : ["assignee", "bugDetails.developerLead"].includes(entry.field)
+              ? "ASSIGNED"
+              : "UPDATED";
+
+      issue.activityLogs.push(
+        buildActivityLogEntry({
+          action,
+          from: entry.fromValue,
+          to: entry.toValue,
+          by: req.user,
+          meta: {
+            field: entry.field,
+          },
+        })
+      );
+    });
+
+    if (
+      isBugType(issue.type) &&
+      preSaveStatusChangeEntry?.toValue === BUG_STATUS.CLOSED
+    ) {
+      issue.closedBy = req.user._id;
+      issue.closedAt = issue.closedAt || issue.updatedAt;
+    }
+
+    if (
+      isBugType(issue.type) &&
+      preSaveStatusChangeEntry?.toValue === BUG_STATUS.REOPEN
+    ) {
+      issue.reopenedCount = Number(issue.reopenedCount || 0) + 1;
+      issue.closedBy = null;
+      issue.closedAt = null;
+    }
   }
 
   await issue.save();
@@ -3387,8 +3560,7 @@ const updateIssue = asyncHandler(async (req, res) => {
   }
 
   await Promise.all(
-    changeEntries
-      .filter((entry) => String(entry.fromValue || "") !== String(entry.toValue || ""))
+    meaningfulChangeEntries
       .map((entry) =>
         recordIssueHistory({
           issueId: issue._id,
@@ -3442,6 +3614,48 @@ const updateIssue = asyncHandler(async (req, res) => {
     console.error("[sprint-notifications] issue update notification evaluation failed", {
       issueId: String(issue._id),
       message: error.message,
+    });
+  }
+
+  if (isBugType(issue.type) && meaningfulChangeEntries.length) {
+    const statusChanged = Boolean(statusChangeEntry);
+    const priorityChanged = meaningfulChangeEntries.some((entry) => entry.field === "priority");
+    const assignedChanged = meaningfulChangeEntries.some((entry) =>
+      ["assignee", "bugDetails.developerLead"].includes(entry.field)
+    );
+    const toStatus = statusChangeEntry?.toValue || "";
+    const eventName =
+      toStatus === BUG_STATUS.CLOSED
+        ? "BugClosed"
+        : toStatus === BUG_STATUS.REOPEN
+          ? "BugReopened"
+          : assignedChanged
+            ? "BugAssigned"
+            : statusChanged
+              ? "BugStatusChanged"
+              : priorityChanged
+                ? "BugPriorityChanged"
+                : "BugUpdated";
+
+    await emitIssueWorkflowChange({
+      issue,
+      req,
+      eventName,
+      action:
+        toStatus === BUG_STATUS.CLOSED
+          ? "BUG_CLOSED"
+          : toStatus === BUG_STATUS.REOPEN
+            ? "BUG_REOPENED"
+            : assignedChanged
+              ? "BUG_ASSIGNED"
+              : statusChanged
+                ? "BUG_STATUS_CHANGED"
+                : priorityChanged
+                  ? "BUG_PRIORITY_CHANGED"
+                  : "BUG_UPDATED",
+      meta: {
+        changedFields: meaningfulChangeEntries.map((entry) => entry.field),
+      },
     });
   }
 

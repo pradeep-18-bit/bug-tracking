@@ -167,6 +167,17 @@ const issueSchema = new Schema(
       default: null,
       index: true,
     },
+    assignedDeveloperId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    assignedDeveloperName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     reporter: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -223,6 +234,35 @@ const issueSchema = new Schema(
     startedAt: {
       type: Date,
       default: null,
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    closedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    closedAt: {
+      type: Date,
+      default: null,
+    },
+    reopenedCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    activityLogs: {
+      type: [Schema.Types.Mixed],
+      default: [],
+    },
+    comments: {
+      type: [Schema.Types.Mixed],
+      default: [],
     },
   },
   {

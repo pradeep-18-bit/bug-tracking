@@ -12,6 +12,7 @@ const { normalizeWorkspaceId } = require("./utils/workspace");
 
 const onlineUsersByWorkspace = new Map();
 const socketUsers = new Map();
+let socketServer = null;
 
 const getAllowedOrigins = () => {
   const configuredOrigins = [
@@ -28,6 +29,8 @@ const getAllowedOrigins = () => {
 };
 
 const roomName = (conversationId) => `conversation:${conversationId}`;
+const workspaceRoomName = (workspaceId) =>
+  `workspace:${normalizeWorkspaceId(workspaceId)}`;
 
 const addOnlineUser = (user, socketId) => {
   const workspaceId = normalizeWorkspaceId(user.workspaceId);
@@ -130,11 +133,13 @@ const setupChatSocket = (server) => {
     },
     transports: ["websocket", "polling"],
   });
+  socketServer = io;
 
   io.use(authenticateSocket);
 
   io.on("connection", async (socket) => {
     addOnlineUser(socket.user, socket.id);
+    socket.join(workspaceRoomName(socket.user.workspaceId));
     emitOnlineUsers(io, socket.user.workspaceId);
 
     const joinConversation = async (conversationId, callback) => {
@@ -292,7 +297,43 @@ const setupChatSocket = (server) => {
   return io;
 };
 
+const emitWorkspaceEvent = (workspaceId, eventName, payload = {}) => {
+  if (!socketServer || !workspaceId || !eventName) {
+    return false;
+  }
+
+  socketServer.to(workspaceRoomName(workspaceId)).emit(eventName, payload);
+  return true;
+};
+
+const emitBugWorkflowEvent = ({
+  workspaceId,
+  eventName = "BugUpdated",
+  bug = null,
+  issue = null,
+  action = "",
+  actor = null,
+  meta = {},
+}) =>
+  emitWorkspaceEvent(workspaceId, eventName, {
+    action,
+    bug: bug || issue || null,
+    issue: issue || bug || null,
+    actor: actor
+      ? {
+          _id: actor._id || actor.id || null,
+          name: actor.name || "",
+          email: actor.email || "",
+          role: actor.role || "",
+        }
+      : null,
+    meta,
+    emittedAt: new Date().toISOString(),
+  });
+
 module.exports = {
+  emitBugWorkflowEvent,
+  emitWorkspaceEvent,
   getOnlineUsers,
   setupChatSocket,
 };

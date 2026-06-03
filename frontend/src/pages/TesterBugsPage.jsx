@@ -69,6 +69,7 @@ const BUG_PROGRESS = {
   [ISSUE_STATUS.ASSIGNED]: 48,
   [ISSUE_STATUS.IN_PROGRESS]: 56,
   [ISSUE_STATUS.FIXED]: 78,
+  [ISSUE_STATUS.TESTING]: 88,
   [ISSUE_STATUS.QA]: 84,
   [ISSUE_STATUS.REOPEN]: 38,
   [ISSUE_STATUS.CLOSED]: 100,
@@ -179,7 +180,7 @@ const BugReviewCard = ({
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const currentStatus = normalizeBugStatusForIssue(issue);
-  const canQaAct = currentStatus === ISSUE_STATUS.FIXED;
+  const canQaAct = [ISSUE_STATUS.FIXED, ISSUE_STATUS.TESTING].includes(currentStatus);
   const progress = getBugProgress(issue);
 
   const handleDeleteClick = () => {

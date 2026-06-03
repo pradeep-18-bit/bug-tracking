@@ -2,8 +2,14 @@ const mongoose = require("mongoose");
 const Comment = require("../models/Comment");
 const Issue = require("../models/Issue");
 const Project = require("../models/Project");
+const { emitBugWorkflowEvent } = require("../socket");
 const asyncHandler = require("../utils/asyncHandler");
 const { recordIssueHistory } = require("../utils/issueHistory");
+const {
+  populateIssueDocument,
+  serializeIssue,
+} = require("../utils/issuePresentation");
+const { ISSUE_TYPES, getCanonicalIssueType } = require("../utils/issueTypes");
 const { buildProjectAccessQuery } = require("../utils/projectRelations");
 const { hasAdminAccess } = require("../utils/roles");
 const { normalizeWorkspaceId } = require("../utils/workspace");
@@ -77,6 +83,24 @@ const createComment = asyncHandler(async (req, res) => {
     comment: text.trim(),
   });
   issue.updatedAt = new Date();
+  issue.updatedBy = req.user._id;
+  issue.comments = issue.comments || [];
+  issue.activityLogs = issue.activityLogs || [];
+  issue.comments.push({
+    _id: comment._id,
+    text: comment.comment,
+    by: req.user.role || req.user.name || req.user.email || "",
+    userId: req.user._id,
+    time: comment.createdAt,
+  });
+  issue.activityLogs.push({
+    action: "COMMENT_ADDED",
+    from: null,
+    to: comment.comment,
+    by: req.user.role || req.user.name || req.user.email || "",
+    userId: req.user._id,
+    time: new Date(),
+  });
   await Promise.all([
     issue.save(),
     recordIssueHistory({
@@ -94,6 +118,20 @@ const createComment = asyncHandler(async (req, res) => {
   ]);
 
   await comment.populate("userId", "name email role");
+
+  if (getCanonicalIssueType(issue.type, "") === ISSUE_TYPES.BUG) {
+    await populateIssueDocument(issue);
+    emitBugWorkflowEvent({
+      workspaceId: normalizeWorkspaceId(req.user.workspaceId),
+      eventName: "CommentAdded",
+      bug: serializeIssue(issue),
+      actor: req.user,
+      action: "COMMENT_ADDED",
+      meta: {
+        commentId: comment._id,
+      },
+    });
+  }
 
   res.status(201).json(comment);
 });

@@ -17,6 +17,8 @@ const issuePopulation = [
   { path: "teamId", select: "name description workspaceId" },
   { path: "epicId", select: "name color status planningOrder" },
   { path: "sprintId", select: "name state startDate endDate teamId startedAt completedAt" },
+  { path: "updatedBy", select: "name email role" },
+  { path: "closedBy", select: "name email role" },
 ];
 
 const populateIssueQuery = (query) => query.populate(issuePopulation);
@@ -49,6 +51,14 @@ const serializeIssue = (issue) => {
     status: getCanonicalIssueStatus(serializedIssue.status, ISSUE_STATUS.TODO),
     dependsOnIssueId: dependencyIssue,
     assigneeId: assigneeReference ? String(assigneeReference) : null,
+    assignedDeveloperId: serializedIssue.assignedDeveloperId
+      ? String(serializedIssue.assignedDeveloperId)
+      : null,
+    assignedDeveloperName:
+      serializedIssue.assignedDeveloperName ||
+      serializedIssue.bugDetails?.developerLead?.name ||
+      serializedIssue.assignee?.name ||
+      "",
   };
 };
 
