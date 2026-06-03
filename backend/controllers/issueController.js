@@ -3476,6 +3476,10 @@ const updateIssue = asyncHandler(async (req, res) => {
   if (nextIsBug) {
     const assignedDeveloperId = getUserIdString(issue.bugDetails?.developerLead || issue.assignee);
 
+    if (previousBugDeveloperId !== assignedDeveloperId) {
+      issue.previousAssignedDeveloperId = previousBugDeveloperId || null;
+    }
+
     if (assignedDeveloperId) {
       const assignedDeveloper =
         nextDeveloperLeadUser ||
@@ -3499,13 +3503,16 @@ const updateIssue = asyncHandler(async (req, res) => {
     issue.activityLogs = issue.activityLogs || [];
 
     meaningfulChangeEntries.forEach((entry) => {
+      const isAssignmentField = ["assignee", "bugDetails.developerLead"].includes(entry.field);
       const action =
         isBugType(issue.type) && entry.field === "status"
           ? "STATUS_CHANGED"
           : entry.field === "priority"
             ? "PRIORITY_CHANGED"
-            : ["assignee", "bugDetails.developerLead"].includes(entry.field)
-              ? "ASSIGNED"
+            : isAssignmentField && previousBugDeveloperId && nextBugDeveloperId && previousBugDeveloperId !== nextBugDeveloperId
+              ? "REASSIGNED"
+              : isAssignmentField
+                ? "ASSIGNED"
               : "UPDATED";
 
       issue.activityLogs.push(
@@ -3623,12 +3630,19 @@ const updateIssue = asyncHandler(async (req, res) => {
     const assignedChanged = meaningfulChangeEntries.some((entry) =>
       ["assignee", "bugDetails.developerLead"].includes(entry.field)
     );
+    const reassigned =
+      assignedChanged &&
+      Boolean(previousBugDeveloperId) &&
+      Boolean(nextBugDeveloperId) &&
+      previousBugDeveloperId !== nextBugDeveloperId;
     const toStatus = statusChangeEntry?.toValue || "";
     const eventName =
       toStatus === BUG_STATUS.CLOSED
         ? "BugClosed"
         : toStatus === BUG_STATUS.REOPEN
           ? "BugReopened"
+          : reassigned
+            ? "BugReassigned"
           : assignedChanged
             ? "BugAssigned"
             : statusChanged
@@ -3646,6 +3660,8 @@ const updateIssue = asyncHandler(async (req, res) => {
           ? "BUG_CLOSED"
           : toStatus === BUG_STATUS.REOPEN
             ? "BUG_REOPENED"
+            : reassigned
+              ? "BUG_REASSIGNED"
             : assignedChanged
               ? "BUG_ASSIGNED"
               : statusChanged
@@ -3655,6 +3671,8 @@ const updateIssue = asyncHandler(async (req, res) => {
                   : "BUG_UPDATED",
       meta: {
         changedFields: meaningfulChangeEntries.map((entry) => entry.field),
+        previousAssignedDeveloperId: previousBugDeveloperId || null,
+        assignedDeveloperId: nextBugDeveloperId || null,
       },
     });
   }

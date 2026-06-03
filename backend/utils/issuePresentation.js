@@ -54,6 +54,9 @@ const serializeIssue = (issue) => {
     assignedDeveloperId: serializedIssue.assignedDeveloperId
       ? String(serializedIssue.assignedDeveloperId)
       : null,
+    previousAssignedDeveloperId: serializedIssue.previousAssignedDeveloperId
+      ? String(serializedIssue.previousAssignedDeveloperId)
+      : null,
     assignedDeveloperName:
       serializedIssue.assignedDeveloperName ||
       serializedIssue.bugDetails?.developerLead?.name ||

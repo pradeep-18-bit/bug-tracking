@@ -178,6 +178,12 @@ const issueSchema = new Schema(
       trim: true,
       default: "",
     },
+    previousAssignedDeveloperId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
     reporter: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
