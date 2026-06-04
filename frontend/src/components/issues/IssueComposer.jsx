@@ -20,7 +20,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   BUG_PRIORITY_OPTIONS,
-  BUG_CATEGORY_OPTIONS,
   BUG_MODULE_OPTIONS,
   BUG_PLATFORM_OPTIONS,
   BUG_SEVERITY_OPTIONS,
@@ -31,6 +30,7 @@ import {
   ISSUE_WORKFLOW_STATUS_OPTIONS,
   getSuggestedTeamForCategory,
 } from "@/lib/issues";
+import BugCategorySelect from "@/components/issues/BugCategorySelect";
 import { fetchModuleOwnerships, fetchProjectTeams, logTeamSelectionDebug } from "@/lib/api";
 import {
   findProjectById,
@@ -758,29 +758,21 @@ const IssueComposer = ({
 
             <label className="space-y-2">
               <span className="text-sm font-medium text-gray-700">Bug Category</span>
-              <select
-                className="field-select"
+              <BugCategorySelect
                 value={formData.bugDetails.category}
-                onChange={(event) => {
-                  const suggestedTeam = getSuggestedTeamForCategory(event.target.value);
+                onChange={(category) => {
+                  const suggestedTeam = getSuggestedTeamForCategory(category);
 
                   setFormData((current) => ({
                     ...current,
                     bugDetails: {
                       ...current.bugDetails,
-                      category: event.target.value,
+                      category,
                       suggestedTeam,
                     },
                   }));
                 }}
-              >
-                <option value="">Select category</option>
-                {BUG_CATEGORY_OPTIONS.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
 
             <label className="space-y-2">
