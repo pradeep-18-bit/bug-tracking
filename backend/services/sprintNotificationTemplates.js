@@ -54,7 +54,7 @@ const buildSprintStartedAssigneeEmail = (payload = {}) => {
   const issues = Array.isArray(payload?.issues) ? payload.issues : [];
 
   return {
-    subject: `Your sprint work has started: ${sprintName}`,
+    subject: `Sprint Started - New Assigned Work Items: ${sprintName}`,
     html: `
       <div style="font-family: Arial, sans-serif; padding: 20px;">
         <h2 style="color: #2563EB;">Sprint work has started</h2>

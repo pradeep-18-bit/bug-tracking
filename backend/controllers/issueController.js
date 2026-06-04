@@ -14,12 +14,6 @@ const User = require("../models/User");
 const IssueAttachment = require("../models/IssueAttachment");
 const IssueWorklog = require("../models/IssueWorklog");
 const SprintNotification = require("../models/SprintNotification");
-const {
-  TESTER_SMTP_REQUIRED_MESSAGE,
-  ensureUserSmtpConfigured,
-  sendBugAssignmentEmail,
-  sendIssueEmail,
-} = require("../services/emailService");
 const { scheduleIssueStateNotifications } = require("../services/sprintNotificationService");
 const { emitBugWorkflowEvent } = require("../socket");
 const asyncHandler = require("../utils/asyncHandler");
@@ -46,6 +40,10 @@ const {
   isValidIssueType,
 } = require("../utils/issueTypes");
 const { getNextPlanningOrder } = require("../utils/planningOrder");
+const {
+  applyActiveSprintVisibilityToIssueQuery,
+  isIssueInActiveSprint,
+} = require("../utils/sprintVisibility");
 const {
   buildClosedIssueCondition,
   buildCriticalIssueCondition,
@@ -348,218 +346,7 @@ const resolveAssigneeFilterInput = (payload = {}) => {
   return undefined;
 };
 
-const buildIssueCreatedEmailPayload = (issue) => ({
-  _id: String(issue._id),
-  displayBugId: issue.displayBugId || "",
-  title: issue.title,
-  description: issue.description || "",
-  projectName: issue.projectId?.name || "Unknown project",
-  assigneeName: issue.assignee?.name || "Unassigned",
-  priority: issue.priority || "Medium",
-  status: getCanonicalIssueStatus(issue.status, ISSUE_STATUS.TODO),
-  createdAt: issue.createdAt,
-  dueDate: issue.dueAt || null,
-});
-
-const getIssueNotificationEmails = (issue) =>
-  [
-    issue?.assignee?.email || null,
-    // If we want to notify the reporter later, add issue?.reporter?.email here.
-  ]
-    .map((email) => (email ? String(email).trim().toLowerCase() : null))
-    .filter(Boolean)
-    .filter((email, index, emails) => emails.indexOf(email) === index);
-
-const normalizeNotificationEmail = (email) =>
-  email ? String(email).trim().toLowerCase() : "";
-
 const getUserIdString = (user) => String(user?._id || user?.id || user || "");
-
-const resolveBugDeveloperUser = (issue) => {
-  const developerLead = issue?.bugDetails?.developerLead;
-
-  if (developerLead && typeof developerLead === "object") {
-    return developerLead;
-  }
-
-  if (issue?.assignee && typeof issue.assignee === "object") {
-    return issue.assignee;
-  }
-
-  return null;
-};
-
-const getBugDeveloperEmail = (issue) =>
-  normalizeNotificationEmail(resolveBugDeveloperUser(issue)?.email);
-
-const hasBugDeveloperAssignment = (issue) =>
-  Boolean(getUserIdString(issue?.bugDetails?.developerLead));
-
-const getBugTesterOwnerId = (issue) =>
-  getUserIdString(issue?.bugDetails?.testerOwner);
-
-const buildBugAssignmentEmailPayload = (issue, actorUser) => {
-  const developerUser = resolveBugDeveloperUser(issue);
-
-  return {
-    _id: String(issue._id),
-    displayBugId: issue.displayBugId || "",
-    title: issue.title,
-    description: issue.description || "N/A",
-    projectName: issue.projectId?.name || "Unknown project",
-    severity: issue.bugDetails?.severity || "N/A",
-    priority: issue.priority || "N/A",
-    assigneeName:
-      developerUser?.name || developerUser?.email || "Assigned developer",
-    assignedByName:
-      actorUser?.name || actorUser?.email || "Tester",
-    assignedByEmail: actorUser?.email || "",
-    createdAt: issue.createdAt,
-  };
-};
-
-const logBugAssignmentEmailEvent = (level, payload = {}) => {
-  const logger =
-    level === "error"
-      ? console.error
-      : level === "warn"
-        ? console.warn
-        : console.info;
-
-  logger("[issues] Bug assignment email", {
-    bugId: payload.bugId || "",
-    senderUserId: payload.senderUserId || "",
-    senderEmail: payload.senderEmail || "",
-    receiverDeveloperEmail: payload.receiverDeveloperEmail || "",
-    smtpProvider: payload.smtpProvider || "",
-    sendStatus: payload.sendStatus || "",
-    ...(payload.message ? { message: payload.message } : {}),
-    ...(payload.senderSource ? { senderSource: payload.senderSource } : {}),
-  });
-};
-
-const ensureTesterBugAssignmentSmtpConfigured = async ({
-  user,
-  workspaceId,
-  receiverDeveloperEmail = "",
-}) => {
-  const senderUserId = getUserIdString(user);
-  const senderEmail = user?.email || "";
-
-  try {
-    const senderConfig = await ensureUserSmtpConfigured({
-      userId: senderUserId,
-      workspaceId,
-      sourceLabel: "Tester personal sender",
-      message: TESTER_SMTP_REQUIRED_MESSAGE,
-    });
-
-    logBugAssignmentEmailEvent("info", {
-      bugId: "pending",
-      senderUserId,
-      senderEmail,
-      receiverDeveloperEmail,
-      smtpProvider: senderConfig.config?.host || "",
-      sendStatus: "ready",
-    });
-
-    return senderConfig;
-  } catch (error) {
-    logBugAssignmentEmailEvent("warn", {
-      bugId: "pending",
-      senderUserId,
-      senderEmail,
-      receiverDeveloperEmail,
-      smtpProvider: "",
-      sendStatus: "blocked",
-      message: error.fallbackReason || error.message,
-    });
-
-    throw error;
-  }
-};
-
-const sendBugAssignmentNotification = async ({
-  issue,
-  actorUser,
-  workspaceId,
-  strictTesterSender = false,
-}) => {
-  const receiverDeveloperEmail = getBugDeveloperEmail(issue);
-  const senderUserId = getUserIdString(actorUser);
-  const senderEmail = actorUser?.email || "";
-  const bugId = String(issue?.displayBugId || issue?._id || "");
-
-  if (!receiverDeveloperEmail) {
-    logBugAssignmentEmailEvent("info", {
-      bugId,
-      senderUserId,
-      senderEmail,
-      receiverDeveloperEmail: "",
-      smtpProvider: "",
-      sendStatus: "skipped",
-      message: "Assigned developer email is missing.",
-    });
-
-    return {
-      type: "bug_assignment",
-      status: "skipped",
-      reason: "missing_developer_email",
-    };
-  }
-
-  try {
-    const emailResult = await sendBugAssignmentEmail(
-      [receiverDeveloperEmail],
-      buildBugAssignmentEmailPayload(issue, actorUser),
-      {
-        creatorUserId: senderUserId,
-        senderUserId,
-        preferredSenderUserId: getBugTesterOwnerId(issue) || senderUserId,
-        strictSenderUserId: strictTesterSender ? senderUserId : null,
-        workspaceId,
-      }
-    );
-
-    logBugAssignmentEmailEvent("info", {
-      bugId,
-      senderUserId,
-      senderEmail,
-      receiverDeveloperEmail,
-      smtpProvider: emailResult?.smtpProvider || "",
-      sendStatus: "sent",
-      senderSource: emailResult?.senderSource || "",
-    });
-
-    return {
-      type: "bug_assignment",
-      status: "sent",
-      receiverDeveloperEmail,
-      senderEmail,
-      senderSource: emailResult?.senderSource || "",
-      smtpProvider: emailResult?.smtpProvider || "",
-    };
-  } catch (error) {
-    logBugAssignmentEmailEvent("error", {
-      bugId,
-      senderUserId,
-      senderEmail,
-      receiverDeveloperEmail,
-      smtpProvider: error.smtpProvider || "",
-      sendStatus: "failed",
-      senderSource: error.senderSource || "",
-      message: error.message,
-    });
-
-    return {
-      type: "bug_assignment",
-      status: "failed",
-      receiverDeveloperEmail,
-      senderEmail,
-      message: error.message,
-    };
-  }
-};
 
 const logIssuePayloadReceipt = (action, req) => {
   if (process.env.NODE_ENV === "production") {
@@ -1414,7 +1201,7 @@ const applyListOptions = (queryBuilder, req) => {
 const buildIssueQueryFromRequest = async (
   req,
   res,
-  { forceOwnAssignee = false } = {}
+  { forceOwnAssignee = false, activeSprintOnly = false } = {}
 ) => {
   const accessibleProjectIds = await getAccessibleProjectIds(req.user);
   const query = {
@@ -1682,6 +1469,9 @@ const buildIssueQueryFromRequest = async (
 
   if (forceOwnAssignee) {
     addPersonalIssueAccessQuery(query, req.user);
+    if (activeSprintOnly) {
+      await applyActiveSprintVisibilityToIssueQuery(query, Sprint);
+    }
     return query;
   }
 
@@ -1713,6 +1503,10 @@ const buildIssueQueryFromRequest = async (
     addPersonalIssueAccessQuery(query, req.user);
   }
 
+  if (activeSprintOnly) {
+    await applyActiveSprintVisibilityToIssueQuery(query, Sprint);
+  }
+
   return query;
 };
 
@@ -1724,7 +1518,10 @@ const getIssues = asyncHandler(async (req, res) => {
 });
 
 const getIssueStats = asyncHandler(async (req, res) => {
-  const query = await buildIssueQueryFromRequest(req, res);
+  const query = await buildIssueQueryFromRequest(req, res, {
+    forceOwnAssignee: isDevRole(req.user?.role),
+    activeSprintOnly: isDevRole(req.user?.role),
+  });
   const issues = await Issue.find(query)
     .select("status priority")
     .lean();
@@ -1767,6 +1564,7 @@ const getMyIssues = asyncHandler(async (req, res) => {
 
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: true,
+    activeSprintOnly: true,
   });
   const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
 
@@ -1791,6 +1589,7 @@ const getBugBucket = asyncHandler(async (req, res) => {
       $in: [BUG_STATUS.NEW, BUG_STATUS.TRIAGED, BUG_STATUS.OPEN, BUG_STATUS.REOPEN],
     },
   };
+  await applyActiveSprintVisibilityToIssueQuery(query, Sprint);
 
   if (req.query.projectId && req.query.projectId !== "all") {
     if (!mongoose.isValidObjectId(req.query.projectId)) {
@@ -1906,6 +1705,11 @@ const pickIssue = asyncHandler(async (req, res) => {
     throw new Error("Only bugs can be picked from the bucket");
   }
 
+  if (!(await isIssueInActiveSprint(existingIssue, Sprint))) {
+    res.status(409);
+    throw new Error("Bugs can only be picked after their sprint is active");
+  }
+
   const project = await loadAccessibleProject(req.user, existingIssue.projectId);
 
   if (!project) {
@@ -1996,11 +1800,25 @@ const pickIssue = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  const emailNotification = await sendBugAssignmentNotification({
-    issue: pickedIssue,
-    actorUser: req.user,
-    workspaceId: normalizeWorkspaceId(project.workspaceId || req.user.workspaceId),
-  });
+  try {
+    const notificationResult = await scheduleIssueStateNotifications({
+      issueId: pickedIssue._id,
+      previousSprintId: pickedIssue.sprintId,
+      previousAssigneeId: null,
+      actorUserId: req.user._id,
+    });
+
+    console.info("[sprint-notifications] bug pickup evaluated", {
+      issueId: String(pickedIssue._id),
+      queued: Number(notificationResult?.queued || 0),
+      skipped: notificationResult?.skipped || "",
+    });
+  } catch (error) {
+    console.error("[sprint-notifications] bug pickup notification evaluation failed", {
+      issueId: String(pickedIssue._id),
+      message: error.message,
+    });
+  }
 
   await emitIssueWorkflowChange({
     issue: pickedIssue,
@@ -2015,7 +1833,6 @@ const pickIssue = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     ...serializeIssue(pickedIssue),
-    emailNotification,
   });
 });
 
@@ -2060,7 +1877,10 @@ const serializeActivityEntry = (entry) => {
 };
 
 const getRecentIssueActivity = asyncHandler(async (req, res) => {
-  const query = await buildIssueQueryFromRequest(req, res);
+  const query = await buildIssueQueryFromRequest(req, res, {
+    forceOwnAssignee: isDevRole(req.user?.role),
+    activeSprintOnly: isDevRole(req.user?.role),
+  });
   const limit = parsePositiveInteger(req.query.limit, 12, { max: 50 });
   const issueIds = await Issue.find(query).distinct("_id");
 
@@ -2423,6 +2243,7 @@ const buildReportsPayload = async (issues, workspaceId) => {
 const getReports = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: !isAdmin(req.user),
+    activeSprintOnly: isDevRole(req.user?.role),
   });
   const issues = await loadReportIssues(query);
 
@@ -2434,6 +2255,7 @@ const getReports = asyncHandler(async (req, res) => {
 const getProjectReports = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: !isAdmin(req.user),
+    activeSprintOnly: isDevRole(req.user?.role),
   });
   const issues = await loadReportIssues(query);
 
@@ -2445,6 +2267,7 @@ const getProjectReports = asyncHandler(async (req, res) => {
 const getUserReports = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: !isAdmin(req.user),
+    activeSprintOnly: isDevRole(req.user?.role),
   });
   const issues = await loadReportIssues(query);
 
@@ -2456,6 +2279,7 @@ const getUserReports = asyncHandler(async (req, res) => {
 const getTeamReports = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: !isAdmin(req.user),
+    activeSprintOnly: isDevRole(req.user?.role),
   });
   const issues = await loadReportIssues(query);
 
@@ -2479,13 +2303,11 @@ const createIssue = asyncHandler(async (req, res) => {
     projectId,
     teamId,
     epicId,
-    sprintId,
     dueAt,
     dependsOnIssueId,
   } = req.body;
   const assigneeId = resolveAssigneeInput(req.body);
   const hasEpicInput = hasOwnField(req.body, "epicId");
-  const hasSprintInput = hasOwnField(req.body, "sprintId");
   const canAssignPlanningFields = hasAdminAccess(req.user?.role);
   const normalizedType = getCanonicalIssueType(type, ISSUE_TYPES.TASK);
   const isBug = normalizedType === ISSUE_TYPES.BUG;
@@ -2543,9 +2365,9 @@ const createIssue = asyncHandler(async (req, res) => {
     throw new Error("Testers can only report bug issues");
   }
 
-  if (!canAssignPlanningFields && ((hasEpicInput && epicId) || (hasSprintInput && sprintId))) {
+  if (!canAssignPlanningFields && hasEpicInput && epicId) {
     res.status(403);
-    throw new Error("Only admins and managers can assign epic or sprint during creation");
+    throw new Error("Only admins and managers can assign epic during creation");
   }
 
   if (isBug && statusResult.value !== BUG_STATUS.NEW) {
@@ -2661,16 +2483,9 @@ const createIssue = asyncHandler(async (req, res) => {
       throw new Error(epicResult.error.message);
     }
 
-    sprintResult = await ensureSprintForIssue({
-      sprintId: sprintId || null,
-      projectId: project._id,
-      teamId,
-    });
-
-    if (sprintResult.error) {
-      res.status(sprintResult.error.status);
-      throw new Error(sprintResult.error.message);
-    }
+    sprintResult = {
+      sprint: null,
+    };
   }
 
   const normalizedPriority = isBug
@@ -2730,17 +2545,6 @@ const createIssue = asyncHandler(async (req, res) => {
       bugDetails.developerLead = null;
     }
 
-    if (req.user.role === ROLE_TESTER && bugDetails.developerLead) {
-      logBugAssignmentEmailEvent("info", {
-        bugId: "pending",
-        senderUserId: getUserIdString(req.user),
-        senderEmail: req.user?.email || "",
-        receiverDeveloperEmail: bugAssignmentDeveloperUser?.email || "",
-        smtpProvider: "",
-        sendStatus: "fallback_allowed",
-        message: "Tester SMTP will be used when configured; otherwise global SMTP will be used.",
-      });
-    }
   }
 
   const planningOrder = await getNextPlanningOrder(Issue, {
@@ -2810,61 +2614,6 @@ const createIssue = asyncHandler(async (req, res) => {
     },
   });
 
-  const emailWorkspaceId = normalizeWorkspaceId(project.workspaceId || workspaceId);
-  const creatorUserId = req.user?.id || req.user?._id || "";
-  let emailNotification = null;
-
-  if (isBug && hasBugDeveloperAssignment(issue)) {
-    emailNotification = await sendBugAssignmentNotification({
-      issue,
-      actorUser: req.user,
-      workspaceId: emailWorkspaceId,
-      strictTesterSender: req.user.role === ROLE_TESTER,
-    });
-  } else {
-    const emails = getIssueNotificationEmails(issue);
-    const emailPayload = buildIssueCreatedEmailPayload(issue);
-
-    if (emails.length > 0) {
-      try {
-        console.log("[issues] Issue-created email context", {
-          issueId: String(issue._id),
-          reqUserWorkspaceId: workspaceId,
-          projectWorkspaceId: project.workspaceId || "",
-          emailWorkspaceId,
-          issueCreatorId: String(creatorUserId || ""),
-          issueCreatorEmail: req.user?.email || "",
-          issueCreatorRole: req.user?.role || "",
-        });
-        console.log("[issues] Sending email to:", emails);
-        const emailResult = await sendIssueEmail(emails, emailPayload, {
-          creatorUserId,
-          workspaceId: emailWorkspaceId,
-        });
-        console.log("[issues] Issue-created final sender", {
-          issueId: String(issue._id),
-          creatorUserId: String(creatorUserId || ""),
-          creatorUserEmail: req.user?.email || "",
-          creatorUserRole: req.user?.role || "",
-          finalSenderSource: emailResult?.senderSource || "unknown",
-          finalFrom: emailResult?.from || "",
-          finalAuthUser: emailResult?.authUser || "",
-        });
-        console.log("[issues] Issue-created email sent", {
-          issueId: String(issue._id),
-          senderSource: emailResult?.senderSource || "unknown",
-          from: emailResult?.from || "",
-          workspaceId: emailWorkspaceId,
-        });
-      } catch (error) {
-        console.error("[issues] Failed to send issue-created email", {
-          issueId: String(issue._id),
-          message: error.message,
-        });
-      }
-    }
-  }
-
   await emitIssueWorkflowChange({
     issue,
     req,
@@ -2874,7 +2623,6 @@ const createIssue = asyncHandler(async (req, res) => {
 
   res.status(201).json({
     ...serializeIssue(issue),
-    ...(emailNotification ? { emailNotification } : {}),
   });
 });
 
@@ -2990,9 +2738,6 @@ const updateIssue = asyncHandler(async (req, res) => {
   const previousBugDeveloperId = isBugType(issue.type)
     ? getUserIdString(issue.bugDetails?.developerLead)
     : "";
-  const previousBugStatus = isBugType(issue.type)
-    ? getBugStatusForIssueStatus(issue.status)
-    : "";
   const changeEntries = [];
 
   if (req.body.projectId) {
@@ -3055,6 +2800,18 @@ const updateIssue = asyncHandler(async (req, res) => {
 
   const nextStatus = nextStatusResult.value;
   const currentBugStatus = getBugStatusForIssueStatus(issue.status);
+  const hasStatusChange =
+    (typeof req.body.status !== "undefined" || String(issue.status) !== String(nextStatus)) &&
+    String(issue.status) !== String(nextStatus);
+
+  if (hasStatusChange && isDevRole(req.user?.role)) {
+    const hasActiveSprintAccess = await isIssueInActiveSprint(issue, Sprint);
+
+    if (!hasActiveSprintAccess) {
+      res.status(409);
+      throw new Error("Work can only be started or updated by developers after its sprint is active");
+    }
+  }
 
   if (nextIsBug && !isBugLifecycleStatus(nextStatus)) {
     res.status(400);
@@ -3333,27 +3090,6 @@ const updateIssue = asyncHandler(async (req, res) => {
   const nextBugDeveloperId = nextIsBug
     ? getUserIdString(nextBugDetails?.developerLead)
     : "";
-  const shouldSendBugAssignmentEmail =
-    nextIsBug &&
-    Boolean(nextBugDeveloperId) &&
-    (previousBugDeveloperId !== nextBugDeveloperId ||
-      (previousBugStatus !== BUG_STATUS.ASSIGNED && nextStatus === BUG_STATUS.ASSIGNED));
-
-  if (shouldSendBugAssignmentEmail && nextBugDeveloperId && !nextDeveloperLeadUser) {
-    nextDeveloperLeadUser = await ensureAssigneeExists(nextBugDeveloperId, workspaceId);
-  }
-
-  if (req.user.role === ROLE_TESTER && shouldSendBugAssignmentEmail) {
-    logBugAssignmentEmailEvent("info", {
-      bugId: String(issue?.displayBugId || issue?._id || "pending"),
-      senderUserId: getUserIdString(req.user),
-      senderEmail: req.user?.email || "",
-      receiverDeveloperEmail: nextDeveloperLeadUser?.email || "",
-      smtpProvider: "",
-      sendStatus: "fallback_allowed",
-      message: "Tester SMTP will be used when configured; otherwise global SMTP will be used.",
-    });
-  }
 
   if (hasDueAtChange) {
     const dueAtResult = parseOptionalDateInput(req.body.dueAt, "due date");
@@ -3593,17 +3329,6 @@ const updateIssue = asyncHandler(async (req, res) => {
       )
   );
 
-  let emailNotification = null;
-
-  if (shouldSendBugAssignmentEmail) {
-    emailNotification = await sendBugAssignmentNotification({
-      issue,
-      actorUser: req.user,
-      workspaceId: normalizeWorkspaceId(targetProject.workspaceId || workspaceId),
-      strictTesterSender: req.user.role === ROLE_TESTER,
-    });
-  }
-
   try {
     const notificationResult = await scheduleIssueStateNotifications({
       issueId: issue._id,
@@ -3679,7 +3404,6 @@ const updateIssue = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     ...serializeIssue(issue),
-    ...(emailNotification ? { emailNotification } : {}),
   });
 });
 
