@@ -24,6 +24,10 @@ const {
   getNextPlanningOrder,
   getPlanningOrderByIndex,
 } = require("../utils/planningOrder");
+const {
+  buildPlanningIssueTypeQuery,
+  isPlanningIssueType,
+} = require("../utils/planningIssueTypes");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 
 const attachmentsRoot = path.resolve(__dirname, "..", "uploads", "issue-attachments");
@@ -92,6 +96,15 @@ const ensurePlanningAccessForIssue = async (user, issueId) => {
       error: {
         status: 403,
         message: "You do not have permission to update planning for this issue",
+      },
+    };
+  }
+
+  if (!isPlanningIssueType(issue.type)) {
+    return {
+      error: {
+        status: 400,
+        message: "Only planning work items can be moved through backlog planning",
       },
     };
   }
@@ -290,6 +303,7 @@ const appendToContainer = (items = [], movingIssue, beforeIssueId, afterIssueId)
 const buildContainerQuery = (projectId, sprintId) => ({
   projectId,
   sprintId: sprintId || null,
+  ...buildPlanningIssueTypeQuery(),
 });
 
 const updateIssuePlanning = asyncHandler(async (req, res) => {

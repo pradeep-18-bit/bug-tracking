@@ -69,9 +69,35 @@ const createDefaultFilters = () => ({
   includeCompletedSprints: false,
 });
 
+const BACKLOG_PLANNING_TYPE_KEYS = new Set([
+  "TASK",
+  "STORY",
+  "FEATURE",
+  "ENHANCEMENT",
+  "EPIC",
+]);
+
+const normalizeBacklogIssueType = (value = "") =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+
+const isBacklogPlanningIssue = (issue) =>
+  BACKLOG_PLANNING_TYPE_KEYS.has(normalizeBacklogIssueType(issue?.type));
+
 const createBoardState = (data) => ({
-  backlogIssues: Array.isArray(data?.backlogIssues) ? data.backlogIssues : [],
-  sprintSections: Array.isArray(data?.sprintSections) ? data.sprintSections : [],
+  backlogIssues: Array.isArray(data?.backlogIssues)
+    ? data.backlogIssues.filter(isBacklogPlanningIssue)
+    : [],
+  sprintSections: Array.isArray(data?.sprintSections)
+    ? data.sprintSections.map((section) => ({
+        ...section,
+        issues: Array.isArray(section?.issues)
+          ? section.issues.filter(isBacklogPlanningIssue)
+          : [],
+      }))
+    : [],
 });
 
 const sortByCreatedAt = (left, right) =>
@@ -95,6 +121,10 @@ const resolveBacklogTeamId = (issue) => String(issue?.teamId?._id || issue?.team
 
 const issueMatchesBacklogFilters = (issue, filters) => {
   if (!issue) {
+    return false;
+  }
+
+  if (!isBacklogPlanningIssue(issue)) {
     return false;
   }
 
@@ -157,8 +187,17 @@ const issueMatchesBacklogFilters = (issue, filters) => {
 };
 
 const rebuildBacklogSummary = (data) => {
-  const backlogIssues = Array.isArray(data?.backlogIssues) ? data.backlogIssues : [];
-  const sprintSections = Array.isArray(data?.sprintSections) ? data.sprintSections : [];
+  const backlogIssues = Array.isArray(data?.backlogIssues)
+    ? data.backlogIssues.filter(isBacklogPlanningIssue)
+    : [];
+  const sprintSections = Array.isArray(data?.sprintSections)
+    ? data.sprintSections.map((section) => ({
+        ...section,
+        issues: Array.isArray(section?.issues)
+          ? section.issues.filter(isBacklogPlanningIssue)
+          : [],
+      }))
+    : [];
   const totalVisibleIssues =
     backlogIssues.length +
     sprintSections.reduce((total, section) => total + (section?.issues?.length || 0), 0);
@@ -181,7 +220,7 @@ const rebuildBacklogEpics = (epics = [], backlogIssues = [], sprintSections = []
   const visibleIssues = [
     ...backlogIssues,
     ...sprintSections.flatMap((section) => section?.issues || []),
-  ];
+  ].filter(isBacklogPlanningIssue);
   const epicCounts = visibleIssues.reduce((counts, issue) => {
     const epicId = resolveBacklogEpicId(issue?.epicId);
 
@@ -256,7 +295,7 @@ const findIssueById = (boardState, issueId) => {
 const getAllBoardIssues = (boardState) => [
   ...boardState.backlogIssues,
   ...boardState.sprintSections.flatMap((section) => section.issues),
-];
+].filter(isBacklogPlanningIssue);
 
 const moveIssueLocally = ({ boardState, issueId, destinationSprintId = "", overIssueId = "" }) => {
   const nextState = {
@@ -294,6 +333,10 @@ const moveIssueLocally = ({ boardState, issueId, destinationSprintId = "", overI
   });
 
   if (!movingIssue) {
+    return boardState;
+  }
+
+  if (!isBacklogPlanningIssue(movingIssue)) {
     return boardState;
   }
 
