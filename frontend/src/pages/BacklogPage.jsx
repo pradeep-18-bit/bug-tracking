@@ -24,7 +24,6 @@ import {
 } from "@/lib/project-teams";
 import BacklogToolbar from "@/components/backlog/BacklogToolbar";
 import EpicDialog from "@/components/backlog/EpicDialog";
-import EpicSidebar from "@/components/backlog/EpicSidebar";
 import IssueDetailsDrawer from "@/components/backlog/IssueDetailsDrawer";
 import IssuePlanningCard from "@/components/backlog/IssuePlanningCard";
 import SprintCompletionDialog from "@/components/backlog/SprintCompletionDialog";
@@ -258,12 +257,30 @@ const updateBacklogIssueCollections = (data, filters, updater) => {
 const BacklogSkeleton = () => (
   <div className="space-y-4">
     <Skeleton className="h-[156px] w-full rounded-[32px]" />
-    <div className="grid gap-4 xl:grid-cols-[240px_minmax(320px,0.42fr)_minmax(0,0.58fr)] xl:h-[calc(100vh-13.25rem)]">
-      <Skeleton className="h-[560px] w-full rounded-[32px]" />
+    <Skeleton className="h-16 w-full rounded-[22px]" />
+    <div className="grid gap-4 lg:grid-cols-[minmax(280px,0.4fr)_minmax(0,0.6fr)] xl:h-[calc(100vh-13.75rem)]">
       <Skeleton className="h-[560px] w-full rounded-[32px]" />
       <Skeleton className="h-[560px] w-full rounded-[32px]" />
     </div>
   </div>
+);
+
+const SummaryBadge = ({ label, value }) => (
+  <div className="flex min-h-12 items-center justify-between gap-3 rounded-[18px] border border-white/70 bg-white/78 px-3.5 py-2 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.38)] backdrop-blur-xl">
+    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+      {label}
+    </span>
+    <span className="text-lg font-semibold tracking-tight text-slate-950">{value}</span>
+  </div>
+);
+
+const BacklogSummaryStrip = ({ summary = null, unassignedCount = 0 }) => (
+  <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+    <SummaryBadge label="Backlog" value={summary?.backlogIssueCount || 0} />
+    <SummaryBadge label="Active Sprint" value={summary?.activeSprintCount || 0} />
+    <SummaryBadge label="Planned" value={summary?.plannedSprintCount || 0} />
+    <SummaryBadge label="Unassigned" value={unassignedCount} />
+  </section>
 );
 
 const findIssueById = (boardState, issueId) => {
@@ -971,7 +988,7 @@ const BacklogPage = () => {
           projects={projects}
           teams={availableTeams}
           members={availableMembers}
-          summary={null}
+          epics={[]}
           permissions={{}}
           selectedEpic={null}
           onChange={handleFilterChange}
@@ -1012,7 +1029,7 @@ const BacklogPage = () => {
         projects={projects}
         teams={availableTeams}
         members={availableMembers}
-        summary={backlogData?.summary}
+        epics={backlogData?.epics || []}
         permissions={permissions}
         selectedEpic={selectedEpic}
         onChange={handleFilterChange}
@@ -1029,57 +1046,42 @@ const BacklogPage = () => {
             epic: null,
           })
         }
+        onEditEpic={() =>
+          setEpicDialogState({
+            open: true,
+            epic: selectedEpic,
+          })
+        }
+        onDeleteEpic={async () => {
+          if (!selectedEpic) {
+            return;
+          }
+
+          try {
+            await deleteEpicMutation.mutateAsync({
+              id: selectedEpic._id,
+            });
+            setToast({
+              type: "success",
+              message: `${selectedEpic.name} was removed from backlog planning.`,
+            });
+          } catch (error) {
+            setToast({
+              type: "error",
+              message:
+                error.response?.data?.message || "Unable to delete that epic right now.",
+            });
+          }
+        }}
       />
 
-      <div className="grid gap-4 xl:grid-cols-[240px_minmax(320px,0.42fr)_minmax(0,0.58fr)] xl:h-[calc(100vh-13.25rem)]">
-        <EpicSidebar
-          epics={backlogData?.epics || []}
-          activeEpicId={filters.epicId}
-          selectedEpic={selectedEpic}
-          unassignedCount={unassignedEpicCount}
-          canManageEpics={permissions.canManageEpics}
-          onSelectEpic={(epicId) =>
-            setFilters((current) => ({
-              ...current,
-              epicId,
-            }))
-          }
-          onCreateEpic={() =>
-            setEpicDialogState({
-              open: true,
-              epic: null,
-            })
-          }
-          onEditEpic={() =>
-            setEpicDialogState({
-              open: true,
-              epic: selectedEpic,
-            })
-          }
-          onDeleteEpic={async () => {
-            if (!selectedEpic) {
-              return;
-            }
+      <BacklogSummaryStrip
+        summary={backlogData?.summary}
+        unassignedCount={unassignedEpicCount}
+      />
 
-            try {
-              await deleteEpicMutation.mutateAsync({
-                id: selectedEpic._id,
-              });
-              setToast({
-                type: "success",
-                message: `${selectedEpic.name} was removed from backlog planning.`,
-              });
-            } catch (error) {
-              setToast({
-                type: "error",
-                message:
-                  error.response?.data?.message || "Unable to delete that epic right now.",
-              });
-            }
-          }}
-        />
-
-        <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur xl:h-full">
+      <div className="grid gap-4 lg:grid-cols-[minmax(280px,0.4fr)_minmax(0,0.6fr)] xl:h-[calc(100vh-14rem)]">
+        <Card className="overflow-hidden border-white/70 bg-white/90 shadow-[0_18px_48px_-36px_rgba(15,23,42,0.42)] backdrop-blur-xl xl:h-full">
           <CardContent
             className="flex h-full min-h-0 flex-col p-0"
             onDragOver={(event) => {
@@ -1100,15 +1102,15 @@ const BacklogPage = () => {
               });
             }}
           >
-            <div className="border-b border-white/60 p-4">
+            <div className="border-b border-white/60 px-4 py-3">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/65 bg-white/68 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 shadow-sm backdrop-blur-xl">
                 <Layers3 className="h-3.5 w-3.5" />
                 <span>Backlog</span>
               </div>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-lg font-semibold text-slate-950">Compact backlog queue</p>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="text-base font-semibold text-slate-950">Backlog Queue</p>
+                  <p className="mt-0.5 text-sm text-slate-600">
                     Drag straight into a sprint or use the row picker to schedule work quickly.
                   </p>
                 </div>
@@ -1118,7 +1120,7 @@ const BacklogPage = () => {
               </div>
             </div>
 
-            <div className="min-h-0 overflow-y-auto p-3">
+            <div className="min-h-0 overflow-y-auto p-2.5">
               <div className="space-y-2">
                 {boardState.backlogIssues.length ? (
                   boardState.backlogIssues.map((issue) => (
@@ -1142,7 +1144,7 @@ const BacklogPage = () => {
                     />
                   ))
                 ) : (
-                  <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-10 text-center text-sm leading-6 text-slate-500">
+                  <div className="rounded-[18px] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm leading-6 text-slate-500">
                     No backlog items match the current filter set.
                   </div>
                 )}
@@ -1151,17 +1153,17 @@ const BacklogPage = () => {
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur xl:h-full">
+        <Card className="overflow-hidden border-blue-100/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(239,246,255,0.72))] shadow-[0_24px_60px_-40px_rgba(37,99,235,0.42)] backdrop-blur-xl xl:h-full">
           <CardContent className="flex h-full min-h-0 flex-col p-0">
-            <div className="border-b border-white/60 p-4">
+            <div className="border-b border-white/70 px-4 py-3">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/65 bg-white/68 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 shadow-sm backdrop-blur-xl">
                 <Flag className="h-3.5 w-3.5" />
                 <span>Sprint Planning</span>
               </div>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-lg font-semibold text-slate-950">Keep backlog and sprint in one view</p>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="text-base font-semibold text-slate-950">Sprint Planning</p>
+                  <p className="mt-0.5 text-sm text-slate-600">
                     Sprint scope stays visible while you assign work items, reorder work, and start planning.
                   </p>
                 </div>
@@ -1262,7 +1264,7 @@ const BacklogPage = () => {
                     />
                   ))
                 ) : (
-                  <div className="rounded-[28px] border border-dashed border-slate-200 bg-slate-50/80 p-8">
+                  <div className="rounded-[22px] border border-dashed border-blue-200/80 bg-white/68 p-8 shadow-inner">
                     <EmptyState
                       title="No sprint sections yet"
                       description="Create the first sprint to begin planning scoped work from the backlog."

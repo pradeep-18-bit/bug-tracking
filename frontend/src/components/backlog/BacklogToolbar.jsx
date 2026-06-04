@@ -1,54 +1,35 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CalendarRange,
+  PencilLine,
   Filter,
-  Layers3,
   Plus,
   Search,
   SlidersHorizontal,
+  Trash2,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
-const SummaryPill = ({ label, value }) => (
-  <div className="rounded-full border border-white/70 bg-white/76 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur-xl">
-    {label}: {value}
-  </div>
-);
-
-const buildEpicLabel = (filters, selectedEpic) => {
-  if (filters.epicId === "unassigned") {
-    return "Unassigned epic";
-  }
-
-  if (selectedEpic?.name) {
-    return selectedEpic.name;
-  }
-
-  return "All epics";
-};
-
 const BacklogToolbar = ({
   filters,
   projects = [],
   teams = [],
   members = [],
-  summary = null,
+  epics = [],
   permissions = {},
   selectedEpic = null,
   onChange,
   onResetFilters,
   onCreateSprint,
   onCreateEpic,
+  onEditEpic,
+  onDeleteEpic,
 }) => {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const advancedRef = useRef(null);
-  const epicLabel = useMemo(
-    () => buildEpicLabel(filters, selectedEpic),
-    [filters, selectedEpic]
-  );
   const hasSecondaryFilters = Boolean(filters.dateFrom || filters.dateTo);
   const advancedFilterCount = [filters.dateFrom, filters.dateTo].filter(Boolean).length;
   const hasActiveFilters =
@@ -85,17 +66,13 @@ const BacklogToolbar = ({
   }, [advancedOpen]);
 
   return (
-    <Card className="overflow-visible border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
-      <CardContent className="space-y-3 p-4 sm:p-5">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+    <Card className="overflow-visible border-white/70 bg-white/90 shadow-[0_14px_42px_-34px_rgba(15,23,42,0.42)] backdrop-blur-xl">
+      <CardContent className="space-y-2.5 p-3 sm:p-4">
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/65 bg-white/68 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 shadow-sm backdrop-blur-xl">
               <Filter className="h-3.5 w-3.5" />
               <span>Planning Workspace</span>
-            </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50/85 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm">
-              <Layers3 className="h-3.5 w-3.5" />
-              <span>{epicLabel}</span>
             </div>
             {hasSecondaryFilters ? (
               <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50/90 px-3 py-1.5 text-xs font-semibold text-amber-700 shadow-sm">
@@ -106,10 +83,18 @@ const BacklogToolbar = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <SummaryPill label="Issues in View" value={summary?.totalVisibleIssues || 0} />
-            <SummaryPill label="Backlog" value={summary?.backlogIssueCount || 0} />
-            <SummaryPill label="Active" value={summary?.activeSprintCount || 0} />
-            <SummaryPill label="Planned" value={summary?.plannedSprintCount || 0} />
+            {permissions.canManageEpics && selectedEpic ? (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={onEditEpic}>
+                  <PencilLine className="h-4 w-4" />
+                  Edit Epic
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={onDeleteEpic}>
+                  <Trash2 className="h-4 w-4" />
+                  Delete Epic
+                </Button>
+              </>
+            ) : null}
             {permissions.canManageEpics ? (
               <Button type="button" variant="outline" size="sm" onClick={onCreateEpic}>
                 <Plus className="h-4 w-4" />
@@ -125,13 +110,13 @@ const BacklogToolbar = ({
           </div>
         </div>
 
-        <div className="grid gap-2 xl:grid-cols-[minmax(180px,0.95fr)_minmax(150px,0.8fr)_minmax(150px,0.8fr)_minmax(150px,0.8fr)_minmax(260px,1.25fr)_auto_auto]">
+        <div className="grid items-end gap-2 md:grid-cols-2 xl:grid-cols-[minmax(160px,0.9fr)_minmax(132px,0.7fr)_minmax(132px,0.7fr)_minmax(150px,0.8fr)_minmax(150px,0.78fr)_minmax(220px,1.1fr)_auto_auto]">
           <label className="space-y-1">
             <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
               Project
             </span>
             <select
-              className="field-select h-10 rounded-[18px] px-3.5 py-2"
+              className="field-select h-9 rounded-[16px] px-3 py-1.5 text-sm"
               value={filters.projectId}
               onChange={(event) => onChange("projectId", event.target.value)}
             >
@@ -149,7 +134,7 @@ const BacklogToolbar = ({
               Team
             </span>
             <select
-              className="field-select h-10 rounded-[18px] px-3.5 py-2"
+              className="field-select h-9 rounded-[16px] px-3 py-1.5 text-sm"
               value={filters.teamId}
               onChange={(event) => onChange("teamId", event.target.value)}
             >
@@ -167,7 +152,7 @@ const BacklogToolbar = ({
               Assignee
             </span>
             <select
-              className="field-select h-10 rounded-[18px] px-3.5 py-2"
+              className="field-select h-9 rounded-[16px] px-3 py-1.5 text-sm"
               value={filters.assigneeId}
               onChange={(event) => onChange("assigneeId", event.target.value)}
             >
@@ -185,7 +170,7 @@ const BacklogToolbar = ({
               Sprint Scope
             </span>
             <select
-              className="field-select h-10 rounded-[18px] px-3.5 py-2"
+              className="field-select h-9 rounded-[16px] px-3 py-1.5 text-sm"
               value={filters.includeCompletedSprints ? "all" : "active"}
               onChange={(event) =>
                 onChange("includeCompletedSprints", event.target.value === "all")
@@ -198,12 +183,31 @@ const BacklogToolbar = ({
 
           <label className="space-y-1">
             <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+              Epic
+            </span>
+            <select
+              className="field-select h-9 rounded-[16px] px-3 py-1.5 text-sm"
+              value={filters.epicId}
+              onChange={(event) => onChange("epicId", event.target.value)}
+            >
+              <option value="all">All epics</option>
+              <option value="unassigned">Unassigned epic</option>
+              {epics.map((epic) => (
+                <option key={epic._id} value={epic._id}>
+                  {epic.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
               Search
             </span>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
-                className="h-10 rounded-[18px] border-slate-200 pl-10 shadow-sm"
+                className="h-9 rounded-[16px] border-slate-200 pl-10 text-sm shadow-sm"
                 placeholder="Search backlog items"
                 value={filters.search}
                 onChange={(event) => onChange("search", event.target.value)}
@@ -218,7 +222,7 @@ const BacklogToolbar = ({
             <Button
               type="button"
               variant="outline"
-              className="mt-1 h-10 w-full rounded-[18px] px-3.5 xl:w-auto"
+              className="mt-1 h-9 w-full rounded-[16px] px-3 xl:w-auto"
               onClick={() => setAdvancedOpen((current) => !current)}
             >
               <SlidersHorizontal className="h-4 w-4" />
@@ -297,7 +301,7 @@ const BacklogToolbar = ({
             <Button
               type="button"
               variant="ghost"
-              className="h-10 w-full rounded-[18px] border border-transparent px-3.5 text-slate-600 hover:border-slate-200 hover:bg-white xl:w-auto"
+              className="h-9 w-full rounded-[16px] border border-transparent px-3 text-slate-600 hover:border-slate-200 hover:bg-white xl:w-auto"
               disabled={!hasActiveFilters}
               onClick={onResetFilters}
             >
