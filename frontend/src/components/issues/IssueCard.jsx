@@ -1,26 +1,232 @@
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   CalendarDays,
   GripVertical,
   MoreHorizontal,
-  PencilLine,
   UserCircle2,
 } from "lucide-react";
 import {
   getIssuePriorityVariant,
   getIssueDisplayKey,
   getWorkflowStatusOptionsForIssue,
-  getIssueStatusLabel,
-  getIssueStatusVariant,
   getIssueTypeVariant,
   normalizeIssueStatus,
   resolveIssueAssignee,
 } from "@/lib/issues";
-import { formatDateTime, getInitials } from "@/lib/utils";
+import { cn, formatDateTime, getInitials } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
+const MENU_WIDTH = 224;
+const MENU_OFFSET = 8;
+const VIEWPORT_PADDING = 12;
+
 const formatDueAt = (value) => (value ? formatDateTime(value) : "No due date");
+
+const getMenuPosition = ({ triggerRect, menuRect }) => {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const menuWidth = Math.min(menuRect?.width || MENU_WIDTH, viewportWidth - VIEWPORT_PADDING * 2);
+  const menuHeight = menuRect?.height || 0;
+  const spaceBelow = viewportHeight - triggerRect.bottom;
+  const spaceAbove = triggerRect.top;
+  const openUpward =
+    menuHeight > 0 && spaceBelow < menuHeight + MENU_OFFSET && spaceAbove > spaceBelow;
+  let left = triggerRect.right - menuWidth;
+  let top = openUpward
+    ? triggerRect.top - menuHeight - MENU_OFFSET
+    : triggerRect.bottom + MENU_OFFSET;
+
+  left = Math.min(left, viewportWidth - VIEWPORT_PADDING - menuWidth);
+  left = Math.max(left, VIEWPORT_PADDING);
+  top = Math.max(top, VIEWPORT_PADDING);
+
+  if (menuHeight > 0) {
+    top = Math.min(top, viewportHeight - VIEWPORT_PADDING - menuHeight);
+  }
+
+  return {
+    left,
+    top,
+    placement: openUpward ? "top" : "bottom",
+    ready: true,
+  };
+};
+
+const IssueCardActionMenu = ({
+  issue,
+  canEditIssue = false,
+  canChangeStatus = false,
+  isUpdating = false,
+  onSelectIssue,
+  onStatusChange,
+}) => {
+  const [open, setOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({
+    left: 0,
+    top: 0,
+    placement: "bottom",
+    ready: false,
+  });
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const statusOptions = getWorkflowStatusOptionsForIssue(issue);
+  const currentStatus = normalizeIssueStatus(issue.status);
+  const portalTarget = typeof document !== "undefined" ? document.body : null;
+
+  const updateMenuPosition = useCallback(() => {
+    if (!triggerRef.current) {
+      return;
+    }
+
+    setMenuPosition(
+      getMenuPosition({
+        triggerRect: triggerRef.current.getBoundingClientRect(),
+        menuRect: menuRef.current?.getBoundingClientRect(),
+      })
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    updateMenuPosition();
+    const rafId = window.requestAnimationFrame(updateMenuPosition);
+
+    const handlePointerDown = (event) => {
+      const target = event.target;
+
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) {
+        return;
+      }
+
+      setOpen(false);
+    };
+
+    const handleResizeOrScroll = () => updateMenuPosition();
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    document.addEventListener("scroll", handleResizeOrScroll, true);
+    window.addEventListener("resize", handleResizeOrScroll);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("scroll", handleResizeOrScroll, true);
+      window.removeEventListener("resize", handleResizeOrScroll);
+    };
+  }, [open, updateMenuPosition]);
+
+  const handleStatusSelect = async (nextStatus) => {
+    setOpen(false);
+
+    if (nextStatus === currentStatus || !onStatusChange) {
+      return;
+    }
+
+    try {
+      await onStatusChange(issue._id, nextStatus);
+    } catch (error) {
+      // Parent refetch restores state on failure.
+    }
+  };
+
+  return (
+    <div onClick={(event) => event.stopPropagation()}>
+      <Button
+        ref={triggerRef}
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 shrink-0 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+        type="button"
+        aria-label="Issue actions"
+        aria-expanded={open}
+        disabled={isUpdating}
+        onClick={(event) => {
+          event.stopPropagation();
+
+          if (!open) {
+            setMenuPosition((current) => ({ ...current, ready: false }));
+          }
+
+          setOpen((current) => !current);
+        }}
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </Button>
+
+      {open && portalTarget
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              className={cn(
+                "fixed z-[70] w-56 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-slate-200/90 bg-white p-1.5 shadow-[0_20px_44px_-28px_rgba(15,23,42,0.35)]",
+                menuPosition.ready ? "opacity-100" : "opacity-0"
+              )}
+              style={{
+                left: menuPosition.left,
+                top: menuPosition.top,
+                transformOrigin:
+                  menuPosition.placement === "top" ? "bottom right" : "top right",
+              }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                onClick={() => {
+                  onSelectIssue?.(issue);
+                  setOpen(false);
+                }}
+              >
+                {canEditIssue ? "Edit issue" : "Open details"}
+              </button>
+
+              {canChangeStatus && statusOptions.length ? (
+                <>
+                  <div className="my-1 border-t border-slate-100" />
+                  <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    Move to status
+                  </p>
+                  {statusOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="menuitem"
+                      disabled={isUpdating || option.value === currentStatus}
+                      className={cn(
+                        "w-full rounded-xl px-3 py-2 text-left text-sm transition",
+                        option.value === currentStatus
+                          ? "cursor-default bg-slate-50 font-semibold text-slate-900"
+                          : "font-medium text-slate-700 hover:bg-slate-100"
+                      )}
+                      onClick={() => handleStatusSelect(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </>
+              ) : null}
+            </div>,
+            portalTarget
+          )
+        : null}
+    </div>
+  );
+};
 
 const IssueCard = ({
   issue,
@@ -34,11 +240,20 @@ const IssueCard = ({
 }) => {
   const assignee = resolveIssueAssignee(issue);
   const issueKey = getIssueDisplayKey(issue);
-  const statusOptions = getWorkflowStatusOptionsForIssue(issue);
+  const projectLabel = issue.projectId?.name || "Unknown project";
+  const teamLabel = issue.teamId?.name;
+  const secondaryChips = [
+    issue.epicId?.name
+      ? { key: `epic-${issue._id}`, label: issue.epicId.name, className: "border-violet-100 bg-violet-50 text-violet-700" }
+      : null,
+    issue.sprintId?.name
+      ? { key: `sprint-${issue._id}`, label: issue.sprintId.name, className: "border-sky-100 bg-sky-50 text-sky-700" }
+      : { key: `backlog-${issue._id}`, label: "Backlog", className: "border-slate-200 bg-slate-50 text-slate-600" },
+  ].filter(Boolean);
 
   return (
     <article
-      className="group rounded-[22px] border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-blue-200 hover:shadow-[0_18px_40px_-30px_rgba(37,99,235,0.3)]"
+      className="group rounded-[18px] border border-slate-200 bg-white p-3 shadow-sm transition hover:border-blue-200 hover:shadow-[0_14px_32px_-28px_rgba(37,99,235,0.35)]"
       role="button"
       tabIndex={0}
       draggable={canChangeStatus && !isUpdating}
@@ -60,142 +275,90 @@ const IssueCard = ({
       }}
       onDragEnd={() => onDragEnd()}
     >
-      <div className="flex items-start justify-between gap-2.5">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <p className="line-clamp-2 text-sm font-semibold leading-5 text-slate-900 transition group-hover:text-blue-700">
-                {issue.title}
-              </p>
-            </div>
-
-            {canChangeStatus ? (
-              <select
-                className="field-select h-8 min-w-[124px] rounded-xl px-2.5 py-1 text-[11px]"
-                value={normalizeIssueStatus(issue.status)}
-                disabled={isUpdating}
-                onChange={async (event) => {
-                  event.stopPropagation();
-
-                  try {
-                    await onStatusChange(issue._id, event.target.value);
-                  } catch (error) {
-                    // The query refetch restores the current state when the update fails.
-                  }
-                }}
-                onClick={(event) => event.stopPropagation()}
-              >
-                {statusOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <Badge
-                variant={getIssueStatusVariant(issue.status)}
-                className="shrink-0 px-2.5 py-1 text-[11px]"
-              >
-                {getIssueStatusLabel(issue.status)}
-              </Badge>
-            )}
-          </div>
-
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {issue.teamId?.name ? (
-              <span className="rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700">
-                {issue.teamId.name}
-              </span>
-            ) : null}
-            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-500">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
               {issueKey}
             </span>
-            <Badge className="px-2.5 py-0.5 text-[11px]" variant={getIssuePriorityVariant(issue.priority)}>
-              {issue.priority}
-            </Badge>
+            {issue.priority ? (
+              <Badge className="px-2 py-0 text-[10px]" variant={getIssuePriorityVariant(issue.priority)}>
+                {issue.priority}
+              </Badge>
+            ) : null}
             {issue.type ? (
-              <Badge className="px-2.5 py-0.5 text-[11px]" variant={getIssueTypeVariant(issue.type)}>
+              <Badge className="px-2 py-0 text-[10px]" variant={getIssueTypeVariant(issue.type)}>
                 {issue.type}
               </Badge>
             ) : null}
-            <Badge className="px-2.5 py-0.5 text-[11px]" variant={getIssueStatusVariant(issue.status)}>
-              {getIssueStatusLabel(issue.status)}
-            </Badge>
-            {issue.epicId?.name ? (
-              <span className="rounded-full border border-violet-100 bg-violet-50 px-2.5 py-0.5 text-[11px] font-medium text-violet-700">
-                {issue.epicId.name}
-              </span>
-            ) : null}
-            {issue.sprintId?.name ? (
-              <span className="rounded-full border border-sky-100 bg-sky-50 px-2.5 py-0.5 text-[11px] font-medium text-sky-700">
-                {issue.sprintId.name}
-              </span>
-            ) : (
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-medium text-slate-600">
-                Backlog
-              </span>
-            )}
           </div>
+
+          <h3 className="mt-1.5 line-clamp-2 text-[15px] font-bold leading-5 text-slate-950 transition group-hover:text-blue-700">
+            {issue.title || "Untitled work item"}
+          </h3>
+
+          {secondaryChips.length ? (
+            <div className="mt-2 flex flex-wrap items-center gap-1">
+              {secondaryChips.map((chip) => (
+                <span
+                  key={chip.key}
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                    chip.className
+                  )}
+                >
+                  {chip.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
 
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onSelectIssue(issue);
-            }}
-            aria-label={canEditIssue ? "Edit issue" : "Open issue"}
-          >
-            {canEditIssue ? (
-              <PencilLine className="h-3.5 w-3.5" />
-            ) : (
-              <MoreHorizontal className="h-4 w-4" />
-            )}
-          </Button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <IssueCardActionMenu
+            issue={issue}
+            canEditIssue={canEditIssue}
+            canChangeStatus={canChangeStatus}
+            isUpdating={isUpdating}
+            onSelectIssue={onSelectIssue}
+            onStatusChange={onStatusChange}
+          />
 
           {canChangeStatus ? (
-            <div className="hidden rounded-xl border border-slate-200 bg-slate-50 p-1.5 text-slate-400 lg:flex">
-            <GripVertical className="h-4 w-4" />
+            <div
+              className="hidden rounded-lg border border-slate-200 bg-slate-50 p-1 text-slate-400 lg:flex"
+              aria-hidden="true"
+            >
+              <GripVertical className="h-3.5 w-3.5" />
             </div>
           ) : null}
         </div>
       </div>
 
-      <div className="mt-3 space-y-2.5">
-        <div className="flex items-center gap-2.5">
+      <div className="mt-2.5 space-y-1.5 border-t border-slate-100 pt-2.5">
+        <div className="flex items-center gap-2">
           {assignee ? (
-            <Avatar className="h-9 w-9 rounded-xl">
-              <AvatarFallback>{getInitials(assignee.name)}</AvatarFallback>
+            <Avatar className="h-7 w-7 rounded-lg">
+              <AvatarFallback className="text-[10px]">{getInitials(assignee.name)}</AvatarFallback>
             </Avatar>
           ) : (
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
-              <UserCircle2 className="h-4 w-4" />
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+              <UserCircle2 className="h-3.5 w-3.5" />
             </div>
           )}
 
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-slate-900">
-              {assignee?.name || "Unassigned"}
-            </p>
-            <p className="truncate text-xs text-slate-500">
-              {assignee?.role || "No assignee role available"}
-            </p>
+          <p className="min-w-0 flex-1 truncate text-xs font-medium text-slate-800">
+            {assignee?.name || "Unassigned"}
+          </p>
+
+          <div className="flex shrink-0 items-center gap-1 text-[11px] text-slate-500">
+            <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
+            <span className="whitespace-nowrap">{formatDueAt(issue.dueAt)}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-slate-600">
-          <CalendarDays className="h-4 w-4 text-slate-400" />
-          <span>{formatDueAt(issue.dueAt)}</span>
-        </div>
-
-        <p className="truncate text-xs text-slate-500">
-          {[issue.projectId?.name || "Unknown project", issue.teamId?.name || "No team context"]
-            .filter(Boolean)
-            .join(" • ")}
+        <p className="truncate text-[11px] text-slate-500">
+          {[projectLabel, teamLabel].filter(Boolean).join(" • ")}
         </p>
       </div>
     </article>
