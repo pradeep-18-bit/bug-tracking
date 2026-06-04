@@ -48,22 +48,113 @@ export const BUG_MODULE_OPTIONS = [
   "Chat",
   "File Upload",
 ];
-export const BUG_CATEGORY_OPTIONS = [
-  "UI Bug",
-  "Backend Bug",
-  "API Bug",
-  "Database Bug",
-  "Performance Bug",
-  "Security Bug",
-  "Mobile Bug",
-  "Enhancement Request",
-];
+export const BUG_CATEGORY_DESCRIPTIONS = Object.freeze({
+  "Functional Bug":
+    "Business logic not working as expected. Incorrect calculations. Workflow failures. Feature behavior differs from requirements.",
+  "UI / UX Bug":
+    "Layout issues. Alignment issues. Visual inconsistencies.",
+  "Backend Bug": "Service layer issues. Processing failures.",
+  "API Bug": "Endpoint failures. Request/response issues.",
+  "Database Bug": "Data storage and retrieval issues.",
+  "Integration Bug":
+    "Third-party service integration failures. Inter-system communication issues.",
+  "Performance Bug":
+    "Slow loading. High response times. Resource consumption issues.",
+  "Security Bug":
+    "Authentication, authorization, data exposure vulnerabilities.",
+  "Mobile Bug": "Mobile-specific behavior issues.",
+  "Compatibility Bug": "Browser/device compatibility issues.",
+  "Accessibility Bug":
+    "WCAG/usability issues for assistive technologies.",
+  "Validation Bug": "Incorrect input validation. Missing validation rules.",
+  "Enhancement Request": "New feature or improvement request.",
+});
+
+export const BUG_CATEGORY_GROUPS = Object.freeze([
+  {
+    label: "Core Bug Types",
+    categories: [
+      "Functional Bug",
+      "UI / UX Bug",
+      "Backend Bug",
+      "API Bug",
+      "Database Bug",
+      "Integration Bug",
+      "Performance Bug",
+      "Security Bug",
+      "Mobile Bug",
+      "Compatibility Bug",
+      "Accessibility Bug",
+      "Validation Bug",
+    ],
+  },
+  {
+    label: "Improvement Types",
+    categories: ["Enhancement Request"],
+  },
+]);
+
+export const BUG_CATEGORY_OPTIONS = BUG_CATEGORY_GROUPS.flatMap(
+  (group) => group.categories
+);
+
+export const getBugCategoryDescription = (category = "") =>
+  BUG_CATEGORY_DESCRIPTIONS[category] || "";
+
+export const getBugCategorySelectGroups = (currentValue = "") => {
+  const knownCategories = new Set(BUG_CATEGORY_OPTIONS);
+  const groups = BUG_CATEGORY_GROUPS.map((group) => ({
+    label: group.label,
+    options: group.categories.map((value) => ({
+      value,
+      label: value,
+      description: getBugCategoryDescription(value),
+    })),
+  }));
+
+  if (currentValue && !knownCategories.has(currentValue)) {
+    groups.unshift({
+      label: "Saved value",
+      options: [
+        {
+          value: currentValue,
+          label: currentValue,
+          description: "Previously saved category.",
+        },
+      ],
+    });
+  }
+
+  return groups;
+};
+
+export const filterBugCategoryOption = (option, inputValue = "") => {
+  const term = String(inputValue).trim().toLowerCase();
+
+  if (!term) {
+    return true;
+  }
+
+  const label = String(option.label || "").toLowerCase();
+  const description = String(
+    option.data?.description ?? option.description ?? ""
+  ).toLowerCase();
+
+  return label.includes(term) || description.includes(term);
+};
+
 export const BUG_PLATFORM_OPTIONS = ["Web", "Mobile", "API", "Admin Panel"];
 export const BUG_TEAM_OPTIONS = ["UI Team", "Backend Team", "QA Team", "DevOps Team"];
 export const getSuggestedTeamForCategory = (category = "") => {
   const normalizedCategory = String(category).toLowerCase();
 
-  if (normalizedCategory.includes("ui") || normalizedCategory.includes("mobile")) {
+  if (
+    normalizedCategory.includes("ui") ||
+    normalizedCategory.includes("ux") ||
+    normalizedCategory.includes("mobile") ||
+    normalizedCategory.includes("accessibility") ||
+    normalizedCategory.includes("compatibility")
+  ) {
     return "UI Team";
   }
 
@@ -71,7 +162,9 @@ export const getSuggestedTeamForCategory = (category = "") => {
     normalizedCategory.includes("backend") ||
     normalizedCategory.includes("api") ||
     normalizedCategory.includes("database") ||
-    normalizedCategory.includes("security")
+    normalizedCategory.includes("security") ||
+    normalizedCategory.includes("integration") ||
+    normalizedCategory.includes("validation")
   ) {
     return "Backend Team";
   }

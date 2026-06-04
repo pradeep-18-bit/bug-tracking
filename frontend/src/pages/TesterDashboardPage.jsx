@@ -442,7 +442,6 @@ const TesterDashboardPage = () => {
   const isTester = user?.role === ROLE_TESTER;
   const [searchTerm, setSearchTerm] = useState("");
   const [projectFilter, setProjectFilter] = useState("all");
-  const [selectedBugIds, setSelectedBugIds] = useState([]);
   const [lastRefreshedAt, setLastRefreshedAt] = useState(() => new Date());
 
   const {
@@ -550,10 +549,6 @@ const TesterDashboardPage = () => {
     [statusChartData]
   );
 
-  const allRecentRowsSelected =
-    myReportedBugs.length > 0 &&
-    myReportedBugs.every((issue) => selectedBugIds.includes(issue._id));
-
   const handleRefresh = async () => {
     await Promise.all([
       refetchProjects(),
@@ -562,26 +557,6 @@ const TesterDashboardPage = () => {
       refetchRecentTasks(),
     ]);
     setLastRefreshedAt(new Date());
-  };
-
-  const handleToggleAllRows = (checked) => {
-    const currentRowIds = myReportedBugs.map((issue) => issue._id);
-
-    setSelectedBugIds((current) => {
-      if (checked) {
-        return Array.from(new Set([...current, ...currentRowIds]));
-      }
-
-      return current.filter((id) => !currentRowIds.includes(id));
-    });
-  };
-
-  const handleToggleRow = (issueId, checked) => {
-    setSelectedBugIds((current) =>
-      checked
-        ? Array.from(new Set([...current, issueId]))
-        : current.filter((id) => id !== issueId)
-    );
   };
 
   const handleOpenReportedBug = (issueId) => {
@@ -808,18 +783,7 @@ const TesterDashboardPage = () => {
                     role="button"
                     tabIndex={0}
                   >
-                    <div className="flex items-start gap-3">
-                      <input
-                        aria-label={`Select ${getIssueDisplayKey(issue)}`}
-                        checked={selectedBugIds.includes(issue._id)}
-                        className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        onChange={(event) =>
-                          handleToggleRow(issue._id, event.target.checked)
-                        }
-                        onClick={(event) => event.stopPropagation()}
-                        type="checkbox"
-                      />
-                      <div className="min-w-0 flex-1">
+                    <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono text-xs font-semibold text-slate-500">
                             {getIssueDisplayKey(issue)}
@@ -831,7 +795,6 @@ const TesterDashboardPage = () => {
                         <h3 className="mt-2 break-words text-sm font-semibold text-slate-950">
                           {issue.title || "Untitled bug"}
                         </h3>
-                      </div>
                     </div>
 
                     <div className="mt-4 grid gap-2 text-sm text-slate-600">
@@ -879,32 +842,23 @@ const TesterDashboardPage = () => {
           </div>
 
           <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[920px] text-left text-sm">
+            <table className="w-full min-w-[880px] table-fixed text-left text-sm">
               <thead className="bg-slate-50/90 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                 <tr>
-                  <th className="w-12 px-5 py-3">
-                    <input
-                      aria-label="Select all reported bugs"
-                      checked={allRecentRowsSelected}
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      onChange={(event) => handleToggleAllRows(event.target.checked)}
-                      type="checkbox"
-                    />
-                  </th>
-                  <th className="px-4 py-3">ID</th>
-                  <th className="px-4 py-3">Title</th>
-                  <th className="px-4 py-3">Project</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Priority</th>
-                  <th className="px-4 py-3">Assignee</th>
-                  <th className="px-4 py-3">Updated</th>
+                  <th className="w-[10%] px-5 py-3">ID</th>
+                  <th className="w-[28%] px-4 py-3">Title</th>
+                  <th className="w-[16%] px-4 py-3">Project</th>
+                  <th className="w-[12%] px-4 py-3">Status</th>
+                  <th className="w-[11%] px-4 py-3">Priority</th>
+                  <th className="w-[13%] px-4 py-3">Assignee</th>
+                  <th className="w-[10%] px-4 py-3">Updated</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80">
                 {isReportedBugsLoading ? (
                   Array.from({ length: 5 }).map((_, index) => (
                     <tr key={`reported-row-skeleton-${index}`}>
-                      <td className="px-5 py-4" colSpan={8}>
+                      <td className="px-5 py-4" colSpan={7}>
                         <Skeleton className="h-8 w-full rounded-xl" />
                       </td>
                     </tr>
@@ -919,47 +873,35 @@ const TesterDashboardPage = () => {
                         key={issue._id}
                         onClick={() => handleOpenReportedBug(issue._id)}
                       >
-                        <td className="px-5 py-4">
-                          <input
-                            aria-label={`Select ${getIssueDisplayKey(issue)}`}
-                            checked={selectedBugIds.includes(issue._id)}
-                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                            onChange={(event) =>
-                              handleToggleRow(issue._id, event.target.checked)
-                            }
-                            onClick={(event) => event.stopPropagation()}
-                            type="checkbox"
-                          />
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-4 font-mono text-xs font-semibold text-slate-500">
+                        <td className="whitespace-nowrap px-5 py-4 align-middle font-mono text-xs font-semibold text-slate-500">
                           {getIssueDisplayKey(issue)}
                         </td>
-                        <td className="max-w-[280px] px-4 py-4">
+                        <td className="px-4 py-4 align-middle">
                           <p className="truncate font-semibold text-slate-950">
                             {issue.title || "Untitled bug"}
                           </p>
                         </td>
-                        <td className="max-w-[190px] px-4 py-4">
+                        <td className="px-4 py-4 align-middle">
                           <p className="truncate text-slate-600">
                             {getProjectName(issue, assignedProjects)}
                           </p>
                         </td>
-                        <td className="px-4 py-4">
+                        <td className="px-4 py-4 align-middle">
                           <TableBadge variant={getIssueStatusVariant(issue.status)}>
                             {getIssueStatusLabel(issue.status)}
                           </TableBadge>
                         </td>
-                        <td className="px-4 py-4">
+                        <td className="px-4 py-4 align-middle">
                           <TableBadge variant={getIssuePriorityVariant(issue.priority)}>
                             {issue.priority || "Not set"}
                           </TableBadge>
                         </td>
-                        <td className="max-w-[170px] px-4 py-4">
+                        <td className="px-4 py-4 align-middle">
                           <p className="truncate text-slate-600">
                             {getAssigneeName(issue)}
                           </p>
                         </td>
-                        <td className="whitespace-nowrap px-4 py-4 text-slate-500">
+                        <td className="whitespace-nowrap px-4 py-4 align-middle text-slate-500">
                           {updatedAt ? formatDateTime(updatedAt) : "Unknown"}
                         </td>
                       </tr>
@@ -969,7 +911,7 @@ const TesterDashboardPage = () => {
                   <tr>
                     <td
                       className="px-5 py-12 text-center text-sm text-slate-500"
-                      colSpan={8}
+                      colSpan={7}
                     >
                       No reported bugs yet
                     </td>
