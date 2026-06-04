@@ -28,6 +28,7 @@ import {
 } from "recharts";
 import {
   fetchIssueActivity,
+  fetchIssueStats,
   fetchBugBucket,
   fetchMyIssues,
   fetchProjects,
@@ -414,6 +415,46 @@ const activityText = (entry) => {
   }
 
   return "updated";
+};
+
+const SprintProgressWidget = ({ metrics, isLoading }) => {
+  const percentage = metrics?.percentage || 0;
+
+  return (
+    <div
+      className="group ml-0 flex h-16 min-w-[240px] flex-1 flex-col justify-center rounded-[22px] border border-cyan-100/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.86),rgba(239,246,255,0.78),rgba(236,254,255,0.68))] px-4 py-2 shadow-[0_16px_34px_-26px_rgba(14,165,233,0.78)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-200 hover:shadow-[0_18px_38px_-24px_rgba(14,165,233,0.9)] sm:ml-auto sm:max-w-[340px]"
+      title="Sprint completion based on assigned tasks."
+    >
+      {isLoading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-28 rounded-full" />
+          <Skeleton className="h-2 w-full rounded-full" />
+          <Skeleton className="h-2.5 w-36 rounded-full" />
+        </div>
+      ) : metrics?.hasActiveSprint ? (
+        <>
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <p className="truncate text-xs font-semibold text-slate-900">Sprint Progress</p>
+            <span className="shrink-0 text-xs font-bold text-cyan-700">{percentage}%</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-slate-200/80 shadow-inner">
+            <div
+              className="h-full rounded-full bg-[linear-gradient(90deg,#2563EB_0%,#06B6D4_100%)] shadow-[0_0_16px_rgba(14,165,233,0.45)] transition-[width] duration-700 ease-out"
+              style={{ width: `${percentage}%` }}
+            />
+          </div>
+          <p className="mt-1 truncate text-[11px] font-medium text-slate-500">
+            {metrics.completed} / {metrics.total} Tasks Completed
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-xs font-semibold text-slate-900">Sprint Progress</p>
+          <p className="mt-1 text-[11px] font-medium text-slate-500">No active sprint</p>
+        </>
+      )}
+    </div>
+  );
 };
 
 const StatCard = ({ label, value, helper, Icon, className }) => (
@@ -1424,6 +1465,19 @@ const DeveloperDashboardPage = () => {
   });
 
   const {
+    data: activeSprintStats = null,
+    isLoading: isSprintProgressLoading,
+  } = useQuery({
+    queryKey: ["issues", "stats", "developer-dashboard", "active-sprint-tasks", user?._id],
+    queryFn: () =>
+      fetchIssueStats({
+        sprintState: "ACTIVE",
+        excludeType: "Bug",
+      }),
+    enabled: Boolean(user?._id),
+  });
+
+  const {
     data: activity = [],
     isLoading: isActivityLoading,
   } = useQuery({
@@ -1454,6 +1508,20 @@ const DeveloperDashboardPage = () => {
   const taskIssues = useMemo(
     () => allIssues.filter((issue) => !isBugIssue(issue)),
     [allIssues]
+  );
+  const sprintProgress = useMemo(
+    () => {
+      const total = activeSprintStats?.total || 0;
+      const completed = activeSprintStats?.closed || 0;
+
+      return {
+        completed,
+        total,
+        percentage: total ? Math.round((completed / total) * 100) : 0,
+        hasActiveSprint: total > 0,
+      };
+    },
+    [activeSprintStats]
   );
 
   useEffect(() => {
@@ -1659,7 +1727,7 @@ const DeveloperDashboardPage = () => {
 
   return (
     <div className="page-wrapper space-y-5">
-      <section className="flex flex-wrap gap-3 rounded-[26px] border border-white/70 bg-white/78 p-3 shadow-sm backdrop-blur-xl">
+      <section className="flex flex-wrap items-center gap-3 rounded-[26px] border border-white/70 bg-white/78 p-3 shadow-sm backdrop-blur-xl">
         <Button
           className="h-11 rounded-2xl"
           type="button"
@@ -1686,6 +1754,7 @@ const DeveloperDashboardPage = () => {
           <Flame className="h-4 w-4" />
           Priority Queue
         </Button>
+        <SprintProgressWidget metrics={sprintProgress} isLoading={isSprintProgressLoading} />
       </section>
 
       <BugBucketPanel
