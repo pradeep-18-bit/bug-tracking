@@ -3,9 +3,11 @@ require("./config/env");
 
 const cors = require("cors");
 const express = require("express");
+const http = require("http");
 const analyticsRoutes = require("./routes/analyticsRoutes");
 const backlogRoutes = require("./routes/backlogRoutes");
 const bugRoutes = require("./routes/bugRoutes");
+const chatRoutes = require("./routes/chat.routes");
 const connectDB = require("./config/db");
 const epicRoutes = require("./routes/epicRoutes");
 const { errorHandler, notFound } = require("./middleware/errorMiddleware");
@@ -22,6 +24,7 @@ const testRoutes = require("./routes/testRoutes");
 const userRoutes = require("./routes/userRoutes");
 const workspaceRoutes = require("./routes/workspaceRoutes");
 const { startSprintNotificationWorker } = require("./services/sprintNotificationQueue");
+const { setupChatSocket } = require("./socket");
 const { ensureDefaultUser } = require("./utils/defaultUser");
 const syncProjectEpics = require("./utils/syncProjectEpics");
 const syncIssueStatuses = require("./utils/syncIssueStatuses");
@@ -30,11 +33,21 @@ const syncWorkspaceScopes = require("./utils/syncWorkspaceScopes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const server = http.createServer(app);
 
 app.disable("x-powered-by");
 
 app.use(cors());
 app.use(express.json());
+
+// Protect issue attachments from direct access - must use API endpoint
+app.use("/uploads/issue-attachments", (req, res) => {
+  res.status(403).json({
+    message: "Direct access to issue attachments is not allowed. Use the API endpoint instead.",
+  });
+});
+
+// Allow other uploads (e.g., chat attachments) for now
 app.use("/uploads", express.static(path.resolve(__dirname, "uploads")));
 
 app.get("/", (req, res) => {
@@ -57,6 +70,7 @@ app.use("/api/epics", epicRoutes);
 app.use("/api/sprints", sprintRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/comments", commentRoutes);
+app.use("/api/chat", chatRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/", testRoutes);
 
@@ -72,7 +86,9 @@ const startServer = async () => {
   await syncIssueDisplayIds();
   startSprintNotificationWorker();
 
-  app.listen(PORT, () => {
+  setupChatSocket(server);
+
+  server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
 };

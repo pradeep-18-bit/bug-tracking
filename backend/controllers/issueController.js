@@ -1,4 +1,6 @@
 const mongoose = require("mongoose");
+const fs = require("fs/promises");
+const path = require("path");
 const Comment = require("../models/Comment");
 const Epic = require("../models/Epic");
 const Issue = require("../models/Issue");
@@ -9,13 +11,11 @@ const Sprint = require("../models/Sprint");
 const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const User = require("../models/User");
-const {
-  TESTER_SMTP_REQUIRED_MESSAGE,
-  ensureUserSmtpConfigured,
-  sendBugAssignmentEmail,
-  sendIssueEmail,
-} = require("../services/emailService");
+const IssueAttachment = require("../models/IssueAttachment");
+const IssueWorklog = require("../models/IssueWorklog");
+const SprintNotification = require("../models/SprintNotification");
 const { scheduleIssueStateNotifications } = require("../services/sprintNotificationService");
+const { emitBugWorkflowEvent } = require("../socket");
 const asyncHandler = require("../utils/asyncHandler");
 const { recordIssueHistory } = require("../utils/issueHistory");
 const {
@@ -40,6 +40,10 @@ const {
   isValidIssueType,
 } = require("../utils/issueTypes");
 const { getNextPlanningOrder } = require("../utils/planningOrder");
+const {
+  applyActiveSprintVisibilityToIssueQuery,
+  isIssueInActiveSprint,
+} = require("../utils/sprintVisibility");
 const {
   buildClosedIssueCondition,
   buildCriticalIssueCondition,
@@ -205,6 +209,93 @@ const loadAccessibleProject = async (user, projectId) =>
     ...(await buildProjectAccessQuery(user)),
   });
 
+const getProjectTeamIds = async (projectId, project = null) => {
+  if (!projectId) {
+    return [];
+  }
+
+  const [projectTeamLinks, projectRecord] = await Promise.all([
+    ProjectTeam.find({
+      projectId,
+    })
+      .select("teamId")
+      .lean(),
+    project
+      ? Promise.resolve(typeof project.toObject === "function" ? project.toObject() : project)
+      : Project.findById(projectId)
+          .select("_id attachedTeams teamIds teams")
+          .lean(),
+  ]);
+
+  return mergeProjectTeamIds(projectRecord || { _id: projectId }, projectTeamLinks);
+};
+
+const getWorkspaceTeamIdsForUser = async (user) => {
+  const userTeamIds = await TeamMember.find({
+    userId: user?._id || user?.id,
+  }).distinct("teamId");
+
+  if (!userTeamIds.length) {
+    return [];
+  }
+
+  return Team.find({
+    _id: {
+      $in: userTeamIds,
+    },
+    workspaceId: normalizeWorkspaceId(user.workspaceId),
+  }).distinct("_id");
+};
+
+const getBugPickupProjectEligibility = async ({ user, projectId, project = null }) => {
+  const [userTeamIds, projectTeamIds] = await Promise.all([
+    getWorkspaceTeamIdsForUser(user),
+    getProjectTeamIds(projectId, project),
+  ]);
+  const userTeamIdSet = new Set(userTeamIds.map(String));
+  const matchingTeamIds = projectTeamIds
+    .map(String)
+    .filter((teamId) => userTeamIdSet.has(teamId));
+  const matchingTeams = matchingTeamIds.length
+    ? await Team.find({
+        _id: {
+          $in: matchingTeamIds,
+        },
+        workspaceId: normalizeWorkspaceId(user.workspaceId),
+      })
+        .select("_id name")
+        .lean()
+    : [];
+
+  return {
+    canPick: matchingTeamIds.length > 0,
+    reason: matchingTeamIds.length
+      ? ""
+      : "You can only pick bugs when one of your teams is attached to this project.",
+    userTeamIds: userTeamIds.map(String),
+    projectTeamIds: projectTeamIds.map(String),
+    matchingTeamIds,
+    matchingTeams: matchingTeams.map((team) => ({
+      _id: team._id,
+      name: team.name,
+    })),
+  };
+};
+
+const getBugPickupEligibilityByProject = async (user, projectIds = []) => {
+  const uniqueProjectIds = Array.from(
+    new Set(projectIds.map((projectId) => String(projectId || "")).filter(Boolean))
+  );
+  const entries = await Promise.all(
+    uniqueProjectIds.map(async (projectId) => [
+      projectId,
+      await getBugPickupProjectEligibility({ user, projectId }),
+    ])
+  );
+
+  return new Map(entries);
+};
+
 const ensureAssigneeExists = async (assigneeId, workspaceId) => {
   const assignee = await User.findOne({
     _id: assigneeId,
@@ -222,6 +313,16 @@ const ensureAssigneeExists = async (assigneeId, workspaceId) => {
 
 const hasOwnField = (payload, field) =>
   Object.prototype.hasOwnProperty.call(payload || {}, field);
+
+const cleanPayload = (payload = {}) => {
+  const cleaned = { ...payload };
+  Object.keys(cleaned).forEach((key) => {
+    if (cleaned[key] === null || cleaned[key] === undefined || cleaned[key] === "") {
+      delete cleaned[key];
+    }
+  });
+  return cleaned;
+};
 
 const resolveAssigneeInput = (payload = {}) =>
   hasOwnField(payload, "assigneeId") ? payload.assigneeId : payload.assignee;
@@ -245,214 +346,7 @@ const resolveAssigneeFilterInput = (payload = {}) => {
   return undefined;
 };
 
-const buildIssueCreatedEmailPayload = (issue) => ({
-  _id: String(issue._id),
-  displayBugId: issue.displayBugId || "",
-  title: issue.title,
-  description: issue.description || "",
-  projectName: issue.projectId?.name || "Unknown project",
-  assigneeName: issue.assignee?.name || "Unassigned",
-  priority: issue.priority || "Medium",
-  status: getCanonicalIssueStatus(issue.status, ISSUE_STATUS.TODO),
-  createdAt: issue.createdAt,
-  dueDate: issue.dueAt || null,
-});
-
-const getIssueNotificationEmails = (issue) =>
-  [
-    issue?.assignee?.email || null,
-    // If we want to notify the reporter later, add issue?.reporter?.email here.
-  ]
-    .map((email) => (email ? String(email).trim().toLowerCase() : null))
-    .filter(Boolean)
-    .filter((email, index, emails) => emails.indexOf(email) === index);
-
-const normalizeNotificationEmail = (email) =>
-  email ? String(email).trim().toLowerCase() : "";
-
 const getUserIdString = (user) => String(user?._id || user?.id || user || "");
-
-const resolveBugDeveloperUser = (issue) => {
-  const developerLead = issue?.bugDetails?.developerLead;
-
-  if (developerLead && typeof developerLead === "object") {
-    return developerLead;
-  }
-
-  if (issue?.assignee && typeof issue.assignee === "object") {
-    return issue.assignee;
-  }
-
-  return null;
-};
-
-const getBugDeveloperEmail = (issue) =>
-  normalizeNotificationEmail(resolveBugDeveloperUser(issue)?.email);
-
-const hasBugDeveloperAssignment = (issue) =>
-  Boolean(getUserIdString(issue?.bugDetails?.developerLead));
-
-const buildBugAssignmentEmailPayload = (issue, actorUser) => {
-  const developerUser = resolveBugDeveloperUser(issue);
-
-  return {
-    _id: String(issue._id),
-    displayBugId: issue.displayBugId || "",
-    title: issue.title,
-    description: issue.description || "N/A",
-    projectName: issue.projectId?.name || "Unknown project",
-    severity: issue.bugDetails?.severity || "N/A",
-    priority: issue.priority || "N/A",
-    assigneeName:
-      developerUser?.name || developerUser?.email || "Assigned developer",
-    assignedByName:
-      actorUser?.name || actorUser?.email || "Tester",
-    assignedByEmail: actorUser?.email || "",
-    createdAt: issue.createdAt,
-  };
-};
-
-const logBugAssignmentEmailEvent = (level, payload = {}) => {
-  const logger =
-    level === "error"
-      ? console.error
-      : level === "warn"
-        ? console.warn
-        : console.info;
-
-  logger("[issues] Bug assignment email", {
-    bugId: payload.bugId || "",
-    senderUserId: payload.senderUserId || "",
-    senderEmail: payload.senderEmail || "",
-    receiverDeveloperEmail: payload.receiverDeveloperEmail || "",
-    smtpProvider: payload.smtpProvider || "",
-    sendStatus: payload.sendStatus || "",
-    ...(payload.message ? { message: payload.message } : {}),
-    ...(payload.senderSource ? { senderSource: payload.senderSource } : {}),
-  });
-};
-
-const ensureTesterBugAssignmentSmtpConfigured = async ({
-  user,
-  workspaceId,
-  receiverDeveloperEmail = "",
-}) => {
-  const senderUserId = getUserIdString(user);
-  const senderEmail = user?.email || "";
-
-  try {
-    const senderConfig = await ensureUserSmtpConfigured({
-      userId: senderUserId,
-      workspaceId,
-      sourceLabel: "Tester personal sender",
-      message: TESTER_SMTP_REQUIRED_MESSAGE,
-    });
-
-    logBugAssignmentEmailEvent("info", {
-      bugId: "pending",
-      senderUserId,
-      senderEmail,
-      receiverDeveloperEmail,
-      smtpProvider: senderConfig.config?.host || "",
-      sendStatus: "ready",
-    });
-
-    return senderConfig;
-  } catch (error) {
-    logBugAssignmentEmailEvent("warn", {
-      bugId: "pending",
-      senderUserId,
-      senderEmail,
-      receiverDeveloperEmail,
-      smtpProvider: "",
-      sendStatus: "blocked",
-      message: error.fallbackReason || error.message,
-    });
-
-    throw error;
-  }
-};
-
-const sendBugAssignmentNotification = async ({
-  issue,
-  actorUser,
-  workspaceId,
-  strictTesterSender = false,
-}) => {
-  const receiverDeveloperEmail = getBugDeveloperEmail(issue);
-  const senderUserId = getUserIdString(actorUser);
-  const senderEmail = actorUser?.email || "";
-  const bugId = String(issue?.displayBugId || issue?._id || "");
-
-  if (!receiverDeveloperEmail) {
-    logBugAssignmentEmailEvent("info", {
-      bugId,
-      senderUserId,
-      senderEmail,
-      receiverDeveloperEmail: "",
-      smtpProvider: "",
-      sendStatus: "skipped",
-      message: "Assigned developer email is missing.",
-    });
-
-    return {
-      type: "bug_assignment",
-      status: "skipped",
-      reason: "missing_developer_email",
-    };
-  }
-
-  try {
-    const emailResult = await sendBugAssignmentEmail(
-      [receiverDeveloperEmail],
-      buildBugAssignmentEmailPayload(issue, actorUser),
-      {
-        creatorUserId: senderUserId,
-        senderUserId,
-        strictSenderUserId: strictTesterSender ? senderUserId : null,
-        workspaceId,
-      }
-    );
-
-    logBugAssignmentEmailEvent("info", {
-      bugId,
-      senderUserId,
-      senderEmail,
-      receiverDeveloperEmail,
-      smtpProvider: emailResult?.smtpProvider || "",
-      sendStatus: "sent",
-      senderSource: emailResult?.senderSource || "",
-    });
-
-    return {
-      type: "bug_assignment",
-      status: "sent",
-      receiverDeveloperEmail,
-      senderEmail,
-      senderSource: emailResult?.senderSource || "",
-      smtpProvider: emailResult?.smtpProvider || "",
-    };
-  } catch (error) {
-    logBugAssignmentEmailEvent("error", {
-      bugId,
-      senderUserId,
-      senderEmail,
-      receiverDeveloperEmail,
-      smtpProvider: error.smtpProvider || "",
-      sendStatus: "failed",
-      senderSource: error.senderSource || "",
-      message: error.message,
-    });
-
-    return {
-      type: "bug_assignment",
-      status: "failed",
-      receiverDeveloperEmail,
-      senderEmail,
-      message: error.message,
-    };
-  }
-};
 
 const logIssuePayloadReceipt = (action, req) => {
   if (process.env.NODE_ENV === "production") {
@@ -472,6 +366,60 @@ const logIssuePayloadReceipt = (action, req) => {
     legacyAssignee: hasOwnField(req.body, "assignee") ? req.body.assignee : null,
   });
 };
+
+const getIssueWorkspaceId = async (issue, fallbackWorkspaceId = "") => {
+  if (issue?.projectId && typeof issue.projectId === "object" && issue.projectId.workspaceId) {
+    return normalizeWorkspaceId(issue.projectId.workspaceId);
+  }
+
+  if (issue?.projectId) {
+    const project = await Project.findById(issue.projectId).select("workspaceId").lean();
+
+    if (project?.workspaceId) {
+      return normalizeWorkspaceId(project.workspaceId);
+    }
+  }
+
+  return normalizeWorkspaceId(fallbackWorkspaceId);
+};
+
+const emitIssueWorkflowChange = async ({
+  issue,
+  req,
+  eventName = "BugUpdated",
+  action = "",
+  meta = {},
+}) => {
+  if (!issue || !isBugType(issue.type)) {
+    return;
+  }
+
+  emitBugWorkflowEvent({
+    workspaceId: await getIssueWorkspaceId(issue, req?.user?.workspaceId),
+    eventName,
+    bug: serializeIssue(issue),
+    actor: req?.user || null,
+    action,
+    meta,
+  });
+};
+
+const buildActivityLogEntry = ({
+  action,
+  from = null,
+  to = null,
+  by = null,
+  time = new Date(),
+  meta = {},
+}) => ({
+  action,
+  from,
+  to,
+  by: by?.role || by?.name || by?.email || by || "",
+  userId: by?._id || by?.id || null,
+  time,
+  ...meta,
+});
 
 const parseOptionalDateInput = (value, label) => {
   if (value === null || value === "" || typeof value === "undefined") {
@@ -568,6 +516,12 @@ const resolveObjectIdValue = (value) => {
 };
 
 const serializeBugDetails = (details = {}) => ({
+  moduleName: details?.moduleName || "",
+  category: details?.category || "",
+  affectedPlatform: details?.affectedPlatform || "",
+  suggestedTeam: details?.suggestedTeam || "",
+  addToBucket: Boolean(details?.addToBucket),
+  estimatedEffort: details?.estimatedEffort || "",
   severity: details?.severity || null,
   testerOwner: resolveObjectIdValue(details?.testerOwner),
   developerLead: resolveObjectIdValue(details?.developerLead),
@@ -592,6 +546,11 @@ const buildBugDetailsDraft = (payload = {}, existingDetails = {}, defaults = {})
   }
 
   [
+    "moduleName",
+    "category",
+    "affectedPlatform",
+    "suggestedTeam",
+    "estimatedEffort",
     "stepsToReproduce",
     "expectedResult",
     "actualResult",
@@ -604,6 +563,15 @@ const buildBugDetailsDraft = (payload = {}, existingDetails = {}, defaults = {})
       nextDetails[field] = toTrimmedString(value);
     }
   });
+
+  const addToBucketInput = getBugPayloadValue(payload, "addToBucket", [
+    "assignLater",
+    "bucket",
+  ]);
+
+  if (typeof addToBucketInput !== "undefined") {
+    nextDetails.addToBucket = Boolean(addToBucketInput);
+  }
 
   const targetReleaseInput = getBugPayloadValue(payload, "targetRelease", [
     "futureRelease",
@@ -644,15 +612,15 @@ const getBugStatusForIssueStatus = (status) => {
   }
 
   if (normalizedStatus === ISSUE_STATUS.IN_PROGRESS || normalizedStatus === ISSUE_STATUS.BLOCKED) {
-    return BUG_STATUS.ASSIGNED;
+    return BUG_STATUS.IN_PROGRESS;
   }
 
   if (normalizedStatus === ISSUE_STATUS.REVIEW || normalizedStatus === ISSUE_STATUS.QA) {
-    return BUG_STATUS.FIXED;
+    return BUG_STATUS.READY_FOR_QA;
   }
 
   if (normalizedStatus === ISSUE_STATUS.DONE) {
-    return BUG_STATUS.CLOSED;
+    return BUG_STATUS.DONE;
   }
 
   return BUG_STATUS.NEW;
@@ -676,11 +644,11 @@ const getRequestedBugStatus = ({ payload = {}, currentStatus = BUG_STATUS.NEW })
   if (normalizedStatus === ISSUE_STATUS.IN_PROGRESS) {
     const currentBugStatus = getBugStatusForIssueStatus(currentStatus);
 
-    return currentBugStatus === BUG_STATUS.NEW ? BUG_STATUS.OPEN : BUG_STATUS.ASSIGNED;
+    return currentBugStatus === BUG_STATUS.NEW ? BUG_STATUS.ASSIGNED : BUG_STATUS.IN_PROGRESS;
   }
 
   if (normalizedStatus === ISSUE_STATUS.DONE) {
-    return BUG_STATUS.CLOSED;
+    return BUG_STATUS.DONE;
   }
 
   return normalizedStatus;
@@ -731,14 +699,21 @@ const validateBugTransition = ({ user, fromStatus, toStatus, payload }) => {
     return "";
   }
 
+  if (isLeadRole(user?.role)) {
+    return "";
+  }
+
   const allowedTargets = BUG_ALLOWED_TRANSITIONS[fromStatus] || [];
 
   if (!allowedTargets.includes(toStatus)) {
     return `Bug status cannot move from ${fromStatus} to ${toStatus}`;
   }
 
-  if (toStatus === BUG_STATUS.CLOSED && fromStatus !== BUG_STATUS.FIXED) {
-    return "Bug cannot be Closed unless it was previously Fixed";
+  if (
+    toStatus === BUG_STATUS.CLOSED &&
+    ![BUG_STATUS.FIXED, BUG_STATUS.READY_FOR_QA, BUG_STATUS.TESTING, BUG_STATUS.DONE].includes(fromStatus)
+  ) {
+    return "Bug cannot be Closed unless it is ready for QA, testing, fixed, or done";
   }
 
   if (toStatus === BUG_STATUS.REOPEN && !getBugTransitionReason(payload, toStatus)) {
@@ -756,26 +731,25 @@ const validateBugTransition = ({ user, fromStatus, toStatus, payload }) => {
     return "Deferred requires a target future release";
   }
 
-  if (isLeadRole(user?.role)) {
-    return "";
-  }
-
   if (isQaRole(user?.role)) {
-    return [BUG_STATUS.CLOSED, BUG_STATUS.REOPEN].includes(toStatus)
+    return [BUG_STATUS.TESTING, BUG_STATUS.DONE, BUG_STATUS.CLOSED, BUG_STATUS.REOPEN].includes(toStatus)
       ? ""
-      : "QA users can only Close or Reopen Fixed bugs";
+      : "QA users can only test, close, complete, or reopen QA-ready bugs";
   }
 
   if (isDevRole(user?.role)) {
     return [
       BUG_STATUS.OPEN,
+      BUG_STATUS.TRIAGED,
       BUG_STATUS.ASSIGNED,
+      BUG_STATUS.IN_PROGRESS,
+      BUG_STATUS.READY_FOR_QA,
       BUG_STATUS.FIXED,
       BUG_STATUS.REJECTED,
       BUG_STATUS.DEFERRED,
     ].includes(toStatus)
       ? ""
-      : "Developer users can only move bugs to Open, Assigned, Fixed, Rejected, or Deferred";
+      : "Developer users can only move bugs through development states";
   }
 
   return "Your role cannot change this bug status";
@@ -1227,7 +1201,7 @@ const applyListOptions = (queryBuilder, req) => {
 const buildIssueQueryFromRequest = async (
   req,
   res,
-  { forceOwnAssignee = false } = {}
+  { forceOwnAssignee = false, activeSprintOnly = false } = {}
 ) => {
   const accessibleProjectIds = await getAccessibleProjectIds(req.user);
   const query = {
@@ -1364,6 +1338,22 @@ const buildIssueQueryFromRequest = async (
     query.teamId = req.query.teamId;
   }
 
+  if (req.query.bucket && req.query.bucket !== "all") {
+    const bucketMode = String(req.query.bucket).trim().toLowerCase();
+
+    if (!["true", "1", "available", "unassigned"].includes(bucketMode)) {
+      res.status(400);
+      throw new Error("Invalid bucket filter");
+    }
+
+    query.type = ISSUE_TYPES.BUG;
+    query.assignee = null;
+    query["bugDetails.developerLead"] = null;
+    query.status = {
+      $in: [BUG_STATUS.NEW, BUG_STATUS.TRIAGED, BUG_STATUS.OPEN, BUG_STATUS.REOPEN],
+    };
+  }
+
   if (req.query.epicId && req.query.epicId !== "all") {
     if (req.query.epicId === "unassigned") {
       query.epicId = null;
@@ -1479,6 +1469,9 @@ const buildIssueQueryFromRequest = async (
 
   if (forceOwnAssignee) {
     addPersonalIssueAccessQuery(query, req.user);
+    if (activeSprintOnly) {
+      await applyActiveSprintVisibilityToIssueQuery(query, Sprint);
+    }
     return query;
   }
 
@@ -1510,6 +1503,10 @@ const buildIssueQueryFromRequest = async (
     addPersonalIssueAccessQuery(query, req.user);
   }
 
+  if (activeSprintOnly) {
+    await applyActiveSprintVisibilityToIssueQuery(query, Sprint);
+  }
+
   return query;
 };
 
@@ -1521,7 +1518,10 @@ const getIssues = asyncHandler(async (req, res) => {
 });
 
 const getIssueStats = asyncHandler(async (req, res) => {
-  const query = await buildIssueQueryFromRequest(req, res);
+  const query = await buildIssueQueryFromRequest(req, res, {
+    forceOwnAssignee: isDevRole(req.user?.role),
+    activeSprintOnly: isDevRole(req.user?.role),
+  });
   const issues = await Issue.find(query)
     .select("status priority")
     .lean();
@@ -1536,6 +1536,26 @@ const getIssueStats = asyncHandler(async (req, res) => {
   res.status(200).json(stats);
 });
 
+const getMyReportedBugs = asyncHandler(async (req, res) => {
+  const issues = await populateIssueQuery(
+    Issue.find({
+      reporter: req.user.id,
+      type: ISSUE_TYPES.BUG,
+    })
+      .sort({ updatedAt: -1 })
+      .limit(5)
+  );
+
+  res.status(200).json(
+    serializeIssues(issues).map((issue) => ({
+      ...issue,
+      bugId: issue.displayBugId || String(issue._id),
+      project: issue.projectId || null,
+      assignedTo: issue.bugDetails?.developerLead || issue.assignee || null,
+    }))
+  );
+});
+
 const getMyIssues = asyncHandler(async (req, res) => {
   if (isAdmin(req.user)) {
     res.status(403);
@@ -1544,10 +1564,276 @@ const getMyIssues = asyncHandler(async (req, res) => {
 
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: true,
+    activeSprintOnly: true,
   });
   const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
 
   res.status(200).json(serializeIssues(issues));
+});
+
+const getBugBucket = asyncHandler(async (req, res) => {
+  if (!isDevRole(req.user?.role) && !isLeadRole(req.user?.role)) {
+    res.status(403);
+    throw new Error("Only developers and leads can view the bug bucket");
+  }
+
+  const accessibleProjectIds = await getAccessibleProjectIds(req.user);
+  const query = {
+    projectId: {
+      $in: accessibleProjectIds,
+    },
+    type: ISSUE_TYPES.BUG,
+    assignee: null,
+    "bugDetails.developerLead": null,
+    status: {
+      $in: [BUG_STATUS.NEW, BUG_STATUS.TRIAGED, BUG_STATUS.OPEN, BUG_STATUS.REOPEN],
+    },
+  };
+  await applyActiveSprintVisibilityToIssueQuery(query, Sprint);
+
+  if (req.query.projectId && req.query.projectId !== "all") {
+    if (!mongoose.isValidObjectId(req.query.projectId)) {
+      res.status(400);
+      throw new Error("Invalid project id filter");
+    }
+
+    const hasProjectAccess = accessibleProjectIds.some(
+      (projectId) => String(projectId) === String(req.query.projectId)
+    );
+
+    if (!hasProjectAccess) {
+      res.status(403);
+      throw new Error("You do not have access to that project");
+    }
+
+    query.projectId = req.query.projectId;
+  }
+
+  if (req.query.teamId && req.query.teamId !== "all") {
+    if (!mongoose.isValidObjectId(req.query.teamId)) {
+      res.status(400);
+      throw new Error("Invalid team id filter");
+    }
+
+    query.teamId = req.query.teamId;
+  }
+
+  if (req.query.priority && req.query.priority !== "all") {
+    query.priority = req.query.priority;
+  }
+
+  if (req.query.category && req.query.category !== "all") {
+    query["bugDetails.category"] = req.query.category;
+  }
+
+  if (req.query.moduleName && req.query.moduleName !== "all") {
+    query["bugDetails.moduleName"] = new RegExp(
+      escapeRegExp(String(req.query.moduleName).trim()),
+      "i"
+    );
+  }
+
+  const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
+  const issueIds = issues.map((issue) => issue._id);
+  const pickupEligibilityByProject = await getBugPickupEligibilityByProject(
+    req.user,
+    issues.map((issue) => issue.projectId?._id || issue.projectId)
+  );
+  const attachmentCounts = issueIds.length
+    ? await IssueAttachment.aggregate([
+        {
+          $match: {
+            issueId: {
+              $in: issueIds,
+            },
+          },
+        },
+        {
+          $group: {
+            _id: "$issueId",
+            count: {
+              $sum: 1,
+            },
+          },
+        },
+      ])
+    : [];
+  const countsByIssueId = new Map(
+    attachmentCounts.map((item) => [String(item._id), item.count])
+  );
+
+  res.status(200).json(
+    serializeIssues(issues).map((issue) => ({
+      ...issue,
+      pickupEligibility:
+        pickupEligibilityByProject.get(String(issue.projectId?._id || issue.projectId)) || {
+          canPick: false,
+          reason: "You can only pick bugs when one of your teams is attached to this project.",
+          userTeamIds: [],
+          projectTeamIds: [],
+          matchingTeamIds: [],
+          matchingTeams: [],
+        },
+      canPick: Boolean(
+        pickupEligibilityByProject.get(String(issue.projectId?._id || issue.projectId))?.canPick
+      ),
+      attachmentsCount: countsByIssueId.get(String(issue._id)) || 0,
+    }))
+  );
+});
+
+const pickIssue = asyncHandler(async (req, res) => {
+  if (!isDevRole(req.user?.role) && !isLeadRole(req.user?.role)) {
+    res.status(403);
+    throw new Error("Only developers and leads can pick bugs");
+  }
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid issue id");
+  }
+
+  const existingIssue = await Issue.findById(req.params.id);
+
+  if (!existingIssue) {
+    res.status(404);
+    throw new Error("Issue not found");
+  }
+
+  if (!isBugType(existingIssue.type)) {
+    res.status(400);
+    throw new Error("Only bugs can be picked from the bucket");
+  }
+
+  if (!(await isIssueInActiveSprint(existingIssue, Sprint))) {
+    res.status(409);
+    throw new Error("Bugs can only be picked after their sprint is active");
+  }
+
+  const project = await loadAccessibleProject(req.user, existingIssue.projectId);
+
+  if (!project) {
+    res.status(403);
+    throw new Error("You do not have access to this bug");
+  }
+
+  const pickupEligibility = await getBugPickupProjectEligibility({
+    user: req.user,
+    projectId: existingIssue.projectId,
+    project,
+  });
+
+  if (!pickupEligibility.canPick) {
+    res.status(403);
+    throw new Error(pickupEligibility.reason);
+  }
+
+  const previousStatus = getBugStatusForIssueStatus(existingIssue.status);
+  const pickedIssue = await Issue.findOneAndUpdate(
+    {
+      _id: existingIssue._id,
+      type: ISSUE_TYPES.BUG,
+      assignee: null,
+      "bugDetails.developerLead": null,
+      status: {
+        $in: [BUG_STATUS.NEW, BUG_STATUS.TRIAGED, BUG_STATUS.OPEN, BUG_STATUS.REOPEN],
+      },
+    },
+    {
+      $set: {
+        assignee: req.user._id,
+        assignedDeveloperId: req.user._id,
+        assignedDeveloperName: req.user.name || req.user.email || "Assigned developer",
+        "bugDetails.developerLead": req.user._id,
+        "bugDetails.addToBucket": false,
+        status: BUG_STATUS.IN_PROGRESS,
+        updatedAt: new Date(),
+        updatedBy: req.user._id,
+        startedAt: new Date(),
+      },
+      $push: {
+        activityLogs: buildActivityLogEntry({
+          action: "BUG_PICKED",
+          from: previousStatus,
+          to: BUG_STATUS.IN_PROGRESS,
+          by: req.user,
+        }),
+      },
+    },
+    {
+      new: true,
+    }
+  );
+
+  if (!pickedIssue) {
+    res.status(409);
+    throw new Error("This bug was already picked or is no longer available");
+  }
+
+  await populateIssueDocument(pickedIssue);
+  await Promise.all([
+    recordIssueHistory({
+      issueId: pickedIssue._id,
+      projectId: pickedIssue.projectId,
+      actorId: req.user._id,
+      eventType: "BUG_STATUS_CHANGED",
+      field: "status",
+      fromValue: previousStatus,
+      toValue: BUG_STATUS.IN_PROGRESS,
+      meta: {
+        title: pickedIssue.title,
+        action: "self_pick",
+      },
+    }),
+    recordIssueHistory({
+      issueId: pickedIssue._id,
+      projectId: pickedIssue.projectId,
+      actorId: req.user._id,
+      eventType: "ISSUE_UPDATED",
+      field: "assignee",
+      fromValue: null,
+      toValue: req.user._id,
+      meta: {
+        title: pickedIssue.title,
+        action: "self_pick",
+      },
+    }),
+  ]);
+
+  try {
+    const notificationResult = await scheduleIssueStateNotifications({
+      issueId: pickedIssue._id,
+      previousSprintId: pickedIssue.sprintId,
+      previousAssigneeId: null,
+      actorUserId: req.user._id,
+    });
+
+    console.info("[sprint-notifications] bug pickup evaluated", {
+      issueId: String(pickedIssue._id),
+      queued: Number(notificationResult?.queued || 0),
+      skipped: notificationResult?.skipped || "",
+    });
+  } catch (error) {
+    console.error("[sprint-notifications] bug pickup notification evaluation failed", {
+      issueId: String(pickedIssue._id),
+      message: error.message,
+    });
+  }
+
+  await emitIssueWorkflowChange({
+    issue: pickedIssue,
+    req,
+    eventName: "BugPicked",
+    action: "BUG_PICKED",
+    meta: {
+      fromStatus: previousStatus,
+      toStatus: BUG_STATUS.IN_PROGRESS,
+    },
+  });
+
+  res.status(200).json({
+    ...serializeIssue(pickedIssue),
+  });
 });
 
 const serializeActivityEntry = (entry) => {
@@ -1591,7 +1877,10 @@ const serializeActivityEntry = (entry) => {
 };
 
 const getRecentIssueActivity = asyncHandler(async (req, res) => {
-  const query = await buildIssueQueryFromRequest(req, res);
+  const query = await buildIssueQueryFromRequest(req, res, {
+    forceOwnAssignee: isDevRole(req.user?.role),
+    activeSprintOnly: isDevRole(req.user?.role),
+  });
   const limit = parsePositiveInteger(req.query.limit, 12, { max: 50 });
   const issueIds = await Issue.find(query).distinct("_id");
 
@@ -1954,6 +2243,7 @@ const buildReportsPayload = async (issues, workspaceId) => {
 const getReports = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: !isAdmin(req.user),
+    activeSprintOnly: isDevRole(req.user?.role),
   });
   const issues = await loadReportIssues(query);
 
@@ -1965,6 +2255,7 @@ const getReports = asyncHandler(async (req, res) => {
 const getProjectReports = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: !isAdmin(req.user),
+    activeSprintOnly: isDevRole(req.user?.role),
   });
   const issues = await loadReportIssues(query);
 
@@ -1976,6 +2267,7 @@ const getProjectReports = asyncHandler(async (req, res) => {
 const getUserReports = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: !isAdmin(req.user),
+    activeSprintOnly: isDevRole(req.user?.role),
   });
   const issues = await loadReportIssues(query);
 
@@ -1987,6 +2279,7 @@ const getUserReports = asyncHandler(async (req, res) => {
 const getTeamReports = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: !isAdmin(req.user),
+    activeSprintOnly: isDevRole(req.user?.role),
   });
   const issues = await loadReportIssues(query);
 
@@ -1998,6 +2291,9 @@ const getTeamReports = asyncHandler(async (req, res) => {
 const createIssue = asyncHandler(async (req, res) => {
   logIssuePayloadReceipt("create", req);
 
+  // Clean payload to remove null/undefined fields
+  req.body = cleanPayload(req.body);
+
   const {
     title,
     description,
@@ -2007,16 +2303,17 @@ const createIssue = asyncHandler(async (req, res) => {
     projectId,
     teamId,
     epicId,
-    sprintId,
     dueAt,
     dependsOnIssueId,
   } = req.body;
   const assigneeId = resolveAssigneeInput(req.body);
   const hasEpicInput = hasOwnField(req.body, "epicId");
-  const hasSprintInput = hasOwnField(req.body, "sprintId");
   const canAssignPlanningFields = hasAdminAccess(req.user?.role);
   const normalizedType = getCanonicalIssueType(type, ISSUE_TYPES.TASK);
   const isBug = normalizedType === ISSUE_TYPES.BUG;
+  const assignLater =
+    isBug &&
+    Boolean(getBugPayloadValue(req.body, "addToBucket", ["assignLater", "bucket"]));
   const requestedStatus = isBug
     ? getRequestedBugStatus({
         payload: req.body,
@@ -2068,9 +2365,9 @@ const createIssue = asyncHandler(async (req, res) => {
     throw new Error("Testers can only report bug issues");
   }
 
-  if (!canAssignPlanningFields && ((hasEpicInput && epicId) || (hasSprintInput && sprintId))) {
+  if (!canAssignPlanningFields && hasEpicInput && epicId) {
     res.status(403);
-    throw new Error("Only admins and managers can assign epic or sprint during creation");
+    throw new Error("Only admins and managers can assign epic during creation");
   }
 
   if (isBug && statusResult.value !== BUG_STATUS.NEW) {
@@ -2114,7 +2411,7 @@ const createIssue = asyncHandler(async (req, res) => {
     ),
   });
 
-  if (assigneeId) {
+  if (assigneeId && !assignLater) {
     const canTesterAssignBugDeveloper =
       req.user.role === ROLE_TESTER && isBug;
 
@@ -2186,16 +2483,9 @@ const createIssue = asyncHandler(async (req, res) => {
       throw new Error(epicResult.error.message);
     }
 
-    sprintResult = await ensureSprintForIssue({
-      sprintId: sprintId || null,
-      projectId: project._id,
-      teamId,
-    });
-
-    if (sprintResult.error) {
-      res.status(sprintResult.error.status);
-      throw new Error(sprintResult.error.message);
-    }
+    sprintResult = {
+      sprint: null,
+    };
   }
 
   const normalizedPriority = isBug
@@ -2204,7 +2494,8 @@ const createIssue = asyncHandler(async (req, res) => {
   const bugDetails = isBug
     ? buildBugDetailsDraft(req.body, {}, {
         testerOwner: req.user.role === ROLE_TESTER ? req.user._id : null,
-        developerLead: assigneeId || null,
+        developerLead: assignLater ? null : assigneeId || null,
+        addToBucket: assignLater,
       })
     : {};
   let bugAssignmentDeveloperUser = null;
@@ -2250,18 +2541,10 @@ const createIssue = asyncHandler(async (req, res) => {
 
     bugAssignmentDeveloperUser = developerLeadResult.user || null;
 
-    if (req.user.role === ROLE_TESTER && bugDetails.developerLead) {
-      try {
-        await ensureTesterBugAssignmentSmtpConfigured({
-          user: req.user,
-          workspaceId,
-          receiverDeveloperEmail: bugAssignmentDeveloperUser?.email || "",
-        });
-      } catch (error) {
-        res.status(400);
-        throw new Error(TESTER_SMTP_REQUIRED_MESSAGE);
-      }
+    if (assignLater) {
+      bugDetails.developerLead = null;
     }
+
   }
 
   const planningOrder = await getNextPlanningOrder(Issue, {
@@ -2281,7 +2564,12 @@ const createIssue = asyncHandler(async (req, res) => {
     type: normalizedType,
     status: statusResult.value,
     priority: normalizedPriority || priority,
-    assignee: assigneeId || null,
+    assignee: assignLater ? null : assigneeId || null,
+    assignedDeveloperId: isBug && !assignLater ? assigneeId || null : null,
+    assignedDeveloperName:
+      isBug && !assignLater
+        ? bugAssignmentDeveloperUser?.name || bugAssignmentDeveloperUser?.email || ""
+        : "",
     reporter: req.user._id,
     projectId,
     teamId,
@@ -2292,6 +2580,20 @@ const createIssue = asyncHandler(async (req, res) => {
     bugDetails,
     planningOrder,
     startedAt: isInProgressIssueStatus(statusResult.value) ? new Date() : null,
+    updatedBy: req.user._id,
+    activityLogs: isBug
+      ? [
+          buildActivityLogEntry({
+            action: "BUG_CREATED",
+            from: null,
+            to: statusResult.value,
+            by: req.user,
+            meta: {
+              priority: normalizedPriority || priority,
+            },
+          }),
+        ]
+      : [],
   });
 
   await populateIssueDocument(issue);
@@ -2312,69 +2614,23 @@ const createIssue = asyncHandler(async (req, res) => {
     },
   });
 
-  const emailWorkspaceId = normalizeWorkspaceId(project.workspaceId || workspaceId);
-  const creatorUserId = req.user?.id || req.user?._id || "";
-  let emailNotification = null;
-
-  if (isBug && hasBugDeveloperAssignment(issue)) {
-    emailNotification = await sendBugAssignmentNotification({
-      issue,
-      actorUser: req.user,
-      workspaceId: emailWorkspaceId,
-      strictTesterSender: req.user.role === ROLE_TESTER,
-    });
-  } else {
-    const emails = getIssueNotificationEmails(issue);
-    const emailPayload = buildIssueCreatedEmailPayload(issue);
-
-    if (emails.length > 0) {
-      try {
-        console.log("[issues] Issue-created email context", {
-          issueId: String(issue._id),
-          reqUserWorkspaceId: workspaceId,
-          projectWorkspaceId: project.workspaceId || "",
-          emailWorkspaceId,
-          issueCreatorId: String(creatorUserId || ""),
-          issueCreatorEmail: req.user?.email || "",
-          issueCreatorRole: req.user?.role || "",
-        });
-        console.log("[issues] Sending email to:", emails);
-        const emailResult = await sendIssueEmail(emails, emailPayload, {
-          creatorUserId,
-          workspaceId: emailWorkspaceId,
-        });
-        console.log("[issues] Issue-created final sender", {
-          issueId: String(issue._id),
-          creatorUserId: String(creatorUserId || ""),
-          creatorUserEmail: req.user?.email || "",
-          creatorUserRole: req.user?.role || "",
-          finalSenderSource: emailResult?.senderSource || "unknown",
-          finalFrom: emailResult?.from || "",
-          finalAuthUser: emailResult?.authUser || "",
-        });
-        console.log("[issues] Issue-created email sent", {
-          issueId: String(issue._id),
-          senderSource: emailResult?.senderSource || "unknown",
-          from: emailResult?.from || "",
-          workspaceId: emailWorkspaceId,
-        });
-      } catch (error) {
-        console.error("[issues] Failed to send issue-created email", {
-          issueId: String(issue._id),
-          message: error.message,
-        });
-      }
-    }
-  }
+  await emitIssueWorkflowChange({
+    issue,
+    req,
+    eventName: "BugCreated",
+    action: "BUG_CREATED",
+  });
 
   res.status(201).json({
     ...serializeIssue(issue),
-    ...(emailNotification ? { emailNotification } : {}),
   });
 });
 
 const updateIssue = asyncHandler(async (req, res) => {
   logIssuePayloadReceipt("update", req);
+
+  // Clean payload to remove null/undefined fields that shouldn't trigger validation
+  req.body = cleanPayload(req.body);
 
   if (!mongoose.isValidObjectId(req.params.id)) {
     res.status(400);
@@ -2482,9 +2738,6 @@ const updateIssue = asyncHandler(async (req, res) => {
   const previousBugDeveloperId = isBugType(issue.type)
     ? getUserIdString(issue.bugDetails?.developerLead)
     : "";
-  const previousBugStatus = isBugType(issue.type)
-    ? getBugStatusForIssueStatus(issue.status)
-    : "";
   const changeEntries = [];
 
   if (req.body.projectId) {
@@ -2547,6 +2800,18 @@ const updateIssue = asyncHandler(async (req, res) => {
 
   const nextStatus = nextStatusResult.value;
   const currentBugStatus = getBugStatusForIssueStatus(issue.status);
+  const hasStatusChange =
+    (typeof req.body.status !== "undefined" || String(issue.status) !== String(nextStatus)) &&
+    String(issue.status) !== String(nextStatus);
+
+  if (hasStatusChange && isDevRole(req.user?.role)) {
+    const hasActiveSprintAccess = await isIssueInActiveSprint(issue, Sprint);
+
+    if (!hasActiveSprintAccess) {
+      res.status(409);
+      throw new Error("Work can only be started or updated by developers after its sprint is active");
+    }
+  }
 
   if (nextIsBug && !isBugLifecycleStatus(nextStatus)) {
     res.status(400);
@@ -2640,6 +2905,12 @@ const updateIssue = asyncHandler(async (req, res) => {
   const nextDependsOnIssueId = hasDependencyChange
     ? req.body.dependsOnIssueId || null
     : issue.dependsOnIssueId || null;
+  const hasProjectChange =
+    Boolean(req.body.projectId) && String(req.body.projectId) !== String(issue.projectId || "");
+  const isTeamChanged =
+    hasTeamChange && String(nextTeamId || "") !== String(issue.teamId || "");
+  const isAssigneeChanged =
+    hasAssigneeChange && String(nextAssigneeId || "") !== String(issue.assignee || "");
   let nextBugDetails = null;
   let nextDeveloperLeadUser = null;
 
@@ -2683,7 +2954,23 @@ const updateIssue = asyncHandler(async (req, res) => {
     }
   }
 
-  if (hasTeamChange || req.body.projectId) {
+  console.log("[issues] update validation context", {
+    issueId: String(issue._id),
+    existingTeam: issue.teamId ? String(issue.teamId) : null,
+    existingAssignee: issue.assignee ? String(issue.assignee) : null,
+    incomingTeam: hasOwnField(req.body, "teamId") ? req.body.teamId : undefined,
+    incomingAssignee: hasAssigneeInput(req.body) ? resolveAssigneeInput(req.body) : undefined,
+    incomingStatus: req.body.status,
+    hasAssigneeChange,
+    hasTeamChange,
+    isTeamChanged,
+    isAssigneeChanged,
+    hasProjectChange,
+    nextAssigneeId: nextAssigneeId ? String(nextAssigneeId) : null,
+    nextTeamId: nextTeamId ? String(nextTeamId) : null,
+  });
+
+  if (isTeamChanged || hasProjectChange) {
     const teamResult = await ensureIssueTeamForProject({
       projectId: targetProject?._id || issue.projectId,
       teamId: nextTeamId,
@@ -2709,7 +2996,7 @@ const updateIssue = asyncHandler(async (req, res) => {
     }
   }
 
-  if (hasSprintChange || req.body.projectId || (hasTeamChange && nextSprintId)) {
+  if (hasSprintChange || hasProjectChange || (isTeamChanged && nextSprintId)) {
     const sprintResult = await ensureSprintForIssue({
       sprintId: nextSprintId,
       projectId: targetProject?._id || issue.projectId,
@@ -2722,7 +3009,20 @@ const updateIssue = asyncHandler(async (req, res) => {
     }
   }
 
-  if (nextAssigneeId) {
+  // Only validate assignee team membership if:
+  // 1. Assignee is being CHANGED to a new value, OR
+  // 2. Team is being CHANGED and there is an assignee
+  // Do NOT validate if only status/other fields are changing and assignee stays the same
+  const shouldValidateAssigneeTeamMembership = nextAssigneeId && (isAssigneeChanged || isTeamChanged || hasProjectChange);
+
+  if (shouldValidateAssigneeTeamMembership) {
+    console.log("[issues] validating assignee team membership", {
+      issueId: String(issue._id),
+      assigneeId: String(nextAssigneeId),
+      teamId: nextTeamId ? String(nextTeamId) : null,
+      reason: isAssigneeChanged ? "assignee_changed" : isTeamChanged ? "team_changed" : "project_changed",
+    });
+
     const assigneeResult = await ensureAssigneeBelongsToTeam({
       assigneeId: nextAssigneeId,
       teamId: nextTeamId,
@@ -2730,60 +3030,66 @@ const updateIssue = asyncHandler(async (req, res) => {
     });
 
     if (assigneeResult.error) {
+      console.log("[issues] assignee team membership validation failed", {
+        issueId: String(issue._id),
+        assigneeId: String(nextAssigneeId),
+        teamId: nextTeamId ? String(nextTeamId) : null,
+        error: assigneeResult.error.message,
+      });
+
       res.status(assigneeResult.error.status);
       throw new Error(assigneeResult.error.message);
     }
   }
 
   if (nextIsBug && nextBugDetails) {
-    const [testerOwnerResult, developerLeadResult] = await Promise.all([
-      ensureBugOwnerInWorkspace({
+    const hasTesterOwnerChange = hasBugPayloadField(req.body, "testerOwnerId", [
+      "testerOwner",
+      "qaOwnerId",
+      "qaOwner",
+    ]);
+    const hasDeveloperLeadChange = hasBugPayloadField(req.body, "developerLeadId", [
+      "developerLead",
+      "devLeadId",
+      "devLead",
+    ]);
+    const isDeveloperLeadChanged =
+      hasDeveloperLeadChange &&
+      String(nextBugDetails.developerLead || "") !== String(issue.bugDetails?.developerLead || "");
+
+    if (hasTesterOwnerChange) {
+      const testerOwnerResult = await ensureBugOwnerInWorkspace({
         userId: nextBugDetails.testerOwner,
         workspaceId,
         label: "QA owner",
-      }),
-      ensureBugOwnerBelongsToTeam({
+      });
+
+      if (testerOwnerResult.error) {
+        res.status(testerOwnerResult.error.status);
+        throw new Error(testerOwnerResult.error.message);
+      }
+    }
+
+    if (nextBugDetails.developerLead && (isDeveloperLeadChanged || isTeamChanged || hasProjectChange)) {
+      const developerLeadResult = await ensureBugOwnerBelongsToTeam({
         userId: nextBugDetails.developerLead,
         teamId: nextTeamId,
         workspaceId,
         label: "developer lead",
-      }),
-    ]);
+      });
 
-    if (testerOwnerResult.error) {
-      res.status(testerOwnerResult.error.status);
-      throw new Error(testerOwnerResult.error.message);
+      if (developerLeadResult.error) {
+        res.status(developerLeadResult.error.status);
+        throw new Error(developerLeadResult.error.message);
+      }
+
+      nextDeveloperLeadUser = developerLeadResult.user || null;
     }
-
-    if (developerLeadResult.error) {
-      res.status(developerLeadResult.error.status);
-      throw new Error(developerLeadResult.error.message);
-    }
-
-    nextDeveloperLeadUser = developerLeadResult.user || null;
   }
 
   const nextBugDeveloperId = nextIsBug
     ? getUserIdString(nextBugDetails?.developerLead)
     : "";
-  const shouldSendBugAssignmentEmail =
-    nextIsBug &&
-    Boolean(nextBugDeveloperId) &&
-    (previousBugDeveloperId !== nextBugDeveloperId ||
-      (previousBugStatus !== BUG_STATUS.ASSIGNED && nextStatus === BUG_STATUS.ASSIGNED));
-
-  if (req.user.role === ROLE_TESTER && shouldSendBugAssignmentEmail) {
-    try {
-      await ensureTesterBugAssignmentSmtpConfigured({
-        user: req.user,
-        workspaceId,
-        receiverDeveloperEmail: nextDeveloperLeadUser?.email || "",
-      });
-    } catch (error) {
-      res.status(400);
-      throw new Error(TESTER_SMTP_REQUIRED_MESSAGE);
-    }
-  }
 
   if (hasDueAtChange) {
     const dueAtResult = parseOptionalDateInput(req.body.dueAt, "due date");
@@ -2896,8 +3202,84 @@ const updateIssue = asyncHandler(async (req, res) => {
     issue.bugDetails = {};
   }
 
-  if (changeEntries.some((entry) => String(entry.fromValue || "") !== String(entry.toValue || ""))) {
+  const meaningfulChangeEntries = changeEntries.filter(
+    (entry) => String(entry.fromValue || "") !== String(entry.toValue || "")
+  );
+  const preSaveStatusChangeEntry = meaningfulChangeEntries.find(
+    (entry) => entry.field === "status"
+  );
+
+  if (nextIsBug) {
+    const assignedDeveloperId = getUserIdString(issue.bugDetails?.developerLead || issue.assignee);
+
+    if (previousBugDeveloperId !== assignedDeveloperId) {
+      issue.previousAssignedDeveloperId = previousBugDeveloperId || null;
+    }
+
+    if (assignedDeveloperId) {
+      const assignedDeveloper =
+        nextDeveloperLeadUser ||
+        (await User.findById(assignedDeveloperId).select("_id name email").lean());
+
+      issue.assignedDeveloperId = assignedDeveloperId;
+      issue.assignedDeveloperName =
+        assignedDeveloper?.name || assignedDeveloper?.email || issue.assignedDeveloperName || "";
+    } else {
+      issue.assignedDeveloperId = null;
+      issue.assignedDeveloperName = "";
+    }
+  } else if (isBugType(previousType) && !nextIsBug) {
+    issue.assignedDeveloperId = null;
+    issue.assignedDeveloperName = "";
+  }
+
+  if (meaningfulChangeEntries.length) {
     issue.updatedAt = new Date();
+    issue.updatedBy = req.user._id;
+    issue.activityLogs = issue.activityLogs || [];
+
+    meaningfulChangeEntries.forEach((entry) => {
+      const isAssignmentField = ["assignee", "bugDetails.developerLead"].includes(entry.field);
+      const action =
+        isBugType(issue.type) && entry.field === "status"
+          ? "STATUS_CHANGED"
+          : entry.field === "priority"
+            ? "PRIORITY_CHANGED"
+            : isAssignmentField && previousBugDeveloperId && nextBugDeveloperId && previousBugDeveloperId !== nextBugDeveloperId
+              ? "REASSIGNED"
+              : isAssignmentField
+                ? "ASSIGNED"
+              : "UPDATED";
+
+      issue.activityLogs.push(
+        buildActivityLogEntry({
+          action,
+          from: entry.fromValue,
+          to: entry.toValue,
+          by: req.user,
+          meta: {
+            field: entry.field,
+          },
+        })
+      );
+    });
+
+    if (
+      isBugType(issue.type) &&
+      preSaveStatusChangeEntry?.toValue === BUG_STATUS.CLOSED
+    ) {
+      issue.closedBy = req.user._id;
+      issue.closedAt = issue.closedAt || issue.updatedAt;
+    }
+
+    if (
+      isBugType(issue.type) &&
+      preSaveStatusChangeEntry?.toValue === BUG_STATUS.REOPEN
+    ) {
+      issue.reopenedCount = Number(issue.reopenedCount || 0) + 1;
+      issue.closedBy = null;
+      issue.closedAt = null;
+    }
   }
 
   await issue.save();
@@ -2921,8 +3303,7 @@ const updateIssue = asyncHandler(async (req, res) => {
   }
 
   await Promise.all(
-    changeEntries
-      .filter((entry) => String(entry.fromValue || "") !== String(entry.toValue || ""))
+    meaningfulChangeEntries
       .map((entry) =>
         recordIssueHistory({
           issueId: issue._id,
@@ -2948,17 +3329,6 @@ const updateIssue = asyncHandler(async (req, res) => {
       )
   );
 
-  let emailNotification = null;
-
-  if (shouldSendBugAssignmentEmail) {
-    emailNotification = await sendBugAssignmentNotification({
-      issue,
-      actorUser: req.user,
-      workspaceId: normalizeWorkspaceId(targetProject.workspaceId || workspaceId),
-      strictTesterSender: req.user.role === ROLE_TESTER,
-    });
-  }
-
   try {
     const notificationResult = await scheduleIssueStateNotifications({
       issueId: issue._id,
@@ -2979,9 +3349,61 @@ const updateIssue = asyncHandler(async (req, res) => {
     });
   }
 
+  if (isBugType(issue.type) && meaningfulChangeEntries.length) {
+    const statusChanged = Boolean(statusChangeEntry);
+    const priorityChanged = meaningfulChangeEntries.some((entry) => entry.field === "priority");
+    const assignedChanged = meaningfulChangeEntries.some((entry) =>
+      ["assignee", "bugDetails.developerLead"].includes(entry.field)
+    );
+    const reassigned =
+      assignedChanged &&
+      Boolean(previousBugDeveloperId) &&
+      Boolean(nextBugDeveloperId) &&
+      previousBugDeveloperId !== nextBugDeveloperId;
+    const toStatus = statusChangeEntry?.toValue || "";
+    const eventName =
+      toStatus === BUG_STATUS.CLOSED
+        ? "BugClosed"
+        : toStatus === BUG_STATUS.REOPEN
+          ? "BugReopened"
+          : reassigned
+            ? "BugReassigned"
+          : assignedChanged
+            ? "BugAssigned"
+            : statusChanged
+              ? "BugStatusChanged"
+              : priorityChanged
+                ? "BugPriorityChanged"
+                : "BugUpdated";
+
+    await emitIssueWorkflowChange({
+      issue,
+      req,
+      eventName,
+      action:
+        toStatus === BUG_STATUS.CLOSED
+          ? "BUG_CLOSED"
+          : toStatus === BUG_STATUS.REOPEN
+            ? "BUG_REOPENED"
+            : reassigned
+              ? "BUG_REASSIGNED"
+            : assignedChanged
+              ? "BUG_ASSIGNED"
+              : statusChanged
+                ? "BUG_STATUS_CHANGED"
+                : priorityChanged
+                  ? "BUG_PRIORITY_CHANGED"
+                  : "BUG_UPDATED",
+      meta: {
+        changedFields: meaningfulChangeEntries.map((entry) => entry.field),
+        previousAssignedDeveloperId: previousBugDeveloperId || null,
+        assignedDeveloperId: nextBugDeveloperId || null,
+      },
+    });
+  }
+
   res.status(200).json({
     ...serializeIssue(issue),
-    ...(emailNotification ? { emailNotification } : {}),
   });
 });
 
@@ -2991,12 +3413,9 @@ const deleteIssue = asyncHandler(async (req, res) => {
     throw new Error("Invalid issue id");
   }
 
-  if (!isAdmin(req.user)) {
-    res.status(403);
-    throw new Error("Only admins can delete issues");
-  }
-
-  const issue = await Issue.findById(req.params.id);
+  const issue = await Issue.findById(req.params.id)
+    .populate("reporter", "_id name email role")
+    .populate("bugDetails.testerOwner", "_id name email role");
 
   if (!issue) {
     res.status(404);
@@ -3007,21 +3426,103 @@ const deleteIssue = asyncHandler(async (req, res) => {
 
   if (!project) {
     res.status(403);
-    throw new Error("You do not have access to this issue");
+    throw new Error("You do not have access to this project");
   }
 
-  await Comment.deleteMany({ issueId: issue._id });
+  const userId = String(req.user.id || req.user._id);
+  const reporterId = String(issue.reporter?._id || issue.reporter || "");
+  const testerOwnerId = String(
+    issue.bugDetails?.testerOwner?._id || issue.bugDetails?.testerOwner || ""
+  );
+  const isBug = isBugType(issue.type);
+  const isUserAdmin = req.user.role === ROLE_ADMIN;
+  const isUserManager = req.user.role === ROLE_MANAGER;
+  const isUserTester = req.user.role === ROLE_TESTER;
+  const isReporter = reporterId === userId;
+  const isTesterOwner = testerOwnerId === userId;
+  const isTesterBugOwner =
+    isBug && isUserTester && (isReporter || isTesterOwner);
+  const canDelete =
+    isUserAdmin || (isBug && isUserManager) || isTesterBugOwner;
+
+  console.log("DELETE BUG DEBUG", {
+    issueId: String(issue._id),
+    issueReporter: reporterId,
+    issueTesterOwner: testerOwnerId,
+    loggedInUser: userId,
+    role: req.user.role,
+    isBug,
+    isUserAdmin,
+    isUserManager,
+    isUserTester,
+    isReporter,
+    isTesterOwner,
+    isTesterBugOwner,
+    canDelete,
+  });
+
+  if (!canDelete) {
+    res.status(403);
+    throw new Error("You are not authorized to delete this bug");
+  }
+
+  const attachments = await IssueAttachment.find({
+    issueId: issue._id,
+  })
+    .select("storagePath")
+    .lean();
+
+  await Promise.all([
+    Comment.deleteMany({ issueId: issue._id }),
+    IssueAttachment.deleteMany({ issueId: issue._id }),
+    IssueHistory.deleteMany({ issueId: issue._id }),
+    IssueWorklog.deleteMany({ issueId: issue._id }),
+    SprintNotification.deleteMany({ issueId: issue._id }),
+  ]);
+
+  await Promise.all(
+    attachments.map(async (attachment) => {
+      const fileName = path.basename(String(attachment.storagePath || ""));
+
+      if (!fileName) {
+        return;
+      }
+
+      try {
+        await fs.unlink(path.join(__dirname, "..", "uploads", "issue-attachments", fileName));
+      } catch (error) {
+        if (error.code !== "ENOENT") {
+          console.warn("[issues] unable to remove deleted issue attachment", {
+            issueId: String(issue._id),
+            fileName,
+            message: error.message,
+          });
+        }
+      }
+    })
+  );
+  
   await issue.deleteOne();
 
+  console.log("[issues] issue deleted successfully", {
+    issueId: String(issue._id),
+    deletedBy: userId,
+  });
+
   res.status(200).json({
-    message: "Issue deleted successfully",
+    success: true,
+    message: isBug ? "Bug deleted successfully" : "Issue deleted successfully",
+    deletedId: issue._id,
   });
 });
 
 module.exports = {
   getIssues,
   getIssueStats,
+  getMyReportedBugs,
   getMyIssues,
+  getBugBucket,
+  pickIssue,
   getRecentIssueActivity,
   getReports,
   getProjectReports,

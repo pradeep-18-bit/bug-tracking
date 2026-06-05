@@ -1,5 +1,5 @@
 const nodemailer = require("nodemailer");
-const { generateIssueRedirectUrl } = require("../config/env");
+const { generateIssueRedirectUrl, generateBugRedirectUrl } = require("../config/env");
 const User = require("../models/User");
 const UserEmailConfig = require("../models/UserEmailConfig");
 const WorkspaceSetting = require("../models/WorkspaceSetting");
@@ -1225,6 +1225,77 @@ const sendUserNotificationEmail = async ({
   }
 };
 
+const getPreferredUserOrDefaultMailer = async ({
+  senderUserId,
+  workspaceId,
+  sourceLabel = "Assigned tester sender",
+  senderSource = "assigned-tester",
+  enforceUserFromIdentity = false,
+} = {}) => {
+  const normalizedWorkspaceId = workspaceId ? normalizeWorkspaceId(workspaceId) : "";
+  const userMailerConfig = senderUserId
+    ? await loadUserMailerConfig({
+        allowSelfSenderUserId: senderUserId,
+        userId: senderUserId,
+        workspaceId: normalizedWorkspaceId,
+        sourceLabel,
+      })
+    : {
+        config: null,
+        fallbackReason: `No ${sourceLabel.toLowerCase()} user was provided.`,
+        senderUser: null,
+        workspaceId: normalizedWorkspaceId,
+      };
+
+  const preferredConfig =
+    enforceUserFromIdentity && userMailerConfig.config && userMailerConfig.senderUser
+      ? {
+          ...userMailerConfig.config,
+          fromName:
+            String(userMailerConfig.senderUser.name || "").trim() ||
+            userMailerConfig.config.fromName,
+          fromEmail:
+            normalizeEmailAddress(userMailerConfig.senderUser.email) ||
+            userMailerConfig.config.fromEmail,
+        }
+      : userMailerConfig.config;
+  const preferredMailer = preferredConfig
+    ? buildMailerResult({
+        config: preferredConfig,
+        fallbackReason: "",
+        senderSource,
+        senderUser: userMailerConfig.senderUser,
+        workspaceId: normalizedWorkspaceId,
+      })
+    : null;
+  const defaultMailer = getDefaultMailer({
+    workspaceId: normalizedWorkspaceId,
+    fallbackReason: userMailerConfig.fallbackReason,
+  });
+  const attemptMailers = [];
+  const seenTransportKeys = new Set();
+
+  appendUniqueMailer(attemptMailers, seenTransportKeys, preferredMailer);
+  appendUniqueMailer(attemptMailers, seenTransportKeys, defaultMailer);
+
+  console.log("[email] Preferred user sender resolution", {
+    workspaceId: normalizedWorkspaceId,
+    preferredSenderUserId: String(senderUserId || ""),
+    preferredSenderEmail: userMailerConfig.senderUser?.email || "",
+    preferredSenderRole: userMailerConfig.senderUser?.role || "",
+    preferredSenderSmtpUser: userMailerConfig.config?.username || "",
+    finalSenderSource: (preferredMailer || defaultMailer).senderSource,
+    finalFrom: (preferredMailer || defaultMailer).from,
+    fallbackReason: userMailerConfig.fallbackReason || "",
+    fallbackAttemptSources: attemptMailers.map((mailer) => mailer.senderSource),
+  });
+
+  return {
+    ...(preferredMailer || defaultMailer),
+    attemptMailers,
+  };
+};
+
 const sendIssueNotificationEmail = async ({
   creatorUserId,
   workspaceId,
@@ -1282,6 +1353,78 @@ const sendIssueNotificationEmail = async ({
       });
 
       if (isLastAttempt || !shouldFallbackToNextMailer(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+};
+
+const sendPreferredUserNotificationEmail = async ({
+  senderUserId,
+  workspaceId,
+  to,
+  cc,
+  bcc,
+  subject,
+  html,
+  text,
+  sourceLabel = "Assigned tester sender",
+  senderSource = "assigned-tester",
+  enforceUserFromIdentity = false,
+}) => {
+  const preferredMailer = await getPreferredUserOrDefaultMailer({
+    senderUserId,
+    workspaceId,
+    sourceLabel,
+    senderSource,
+    enforceUserFromIdentity,
+  });
+  const attemptedMailers = preferredMailer.attemptMailers?.length
+    ? preferredMailer.attemptMailers
+    : [preferredMailer];
+  let lastError = null;
+
+  for (let index = 0; index < attemptedMailers.length; index += 1) {
+    const candidateMailer = attemptedMailers[index];
+    const isLastAttempt = index === attemptedMailers.length - 1;
+
+    try {
+      return await sendMailWithMailer({
+        mailer: candidateMailer,
+        workspaceId,
+        to,
+        cc,
+        bcc,
+        subject,
+        html,
+        text,
+        logLabel: `sendPreferredUserNotificationEmail attempt ${index + 1}`,
+      });
+    } catch (error) {
+      lastError = error;
+
+      console.error("[email] Preferred user send attempt failed", {
+        attempt: index + 1,
+        senderSource: candidateMailer?.senderSource || "unknown",
+        from: candidateMailer?.from || "",
+        authUser: candidateMailer?.config?.username || "",
+        smtpHost: candidateMailer?.config?.host || "",
+        smtpPort: candidateMailer?.config?.port || "",
+        smtpSecure:
+          typeof candidateMailer?.config?.secure === "boolean"
+            ? candidateMailer.config.secure
+            : null,
+        code: error.code || "",
+        response: error.response || "",
+        message: error.message,
+        willFallback: !isLastAttempt && shouldFallbackToNextMailer(error),
+      });
+
+      if (isLastAttempt || !shouldFallbackToNextMailer(error)) {
+        error.smtpProvider = candidateMailer?.config?.host || "";
+        error.senderSource = candidateMailer?.senderSource || "";
         throw error;
       }
     }
@@ -1351,7 +1494,7 @@ const sendIssueEmail = async (emails, issue, options = {}) => {
 
 const sendBugAssignmentEmail = async (emails, bug, options = {}) => {
   const bugId = String(bug.displayBugId || bug._id || "");
-  const bugUrl = generateIssueRedirectUrl(bugId);
+  const bugUrl = generateBugRedirectUrl(bugId);
   const bugTitle = String(bug.title || "Untitled bug");
   const projectName = bug.projectName || "N/A";
   const severity = bug.severity || "N/A";
@@ -1438,18 +1581,17 @@ const sendBugAssignmentEmail = async (emails, bug, options = {}) => {
     `Link: ${bugUrl}`,
   ].join("\n");
 
-  if (options.strictSenderUserId) {
-    return sendUserNotificationEmail({
-      senderUserId: options.strictSenderUserId,
+  if (options.preferredSenderUserId || options.strictSenderUserId) {
+    return sendPreferredUserNotificationEmail({
+      senderUserId: options.preferredSenderUserId || options.strictSenderUserId,
       workspaceId: options.workspaceId,
       to: emails,
       subject,
       html,
       text,
-      sourceLabel: "Tester personal sender",
-      senderSource: "tester-personal",
+      sourceLabel: "Assigned tester sender",
+      senderSource: "assigned-tester",
       enforceUserFromIdentity: true,
-      missingConfigMessage: TESTER_SMTP_REQUIRED_MESSAGE,
     });
   }
 
@@ -1536,6 +1678,7 @@ module.exports = {
   sendWorkspaceEmail,
   sendUserNotificationEmail,
   sendIssueNotificationEmail,
+  sendPreferredUserNotificationEmail,
   ensureUserSmtpConfigured,
   normalizeEmailConfig,
   hasCompleteEmailConfig,

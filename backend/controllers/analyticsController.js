@@ -3,6 +3,7 @@ const Issue = require("../models/Issue");
 const IssueHistory = require("../models/IssueHistory");
 const Project = require("../models/Project");
 const ProjectTeam = require("../models/ProjectTeam");
+const Sprint = require("../models/Sprint");
 const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const asyncHandler = require("../utils/asyncHandler");
@@ -25,6 +26,7 @@ const {
   mergeProjectTeamIds,
 } = require("../utils/projectRelations");
 const { ROLE_ADMIN, ROLE_DEVELOPER, ROLE_MANAGER, ROLE_TESTER } = require("../utils/roles");
+const { applyActiveSprintVisibilityToIssueQuery } = require("../utils/sprintVisibility");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
@@ -570,6 +572,10 @@ const buildAnalyticsMatch = async (req, res) => {
 
   if (!isOrganizationAnalyticsUser(req.user) && req.user.role !== ROLE_MANAGER) {
     addPersonalAccess(match, req.user);
+  }
+
+  if (req.user.role === ROLE_DEVELOPER) {
+    await applyActiveSprintVisibilityToIssueQuery(match, Sprint);
   }
 
   return match;

@@ -35,6 +35,12 @@ import { getProjectTeams } from "@/lib/project-teams";
 import { fetchEpics } from "@/lib/api";
 import { memberSelectStyles } from "@/components/projects/memberSelectTheme";
 import ProjectManageDialog from "@/components/projects/ProjectManageDialog";
+import {
+  projectDialogBodyClass,
+  projectDialogContentClass,
+  projectDialogFooterClass,
+  projectDialogHeaderClass,
+} from "@/components/projects/projectDialogStyles";
 
 const TEAMS_NEW_MEETING_BASE_URL = "https://teams.microsoft.com/l/meeting/new";
 const PROJECT_CARD_PALETTES = [
@@ -724,8 +730,12 @@ const ProjectCard = ({
       />
 
       <Dialog open={isTeamDialogOpen} onOpenChange={handleTeamDialogChange}>
-        <DialogContent className="max-w-xl border-white/70 bg-white/92 shadow-[0_28px_80px_-40px_rgba(15,23,42,0.48)] backdrop-blur-2xl">
-          <DialogHeader>
+        <DialogContent
+          className={projectDialogContentClass(
+            "grid max-h-[calc(100svh-6.25rem)] w-[calc(100%-2rem)] max-w-xl grid-rows-[auto_minmax(0,1fr)_auto] rounded-[26px] sm:max-h-[calc(100vh-7.5rem)]"
+          )}
+        >
+          <DialogHeader className={projectDialogHeaderClass()}>
             <DialogTitle>Attach Team</DialogTitle>
             <DialogDescription>
               Link a workspace team to{" "}
@@ -733,7 +743,7 @@ const ProjectCard = ({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className={projectDialogBodyClass("space-y-4")}>
             {teamsErrorMessage ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 {teamsErrorMessage}
@@ -785,7 +795,7 @@ const ProjectCard = ({
             ) : null}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className={projectDialogFooterClass()}>
             <Button
               variant="ghost"
               type="button"
@@ -816,8 +826,12 @@ const ProjectCard = ({
       </Dialog>
 
       <Dialog open={isDeleteDialogOpen} onOpenChange={handleDeleteDialogChange}>
-        <DialogContent className="max-w-lg border-white/70 bg-white/94 shadow-[0_28px_80px_-40px_rgba(15,23,42,0.52)] backdrop-blur-2xl">
-          <DialogHeader className="space-y-4">
+        <DialogContent
+          className={projectDialogContentClass(
+            "grid max-h-[calc(100svh-6.25rem)] w-[calc(100%-2rem)] max-w-lg grid-rows-[auto_minmax(0,1fr)_auto] rounded-[26px] sm:max-h-[calc(100vh-7.5rem)]"
+          )}
+        >
+          <DialogHeader className={projectDialogHeaderClass("space-y-4")}>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 text-rose-600 shadow-sm">
               <AlertTriangle className="h-5 w-5" />
             </div>
@@ -830,7 +844,7 @@ const ProjectCard = ({
             </div>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className={projectDialogBodyClass("space-y-4")}>
             <div className="rounded-[24px] border border-rose-200 bg-[linear-gradient(145deg,rgba(255,241,242,0.96),rgba(255,255,255,0.98))] p-4 text-sm text-rose-900 shadow-sm">
               <p className="font-semibold">This action cannot be undone.</p>
               <p className="mt-2 leading-6 text-rose-700">
@@ -862,7 +876,7 @@ const ProjectCard = ({
             </label>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className={projectDialogFooterClass()}>
             <Button
               variant="ghost"
               type="button"

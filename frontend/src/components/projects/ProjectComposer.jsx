@@ -6,6 +6,26 @@ import { Textarea } from "@/components/ui/textarea";
 
 const MANAGER_ROLES = ["Admin", "Manager"];
 const TEAM_LEAD_ROLES = ["Admin", "Manager", "Developer"];
+const PROJECT_STATUSES = ["Active", "On Hold", "Completed"];
+const PROJECT_PRIORITIES = ["Low", "Medium", "High", "Critical"];
+
+const deriveProjectKey = (name = "") => {
+  const words = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!words.length) {
+    return "";
+  }
+
+  const key =
+    words.length === 1
+      ? words[0].slice(0, 4)
+      : words.map((word) => word[0]).join("");
+
+  return key.replace(/[^a-z0-9]/gi, "").slice(0, 6).toUpperCase();
+};
 
 const ProjectComposer = ({
   onSubmit,
@@ -20,17 +40,21 @@ const ProjectComposer = ({
     epics: [],
     manager: "",
     teamLead: "",
+    status: "Active",
+    priority: "Medium",
+    themeColor: "#2563EB",
   });
   const [epicInput, setEpicInput] = useState("");
   const [error, setError] = useState("");
 
+  const generatedProjectKey = deriveProjectKey(formData.name);
   const inputClassName =
-    "h-10 rounded-xl border-slate-200 bg-white text-sm shadow-none focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-500/20";
+    "h-11 rounded-xl border-slate-200 bg-white text-sm shadow-sm shadow-slate-950/[0.02] transition hover:border-slate-300 focus-visible:border-blue-400 focus-visible:ring-4 focus-visible:ring-blue-500/12";
   const textAreaClassName =
-    "min-h-[88px] rounded-xl border-slate-200 bg-white text-sm shadow-none focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-500/20";
+    "min-h-[96px] rounded-xl border-slate-200 bg-white text-sm shadow-sm shadow-slate-950/[0.02] transition hover:border-slate-300 focus-visible:border-blue-400 focus-visible:ring-4 focus-visible:ring-blue-500/12";
   const selectClassName =
-    "field-select h-10 rounded-xl border-slate-200 bg-white px-3 text-sm shadow-none focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-500/20";
-  const labelClassName = "text-sm font-medium text-slate-700";
+    "field-select h-11 rounded-xl border-slate-200 bg-white px-3 text-sm shadow-sm shadow-slate-950/[0.02] transition hover:border-slate-300 focus-visible:border-blue-400 focus-visible:ring-4 focus-visible:ring-blue-500/12";
+  const labelClassName = "text-sm font-semibold text-slate-700";
   const hintClassName = "text-[12px] leading-5 text-slate-500";
 
   const managerOptions = useMemo(
@@ -112,6 +136,9 @@ const ProjectComposer = ({
         epics: formData.epics,
         manager: formData.manager || null,
         teamLead: formData.teamLead || null,
+        status: formData.status,
+        priority: formData.priority,
+        themeColor: formData.themeColor,
       });
       setFormData({
         name: "",
@@ -119,6 +146,9 @@ const ProjectComposer = ({
         epics: [],
         manager: "",
         teamLead: "",
+        status: "Active",
+        priority: "Medium",
+        themeColor: "#2563EB",
       });
       setEpicInput("");
     } catch (submitError) {
@@ -129,20 +159,38 @@ const ProjectComposer = ({
   };
 
   return (
-    <form className="space-y-3.5" onSubmit={handleSubmit}>
-      <div className="space-y-1.5">
-        <label className={labelClassName} htmlFor="name">
-          Project Name
-        </label>
-        <Input
-          id="name"
-          name="name"
-          className={inputClassName}
-          placeholder="Customer Platform"
-          value={formData.name}
-          onChange={handleChange}
-          autoFocus
-        />
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <label className={labelClassName} htmlFor="name">
+            Project Name <span className="text-rose-500">*</span>
+          </label>
+          <Input
+            id="name"
+            name="name"
+            className={inputClassName}
+            placeholder="Enter project name"
+            value={formData.name}
+            onChange={handleChange}
+            autoFocus
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className={labelClassName} htmlFor="projectKeyPreview">
+            Project Key
+          </label>
+          <Input
+            id="projectKeyPreview"
+            className={`${inputClassName} bg-slate-50 text-slate-500`}
+            value={generatedProjectKey}
+            placeholder="Auto-generated from name"
+            readOnly
+          />
+          <p className={hintClassName}>
+            Short unique prefix is generated automatically.
+          </p>
+        </div>
       </div>
 
       <div className="space-y-1.5">
@@ -211,11 +259,65 @@ const ProjectComposer = ({
         </div>
       </div>
 
-      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <label className={labelClassName} htmlFor="priority">
+            Priority
+          </label>
+          <select
+            id="priority"
+            name="priority"
+            className={selectClassName}
+            value={formData.priority}
+            onChange={handleChange}
+          >
+            {PROJECT_PRIORITIES.map((priority) => (
+              <option key={priority} value={priority}>
+                {priority}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className={labelClassName} htmlFor="status">
+            Status
+          </label>
+          <select
+            id="status"
+            name="status"
+            className={selectClassName}
+            value={formData.status}
+            onChange={handleChange}
+          >
+            {PROJECT_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className={labelClassName} htmlFor="themeColor">
+            Theme
+          </label>
+          <Input
+            id="themeColor"
+            name="themeColor"
+            type="color"
+            className={`${inputClassName} p-1.5`}
+            value={formData.themeColor}
+            onChange={handleChange}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-0.5">
             <p className="text-sm font-medium text-slate-700">
-              Epics
+              Epics (Workstreams)
             </p>
             <p className={hintClassName}>
               Add one or more workstreams, separated by commas if needed.
@@ -229,7 +331,7 @@ const ProjectComposer = ({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input
             className={`${inputClassName} flex-1`}
-            placeholder="Billing, Onboarding, Reporting"
+            placeholder="Enter epic and press Add"
             value={epicInput}
             onChange={(event) => setEpicInput(event.target.value)}
             onKeyDown={(event) => {
@@ -242,7 +344,7 @@ const ProjectComposer = ({
           <Button
             type="button"
             variant="outline"
-            className="h-10 rounded-xl px-4"
+            className="h-11 rounded-xl px-4"
             onClick={appendEpicsFromInput}
             disabled={!epicInput.trim()}
           >
@@ -289,20 +391,20 @@ const ProjectComposer = ({
         </div>
       ) : null}
 
-      <div className="flex flex-col-reverse gap-2 border-t border-slate-200/80 pt-3 sm:flex-row sm:items-center sm:justify-end">
+      <div className="sticky bottom-0 -mx-4 flex flex-col-reverse gap-2 border-t border-slate-200/80 bg-white/94 px-4 py-3 backdrop-blur sm:-mx-5 sm:flex-row sm:items-center sm:justify-end sm:px-5">
         {onCancel ? (
           <Button
             type="button"
             variant="outline"
             onClick={onCancel}
             disabled={isPending}
-            className="h-10 min-w-[92px] rounded-xl px-4"
+            className="h-11 min-w-[104px] rounded-xl px-5"
           >
             Cancel
           </Button>
         ) : null}
         <Button
-          className="h-10 min-w-[132px] rounded-xl border border-blue-500/20 bg-[linear-gradient(90deg,#2563EB_0%,#3B82F6_100%)] px-4 text-white shadow-[0_14px_28px_-20px_rgba(37,99,235,0.72)] hover:brightness-105"
+          className="h-11 min-w-[164px] rounded-xl border border-blue-500/20 bg-[linear-gradient(90deg,#2563EB_0%,#4F46E5_100%)] px-5 text-white shadow-[0_16px_30px_-20px_rgba(37,99,235,0.82)] transition hover:-translate-y-0.5 hover:brightness-105"
           disabled={isPending}
           type="submit"
         >

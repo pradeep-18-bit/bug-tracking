@@ -5,6 +5,8 @@ const {
   getEmailConfig,
   saveEmailConfig,
   testEmailConfig,
+  getModuleOwnerships,
+  saveModuleOwnerships,
   getWorkspaceSender,
   saveWorkspaceSender,
   getEligibleSenders,
@@ -17,6 +19,8 @@ router.use(protect, mailSettingsAccess);
 router.get("/email-config", getEmailConfig);
 router.post("/email-config", saveEmailConfig);
 router.post("/test-email", testEmailConfig);
+router.get("/module-ownerships", getModuleOwnerships);
+router.post("/module-ownerships", saveModuleOwnerships);
 router.get("/workspace-sender", getWorkspaceSender);
 router.post("/workspace-sender", saveWorkspaceSender);
 router.get("/eligible-senders", getEligibleSenders);

@@ -1,14 +1,17 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Activity,
   Bug,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
   Clock3,
   FolderKanban,
+  PauseCircle,
   Plus,
   RefreshCcw,
+  RotateCcw,
   Search,
   TimerReset,
 } from "lucide-react";
@@ -20,7 +23,12 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
-import { fetchIssues, fetchProjects, fetchRecentTasks } from "@/lib/api";
+import {
+  fetchIssues,
+  fetchMyReportedBugs,
+  fetchProjects,
+  fetchRecentTasks,
+} from "@/lib/api";
 import {
   ISSUE_STATUS,
   getIssueDisplayKey,
@@ -58,36 +66,48 @@ const STATUS_CHART_META = [
     label: "Open",
     color: "#f59e0b",
     gradient: "from-amber-400 to-orange-500",
+    Icon: Clock3,
+    track: "bg-amber-100",
   },
   {
     key: "inProgress",
     label: "In Progress",
     color: "#6366f1",
     gradient: "from-indigo-500 to-violet-500",
+    Icon: TimerReset,
+    track: "bg-indigo-100",
   },
   {
     key: "resolved",
     label: "Resolved",
     color: "#10b981",
     gradient: "from-emerald-500 to-teal-400",
+    Icon: CheckCircle2,
+    track: "bg-emerald-100",
   },
   {
     key: "reopened",
     label: "Reopened",
     color: "#ec4899",
     gradient: "from-pink-500 to-rose-500",
+    Icon: RotateCcw,
+    track: "bg-pink-100",
   },
   {
     key: "closed",
     label: "Closed",
     color: "#64748b",
     gradient: "from-slate-500 to-slate-700",
+    Icon: CheckCircle2,
+    track: "bg-slate-200",
   },
   {
     key: "deferred",
     label: "Deferred",
     color: "#14b8a6",
     gradient: "from-cyan-500 to-teal-500",
+    Icon: PauseCircle,
+    track: "bg-cyan-100",
   },
 ];
 
@@ -283,8 +303,9 @@ const AttachedProjectsTile = ({ projects = [] }) => (
 );
 
 const SummaryCard = ({ Icon, className, label, value }) => (
-  <Card className="overflow-hidden border-white/70 bg-white/86 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.34)] backdrop-blur-xl">
-    <CardContent className="p-4">
+  <Card className="group overflow-hidden border-white/70 bg-white/86 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.34)] backdrop-blur-xl transition duration-300 hover:-translate-y-1 hover:border-blue-100 hover:shadow-[0_24px_54px_-30px_rgba(37,99,235,0.32)]">
+    <CardContent className="relative overflow-hidden p-4">
+      <div className={cn("absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br opacity-10 blur-2xl transition group-hover:opacity-20", className)} />
       <div className="flex items-center justify-between gap-3">
         <div
           className={cn(
@@ -298,13 +319,16 @@ const SummaryCard = ({ Icon, className, label, value }) => (
           {value}
         </p>
       </div>
-      <p className="mt-4 text-sm font-semibold text-slate-600">{label}</p>
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-600">{label}</p>
+        <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Live</span>
+      </div>
     </CardContent>
   </Card>
 );
 
 const ChartCard = ({ children, title }) => (
-  <Card className="min-w-0 overflow-hidden border-white/70 bg-white/88 shadow-[0_20px_56px_-36px_rgba(15,23,42,0.38)] backdrop-blur-xl">
+  <Card className="min-w-0 overflow-hidden rounded-2xl border-white/70 bg-white/88 shadow-[0_20px_56px_-36px_rgba(15,23,42,0.38)] backdrop-blur-xl">
     <CardContent className="p-5">
       <h2 className="text-base font-semibold tracking-tight text-slate-950">
         {title}
@@ -315,8 +339,9 @@ const ChartCard = ({ children, title }) => (
 );
 
 const EmptyChartState = ({ children }) => (
-  <div className="flex h-[240px] items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-slate-50/70 px-6 text-center text-sm text-slate-500">
-    {children}
+  <div className="flex min-h-[156px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-6 py-6 text-center text-sm text-slate-500">
+    <Activity className="mb-3 h-8 w-8 text-slate-300" />
+    <span>{children}</span>
   </div>
 );
 
@@ -334,7 +359,7 @@ const RecentTasksPanel = ({
 }) => (
   <ChartCard title="Recent Tasks">
     {isLoading ? (
-      <div className="space-y-3">
+      <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
         {Array.from({ length: 5 }).map((_, index) => (
           <div
             className="rounded-[20px] border border-slate-200/80 bg-white/70 p-4"
@@ -363,11 +388,12 @@ const RecentTasksPanel = ({
 
           return (
             <button
-              className="group w-full rounded-[20px] border border-slate-200/80 bg-white/74 p-4 text-left shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/46 hover:shadow-[0_18px_44px_-32px_rgba(37,99,235,0.42)] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              className="group relative w-full rounded-2xl border border-slate-200/80 bg-white/74 p-3 pl-5 text-left shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/46 hover:shadow-[0_18px_44px_-32px_rgba(37,99,235,0.42)] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               key={task._id}
               onClick={() => onOpenTask(task._id)}
               type="button"
             >
+              <span className="absolute bottom-3 left-2 top-3 w-1 rounded-full bg-gradient-to-b from-blue-500 to-cyan-400" />
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -379,7 +405,7 @@ const RecentTasksPanel = ({
                     </TableBadge>
                   </div>
 
-                  <h3 className="mt-3 line-clamp-2 text-sm font-semibold leading-5 text-slate-950 transition group-hover:text-blue-700">
+                  <h3 className="mt-2 line-clamp-1 text-sm font-semibold leading-5 text-slate-950 transition group-hover:text-blue-700">
                     {task.title || "Untitled task"}
                   </h3>
                 </div>
@@ -389,7 +415,7 @@ const RecentTasksPanel = ({
                 </span>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-medium text-slate-500">
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-medium text-slate-500">
                 <span className="min-w-0 max-w-full truncate text-slate-700">
                   {getProjectName(task)}
                 </span>
@@ -404,7 +430,7 @@ const RecentTasksPanel = ({
         })}
       </div>
     ) : (
-      <EmptyChartState>No recent tasks available</EmptyChartState>
+      <EmptyChartState>No recent activity yet</EmptyChartState>
     )}
   </ChartCard>
 );
@@ -416,7 +442,6 @@ const TesterDashboardPage = () => {
   const isTester = user?.role === ROLE_TESTER;
   const [searchTerm, setSearchTerm] = useState("");
   const [projectFilter, setProjectFilter] = useState("all");
-  const [selectedBugIds, setSelectedBugIds] = useState([]);
   const [lastRefreshedAt, setLastRefreshedAt] = useState(() => new Date());
 
   const {
@@ -453,6 +478,18 @@ const TesterDashboardPage = () => {
     enabled: Boolean(testerId && isTester),
   });
 
+  const {
+    data: latestReportedBugs = [],
+    isLoading: isReportedBugsLoading,
+    error: reportedBugsError,
+    refetch: refetchReportedBugs,
+    isFetching: isReportedBugsFetching,
+  } = useQuery({
+    queryKey: ["issues", "reported", "me", testerId],
+    queryFn: fetchMyReportedBugs,
+    enabled: Boolean(testerId && isTester),
+  });
+
   const assignedProjects = useMemo(
     () =>
       projects
@@ -477,17 +514,15 @@ const TesterDashboardPage = () => {
     [assignedProjects, projectFilter, reportedIssues, searchTerm]
   );
 
-  const recentlyUpdatedBugs = useMemo(
+  const myReportedBugs = useMemo(
     () =>
-      [...visibleIssues]
-        .sort((left, right) => {
-          const leftDate = new Date(getBugUpdatedAt(left) || 0).getTime();
-          const rightDate = new Date(getBugUpdatedAt(right) || 0).getTime();
-
-          return rightDate - leftDate;
-        })
-        .slice(0, 8),
-    [visibleIssues]
+      filterBugs({
+        issues: latestReportedBugs,
+        projects: assignedProjects,
+        projectId: projectFilter,
+        searchTerm,
+      }),
+    [assignedProjects, latestReportedBugs, projectFilter, searchTerm]
   );
 
   const dashboardMetrics = useMemo(() => {
@@ -514,36 +549,21 @@ const TesterDashboardPage = () => {
     [statusChartData]
   );
 
-  const allRecentRowsSelected =
-    recentlyUpdatedBugs.length > 0 &&
-    recentlyUpdatedBugs.every((issue) => selectedBugIds.includes(issue._id));
-
   const handleRefresh = async () => {
-    await Promise.all([refetchProjects(), refetchIssues(), refetchRecentTasks()]);
+    await Promise.all([
+      refetchProjects(),
+      refetchIssues(),
+      refetchReportedBugs(),
+      refetchRecentTasks(),
+    ]);
     setLastRefreshedAt(new Date());
   };
 
-  const handleToggleAllRows = (checked) => {
-    const currentRowIds = recentlyUpdatedBugs.map((issue) => issue._id);
-
-    setSelectedBugIds((current) => {
-      if (checked) {
-        return Array.from(new Set([...current, ...currentRowIds]));
-      }
-
-      return current.filter((id) => !currentRowIds.includes(id));
-    });
+  const handleOpenReportedBug = (issueId) => {
+    navigate(`/bugs?bug=${encodeURIComponent(issueId)}`);
   };
 
-  const handleToggleRow = (issueId, checked) => {
-    setSelectedBugIds((current) =>
-      checked
-        ? Array.from(new Set([...current, issueId]))
-        : current.filter((id) => id !== issueId)
-    );
-  };
-
-  const error = projectsError || issuesError;
+  const error = projectsError || issuesError || reportedBugsError;
   const isLoading = isProjectsLoading || isIssuesLoading;
 
   if (error) {
@@ -610,7 +630,7 @@ const TesterDashboardPage = () => {
         <AttachedProjectsTile projects={assignedProjects} />
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <section className="flex snap-x gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:pb-0 xl:grid-cols-5 [&>*]:min-w-[220px] [&>*]:snap-start md:[&>*]:min-w-0">
         {SUMMARY_CARDS.map((item) => (
           <SummaryCard
             key={item.key}
@@ -625,70 +645,96 @@ const TesterDashboardPage = () => {
       <section className="grid gap-5 xl:grid-cols-[0.86fr_1.14fr]">
         <ChartCard title="Bug Status">
           {dashboardMetrics.total ? (
-            <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)] lg:items-center">
-              <div className="relative mx-auto h-[260px] w-full max-w-[280px]">
-                <ResponsiveContainer height="100%" width="100%">
-                  <PieChart aria-label="Bug status donut chart">
-                    <Pie
-                      cx="50%"
-                      cy="50%"
-                      data={visibleStatusChartData}
-                      dataKey="value"
-                      innerRadius={74}
-                      outerRadius={104}
-                      paddingAngle={3}
-                      labelLine={false}
-                      stroke="rgba(255,255,255,0.96)"
-                      strokeWidth={4}
-                    >
-                      {visibleStatusChartData.map((entry) => (
-                        <Cell fill={entry.color} key={entry.key} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value, _name, item) => [
-                        `${value} bug${Number(value) === 1 ? "" : "s"}`,
-                        item?.payload?.label || "",
-                      ]}
+            <div className="space-y-6">
+              {/* Large Horizontal Segmented Bar */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status Distribution</p>
+                  <span className="text-xs font-medium text-slate-400">{dashboardMetrics.total} Total</span>
+                </div>
+                <div className="flex h-3 gap-0.5 overflow-hidden rounded-full bg-slate-100 p-0.5">
+                  {visibleStatusChartData.map((item, idx) => (
+                    <div
+                      key={item.key}
+                      className={cn(
+                        "transition-all duration-500 ease-out",
+                        idx === 0 ? "rounded-l-full" : "",
+                        idx === visibleStatusChartData.length - 1 ? "rounded-r-full" : ""
+                      )}
+                      style={{
+                        flex: item.percentage,
+                        backgroundColor: item.color,
+                        minWidth: item.percentage > 3 ? "auto" : "2px",
+                      }}
+                      title={`${item.label}: ${item.value} (${item.percentage}%)`}
                     />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
-                    Bugs
-                  </span>
-                  <span className="mt-1 text-3xl font-semibold leading-none text-slate-950">
-                    {dashboardMetrics.total}
-                  </span>
+                  ))}
                 </div>
               </div>
 
-              <div className="grid gap-2.5">
-                {statusChartData.map((item) => (
-                  <div
-                    className="flex items-center justify-between gap-3 rounded-[18px] border border-slate-200/80 bg-slate-50/80 px-3.5 py-3 shadow-sm"
-                    key={item.key}
-                  >
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <span
-                        className="h-3 w-3 shrink-0 rounded-full"
-                        style={{ backgroundColor: item.color }}
-                      />
-                      <span className="truncate text-sm font-semibold text-slate-700">
-                        {item.label}
-                      </span>
+              {/* Status Cards Grid */}
+              <div className="grid gap-2 sm:grid-cols-2">
+                {visibleStatusChartData.map((item) => {
+                  const StatusIcon = item.Icon;
+
+                  return (
+                    <div
+                      key={item.key}
+                      className="group rounded-xl border border-slate-200/60 bg-gradient-to-br from-white/95 to-slate-50/70 p-3 shadow-sm transition duration-200 hover:border-blue-200/80 hover:shadow-md"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white shadow-sm"
+                            style={{ backgroundColor: item.color }}
+                          >
+                            <StatusIcon className="h-3.5 w-3.5" />
+                          </div>
+                          <p className="text-xs font-semibold text-slate-600 truncate">{item.label}</p>
+                        </div>
+                        <div className="flex items-baseline gap-1 shrink-0">
+                          <span className="text-base font-bold text-slate-950">{item.value}</span>
+                          <span className="text-[10px] font-semibold text-slate-400">{item.percentage}%</span>
+                        </div>
+                      </div>
+
+                      {/* Mini Progress Bar */}
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full transition-all duration-700 ease-out"
+                          style={{
+                            width: `${item.percentage}%`,
+                            backgroundColor: item.color,
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="flex shrink-0 items-baseline gap-2">
-                      <span className="text-sm font-semibold text-slate-950">
-                        {item.value}
-                      </span>
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {item.percentage}%
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+
+              {/* Legend for statuses with 0 bugs */}
+              {statusChartData.length > visibleStatusChartData.length && (
+                <div className="pt-2 border-t border-slate-100">
+                  <p className="text-[10px] font-medium text-slate-400 mb-2">Other statuses</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {statusChartData
+                      .filter((item) => item.value === 0)
+                      .map((item) => (
+                        <div
+                          key={item.key}
+                          className="flex items-center gap-1.5 rounded-lg bg-slate-50 px-2 py-1 text-[10px] font-medium text-slate-600"
+                        >
+                          <div
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: item.color }}
+                          />
+                          {item.label}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <EmptyChartState>No bug status data yet.</EmptyChartState>
@@ -705,33 +751,39 @@ const TesterDashboardPage = () => {
 
       <Card className="overflow-hidden border-white/70 bg-white/90 shadow-[0_20px_56px_-36px_rgba(15,23,42,0.38)] backdrop-blur-xl">
         <CardContent className="p-0">
-          <div className="border-b border-slate-200/80 px-4 py-4 sm:px-5">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-200/80 px-4 py-4 sm:px-5">
             <h2 className="text-base font-semibold tracking-tight text-slate-950">
-              Recently Updated Bugs
+              My Reported Bugs
             </h2>
+            <Button type="button" size="sm" variant="outline" onClick={() => navigate("/bugs")}>
+              View All Bugs
+              <ChevronRight className="h-4 w-4" />
+            </Button>
           </div>
 
           <div className="space-y-3 p-4 md:hidden">
-            {recentlyUpdatedBugs.length ? (
-              recentlyUpdatedBugs.map((issue) => {
+            {isReportedBugsLoading ? (
+              Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={`reported-mobile-skeleton-${index}`} className="h-44 rounded-[20px]" />
+              ))
+            ) : myReportedBugs.length ? (
+              myReportedBugs.map((issue) => {
                 const updatedAt = getBugUpdatedAt(issue);
 
                 return (
                   <article
-                    className="rounded-[20px] border border-slate-200/80 bg-white/78 p-4 shadow-sm"
+                    className="cursor-pointer rounded-[20px] border border-slate-200/80 bg-white/78 p-4 shadow-sm transition hover:border-blue-200 hover:bg-blue-50/42 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                     key={issue._id}
+                    onClick={() => handleOpenReportedBug(issue._id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        handleOpenReportedBug(issue._id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                   >
-                    <div className="flex items-start gap-3">
-                      <input
-                        aria-label={`Select ${getIssueDisplayKey(issue)}`}
-                        checked={selectedBugIds.includes(issue._id)}
-                        className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        onChange={(event) =>
-                          handleToggleRow(issue._id, event.target.checked)
-                        }
-                        type="checkbox"
-                      />
-                      <div className="min-w-0 flex-1">
+                    <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono text-xs font-semibold text-slate-500">
                             {getIssueDisplayKey(issue)}
@@ -743,7 +795,6 @@ const TesterDashboardPage = () => {
                         <h3 className="mt-2 break-words text-sm font-semibold text-slate-950">
                           {issue.title || "Untitled bug"}
                         </h3>
-                      </div>
                     </div>
 
                     <div className="mt-4 grid gap-2 text-sm text-slate-600">
@@ -785,83 +836,72 @@ const TesterDashboardPage = () => {
               })
             ) : (
               <p className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500">
-                No bugs match the current dashboard filters.
+                No reported bugs yet
               </p>
             )}
           </div>
 
           <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[920px] text-left text-sm">
+            <table className="w-full min-w-[880px] table-fixed text-left text-sm">
               <thead className="bg-slate-50/90 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                 <tr>
-                  <th className="w-12 px-5 py-3">
-                    <input
-                      aria-label="Select all recently updated bugs"
-                      checked={allRecentRowsSelected}
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      onChange={(event) => handleToggleAllRows(event.target.checked)}
-                      type="checkbox"
-                    />
-                  </th>
-                  <th className="px-4 py-3">ID</th>
-                  <th className="px-4 py-3">Title</th>
-                  <th className="px-4 py-3">Project</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Priority</th>
-                  <th className="px-4 py-3">Assignee</th>
-                  <th className="px-4 py-3">Updated</th>
+                  <th className="w-[10%] px-5 py-3">ID</th>
+                  <th className="w-[28%] px-4 py-3">Title</th>
+                  <th className="w-[16%] px-4 py-3">Project</th>
+                  <th className="w-[12%] px-4 py-3">Status</th>
+                  <th className="w-[11%] px-4 py-3">Priority</th>
+                  <th className="w-[13%] px-4 py-3">Assignee</th>
+                  <th className="w-[10%] px-4 py-3">Updated</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80">
-                {recentlyUpdatedBugs.length ? (
-                  recentlyUpdatedBugs.map((issue) => {
+                {isReportedBugsLoading ? (
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <tr key={`reported-row-skeleton-${index}`}>
+                      <td className="px-5 py-4" colSpan={7}>
+                        <Skeleton className="h-8 w-full rounded-xl" />
+                      </td>
+                    </tr>
+                  ))
+                ) : myReportedBugs.length ? (
+                  myReportedBugs.map((issue) => {
                     const updatedAt = getBugUpdatedAt(issue);
 
                     return (
                       <tr
-                        className="bg-white/64 transition hover:bg-blue-50/42"
+                        className="cursor-pointer bg-white/64 transition hover:bg-blue-50/60"
                         key={issue._id}
+                        onClick={() => handleOpenReportedBug(issue._id)}
                       >
-                        <td className="px-5 py-4">
-                          <input
-                            aria-label={`Select ${getIssueDisplayKey(issue)}`}
-                            checked={selectedBugIds.includes(issue._id)}
-                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                            onChange={(event) =>
-                              handleToggleRow(issue._id, event.target.checked)
-                            }
-                            type="checkbox"
-                          />
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-4 font-mono text-xs font-semibold text-slate-500">
+                        <td className="whitespace-nowrap px-5 py-4 align-middle font-mono text-xs font-semibold text-slate-500">
                           {getIssueDisplayKey(issue)}
                         </td>
-                        <td className="max-w-[280px] px-4 py-4">
+                        <td className="px-4 py-4 align-middle">
                           <p className="truncate font-semibold text-slate-950">
                             {issue.title || "Untitled bug"}
                           </p>
                         </td>
-                        <td className="max-w-[190px] px-4 py-4">
+                        <td className="px-4 py-4 align-middle">
                           <p className="truncate text-slate-600">
                             {getProjectName(issue, assignedProjects)}
                           </p>
                         </td>
-                        <td className="px-4 py-4">
+                        <td className="px-4 py-4 align-middle">
                           <TableBadge variant={getIssueStatusVariant(issue.status)}>
                             {getIssueStatusLabel(issue.status)}
                           </TableBadge>
                         </td>
-                        <td className="px-4 py-4">
+                        <td className="px-4 py-4 align-middle">
                           <TableBadge variant={getIssuePriorityVariant(issue.priority)}>
                             {issue.priority || "Not set"}
                           </TableBadge>
                         </td>
-                        <td className="max-w-[170px] px-4 py-4">
+                        <td className="px-4 py-4 align-middle">
                           <p className="truncate text-slate-600">
                             {getAssigneeName(issue)}
                           </p>
                         </td>
-                        <td className="whitespace-nowrap px-4 py-4 text-slate-500">
+                        <td className="whitespace-nowrap px-4 py-4 align-middle text-slate-500">
                           {updatedAt ? formatDateTime(updatedAt) : "Unknown"}
                         </td>
                       </tr>
@@ -871,9 +911,9 @@ const TesterDashboardPage = () => {
                   <tr>
                     <td
                       className="px-5 py-12 text-center text-sm text-slate-500"
-                      colSpan={8}
+                      colSpan={7}
                     >
-                      No bugs match the current dashboard filters.
+                      No reported bugs yet
                     </td>
                   </tr>
                 )}
@@ -906,13 +946,13 @@ const TesterDashboardPage = () => {
           </p>
           <DashboardIconButton
             aria-label="Refresh dashboard"
-            className={isIssuesFetching || isRecentTasksFetching ? "animate-pulse" : ""}
+            className={isIssuesFetching || isReportedBugsFetching || isRecentTasksFetching ? "animate-pulse" : ""}
             onClick={handleRefresh}
           >
             <RefreshCcw
               className={cn(
                 "h-4 w-4",
-                (isIssuesFetching || isRecentTasksFetching) && "animate-spin"
+                (isIssuesFetching || isReportedBugsFetching || isRecentTasksFetching) && "animate-spin"
               )}
             />
           </DashboardIconButton>

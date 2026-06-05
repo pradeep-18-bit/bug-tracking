@@ -20,6 +20,11 @@ import {
 } from "@/lib/api";
 import ProjectComposer from "@/components/projects/ProjectComposer";
 import ProjectCard from "@/components/projects/ProjectCard";
+import {
+  projectDialogBodyClass,
+  projectDialogContentClass,
+  projectDialogHeaderClass,
+} from "@/components/projects/projectDialogStyles";
 import TeamCard from "@/components/teams/TeamCard";
 import TeamComposer from "@/components/teams/TeamComposer";
 import { Button } from "@/components/ui/button";
@@ -542,18 +547,22 @@ const ProjectsPage = () => {
       ) : null}
 
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="grid-rows-[auto_minmax(0,1fr)] max-h-[88vh] w-[calc(100%-2rem)] max-w-[720px] gap-0 overflow-hidden rounded-[26px] border-white/80 bg-white/94 p-0 shadow-[0_34px_90px_-54px_rgba(15,23,42,0.44)] backdrop-blur-xl [&>button]:right-4 [&>button]:top-4 [&>button]:h-8 [&>button]:w-8 [&>button]:rounded-lg [&>button]:border-slate-200/90 [&>button]:bg-white/90 [&>button]:p-0 [&>button]:text-slate-400 [&>button]:shadow-sm [&>button:hover]:bg-slate-50 [&>button:hover]:text-slate-700">
-          <DialogHeader className="border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] px-4 py-3 sm:px-5 sm:py-3.5">
-            <DialogTitle className="pr-10 text-lg tracking-tight text-slate-950">
+        <DialogContent
+          className={projectDialogContentClass(
+            "grid max-h-[calc(100svh-6.5rem)] w-[92vw] max-w-[1100px] grid-rows-[auto_minmax(0,1fr)] rounded-[24px] sm:max-h-[calc(100vh-120px)]"
+          )}
+        >
+          <DialogHeader className={projectDialogHeaderClass()}>
+            <DialogTitle className="pr-10 text-xl font-semibold tracking-tight text-slate-950">
               Create Project
             </DialogTitle>
-            <DialogDescription className="max-w-[34rem] pr-10 text-[13px] leading-5 text-slate-600">
+            <DialogDescription className="max-w-[42rem] pr-10 text-sm leading-6 text-slate-600">
               Capture ownership, scope, and the first workstreams for the new
               project.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 overflow-y-auto px-4 py-3.5 sm:px-5 sm:py-4">
+          <div className={projectDialogBodyClass("py-3.5 sm:py-4")}>
             <ProjectComposer
               onSubmit={handleCreateProject}
               isPending={createProjectMutation.isPending}
@@ -566,18 +575,22 @@ const ProjectsPage = () => {
       </Dialog>
 
       <Dialog open={isCreateTeamDialogOpen} onOpenChange={setIsCreateTeamDialogOpen}>
-        <DialogContent className="grid-rows-[auto_minmax(0,1fr)] max-h-[88vh] w-[calc(100%-2rem)] max-w-[860px] gap-0 overflow-hidden rounded-[26px] border-white/80 bg-white/94 p-0 shadow-[0_34px_90px_-54px_rgba(15,23,42,0.44)] backdrop-blur-xl [&>button]:right-4 [&>button]:top-4 [&>button]:h-8 [&>button]:w-8 [&>button]:rounded-lg [&>button]:border-slate-200/90 [&>button]:bg-white/90 [&>button]:p-0 [&>button]:text-slate-400 [&>button]:shadow-sm [&>button:hover]:bg-slate-50 [&>button:hover]:text-slate-700">
-          <DialogHeader className="border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] px-4 py-3 sm:px-5 sm:py-3.5">
-            <DialogTitle className="pr-10 text-lg tracking-tight text-slate-950">
+        <DialogContent
+          className={projectDialogContentClass(
+            "grid max-h-[calc(100svh-6.5rem)] w-[92vw] max-w-[1100px] grid-rows-[auto_minmax(0,1fr)] rounded-[24px] sm:max-h-[calc(100vh-120px)]"
+          )}
+        >
+          <DialogHeader className={projectDialogHeaderClass()}>
+            <DialogTitle className="pr-10 text-xl font-semibold tracking-tight text-slate-950">
               Create Team
             </DialogTitle>
-            <DialogDescription className="max-w-[34rem] pr-10 text-[13px] leading-5 text-slate-600">
+            <DialogDescription className="max-w-[42rem] pr-10 text-sm leading-6 text-slate-600">
               Build a workspace-scoped team and add members from the current
               workspace.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 overflow-y-auto px-4 py-3.5 sm:px-5 sm:py-4">
+          <div className={projectDialogBodyClass("py-3.5 sm:py-4")}>
             {workspaceUsersErrorMessage && !isWorkspaceUsersLoading ? (
               <div className="mb-4 rounded-[20px] border border-rose-200 bg-rose-50/80 px-4 py-3 text-sm text-rose-700">
                 {workspaceUsersErrorMessage}
@@ -592,6 +605,7 @@ const ProjectsPage = () => {
                 workspaceId={workspaceScope}
                 isPending={createTeamMutation.isPending}
                 onSubmit={handleCreateTeam}
+                variant="modal"
               />
             )}
           </div>

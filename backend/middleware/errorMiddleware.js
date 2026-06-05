@@ -4,7 +4,10 @@ const notFound = (req, res, next) => {
 };
 
 const errorHandler = (err, req, res, next) => {
-  const statusCode = res.statusCode && res.statusCode !== 200 ? res.statusCode : 500;
+  let statusCode =
+    err.statusCode ||
+    err.status ||
+    (res.statusCode && res.statusCode !== 200 ? res.statusCode : 500);
   let message = err.message || "Internal server error";
 
   if (err.name === "CastError") {
@@ -22,7 +25,10 @@ const errorHandler = (err, req, res, next) => {
   }
 
   if (err.name === "MulterError" && err.code === "LIMIT_FILE_SIZE") {
-    message = "CSV file is too large";
+    statusCode = 400;
+    message = req.originalUrl?.includes("/chat/")
+      ? "Chat attachment is too large"
+      : "CSV file is too large";
   }
 
   if (statusCode >= 500) {

@@ -75,14 +75,42 @@ const normalizeIssuePayload = (payload = {}) => {
     return payload;
   }
 
-  if (hasOwnField(payload, "assigneeId") || !hasOwnField(payload, "assignee")) {
-    return payload;
+  const normalizedPayload =
+    hasOwnField(payload, "assigneeId") || !hasOwnField(payload, "assignee")
+      ? { ...payload }
+      : {
+          ...payload,
+          assigneeId: payload.assignee,
+        };
+
+  Object.keys(normalizedPayload).forEach((key) => {
+    if (normalizedPayload[key] === null || typeof normalizedPayload[key] === "undefined") {
+      delete normalizedPayload[key];
+    }
+  });
+
+  return normalizedPayload;
+};
+
+const normalizeStatusOnlyPayload = (payload = {}) => {
+  const normalizedPayload = normalizeIssuePayload(payload);
+
+  if (!normalizedPayload || typeof normalizedPayload !== "object" || Array.isArray(normalizedPayload)) {
+    return normalizedPayload;
   }
 
-  return {
-    ...payload,
-    assigneeId: payload.assignee,
-  };
+  if (
+    hasOwnField(normalizedPayload, "status") &&
+    Object.keys(normalizedPayload).every((key) =>
+      ["status", "statusChangeComment", "comment", "reopenReason", "rejectionReason", "targetRelease", "futureRelease"].includes(key)
+    )
+  ) {
+    return Object.fromEntries(
+      Object.entries(normalizedPayload).filter(([, value]) => value !== "")
+    );
+  }
+
+  return normalizedPayload;
 };
 
 const logIssuePayload = (label, payload) => {
@@ -406,6 +434,24 @@ export const fetchMyIssues = async (filters = {}) => {
   return response.data;
 };
 
+export const fetchMyReportedBugs = async () => {
+  const response = await api.get("/issues/reported/me");
+  return response.data;
+};
+
+export const fetchBugBucket = async (filters = {}) => {
+  const params = buildParams(normalizeIssueFilters(filters));
+  const response = await api.get("/issues/bucket", {
+    params,
+  });
+  return response.data;
+};
+
+export const pickIssue = async (id) => {
+  const response = await api.post(`/issues/${id}/pick`);
+  return response.data;
+};
+
 export const fetchIssueActivity = async (filters = {}) => {
   const params = buildParams(normalizeIssueFilters(filters));
   const response = await api.get("/issues/activity", {
@@ -433,7 +479,7 @@ export const createIssue = async (payload) => {
 };
 
 export const updateIssue = async ({ id, payload }) => {
-  const normalizedPayload = normalizeIssuePayload(payload);
+  const normalizedPayload = normalizeStatusOnlyPayload(payload);
   logIssuePayload("Update issue", normalizedPayload);
   const response = await api.put(`/issues/${id}`, normalizedPayload);
   return response.data;
@@ -739,6 +785,40 @@ export const resolveApiAssetUrl = (assetPath = "") => {
   }
 };
 
+export const downloadAttachment = async (attachment, issueId) => {
+  try {
+    if (!attachment._id) {
+      throw new Error("Attachment ID is required");
+    }
+
+    if (!issueId) {
+      throw new Error("Issue ID is required");
+    }
+
+    // Use authenticated endpoint for downloading
+    const response = await api.get(
+      `/issues/${issueId}/attachments/${attachment._id}/download`,
+      {
+        responseType: "blob",
+        withCredentials: true,
+      }
+    );
+
+    // Create a blob URL and trigger download
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", attachment.fileName || "attachment");
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error("Failed to download attachment:", error);
+    throw error;
+  }
+};
+
 export const inviteUser = async (payload) => {
   const response = await api.post("/users/invite", payload);
   return response.data;
@@ -796,6 +876,18 @@ export const fetchEligibleSenders = async () => {
   return [];
 };
 
+export const fetchModuleOwnerships = async () => {
+  const response = await api.get("/settings/module-ownerships");
+  return response.data?.ownerships || [];
+};
+
+export const saveModuleOwnerships = async (ownerships = []) => {
+  const response = await api.post("/settings/module-ownerships", {
+    ownerships,
+  });
+  return response.data;
+};
+
 export const importUsers = async (file) => {
   const formData = new FormData();
   formData.append("file", file);
@@ -813,6 +905,56 @@ export const importUsers = async (file) => {
   const response = await api.post("/users/import", formData);
 
   return response.data;
+};
+
+export const fetchChatConversations = async () => {
+  const response = await api.get("/chat/conversations");
+  return response.data?.conversations || [];
+};
+
+export const createChatConversation = async (payload) => {
+  const response = await api.post("/chat/conversations", payload);
+  return response.data?.conversation || response.data;
+};
+
+export const fetchChatConversation = async (conversationId) => {
+  const response = await api.get(`/chat/conversation/${conversationId}`);
+  return response.data?.conversation || response.data;
+};
+
+export const fetchChatMessages = async ({ conversationId, before, limit = 30 }) => {
+  const response = await api.get(`/chat/messages/${conversationId}`, {
+    params: buildParams({
+      before,
+      limit,
+    }),
+  });
+  return response.data;
+};
+
+export const sendChatMessage = async (payload) => {
+  const response = await api.post("/chat/messages", payload);
+  return response.data?.message || response.data;
+};
+
+export const uploadChatAttachment = async (file, onUploadProgress) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await api.post("/chat/attachments", formData, {
+    onUploadProgress,
+  });
+
+  return response.data?.attachment || response.data;
+};
+
+export const searchChatUsers = async (query) => {
+  const response = await api.get("/chat/users/search", {
+    params: buildParams({
+      q: query,
+    }),
+  });
+  return response.data?.users || [];
 };
 
 export default api;

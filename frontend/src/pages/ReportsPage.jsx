@@ -444,7 +444,7 @@ const TesterReportsDashboard = ({ user }) => {
 
   return (
     <div className="space-y-5">
-      <Card className="sticky top-24 z-20 overflow-hidden rounded-[16px] border-white/60 bg-white/88 shadow-[0_22px_60px_-36px_rgba(15,23,42,0.4)] backdrop-blur-2xl">
+      <Card className="overflow-hidden rounded-[16px] border-slate-200 bg-white shadow-md">
         <CardContent className="space-y-3 p-3 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div>
@@ -779,7 +779,7 @@ const DeveloperReportsDashboard = ({ user }) => {
 
   return (
     <div className="space-y-5">
-      <Card className="sticky top-24 z-20 overflow-hidden rounded-[16px] border-white/60 bg-white/88 shadow-[0_22px_60px_-36px_rgba(15,23,42,0.4)] backdrop-blur-2xl">
+      <Card className="overflow-hidden rounded-[16px] border-slate-200 bg-white shadow-md">
         <CardContent className="space-y-3 p-3 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div>
@@ -1416,7 +1416,7 @@ const OrganizationReportsDashboard = () => {
 
   return (
     <div className="space-y-5">
-      <Card className="sticky top-24 z-20 overflow-hidden rounded-[16px] border-white/60 bg-white/88 shadow-[0_22px_60px_-36px_rgba(15,23,42,0.4)] backdrop-blur-2xl">
+      <Card className="overflow-hidden rounded-[16px] border-slate-200 bg-white shadow-md">
         <CardContent className="space-y-3 p-3 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div>

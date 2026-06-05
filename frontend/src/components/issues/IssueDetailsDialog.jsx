@@ -17,6 +17,7 @@ import {
   fetchIssueHistory,
   resolveApiAssetUrl,
   uploadIssueAttachment,
+  downloadAttachment,
 } from "@/lib/api";
 import {
   BUG_ALTERNATE_TRANSITIONS,
@@ -46,7 +47,7 @@ import {
   getProjectTeams,
   resolveUserId,
 } from "@/lib/project-teams";
-import { formatDate, formatDateTime, formatTime, getInitials } from "@/lib/utils";
+import { cn, formatDate, formatDateTime, formatTime, getInitials } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -82,6 +83,12 @@ const toDateTimeLocalValue = (value) => {
 const formatDueAt = (value) => (value ? formatDateTime(value) : "No due date");
 const ATTACHMENT_ACCEPT =
   "image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.log,.csv,.json,.xml,.zip";
+const DETAIL_PANEL_TABS = [
+  { id: "discussion", label: "Discussion" },
+  { id: "attachments", label: "Attachments" },
+  { id: "activity", label: "Activity" },
+  { id: "comments", label: "Comments" },
+];
 
 const formatDependencyLabel = (issue) =>
   issue ? `${getIssueDisplayKey(issue)} ${issue.title}` : "No dependency";
@@ -134,6 +141,8 @@ const IssueDetailsDialog = ({
   canEditPriority = true,
   canEditAssignee = true,
   canDeleteIssue = true,
+  compactDrawer = false,
+  contentClassName = "",
 }) => {
   const queryClient = useQueryClient();
   const { role } = useAuth();
@@ -141,6 +150,7 @@ const IssueDetailsDialog = ({
   const [selectedFile, setSelectedFile] = useState(null);
   const [detailDraft, setDetailDraft] = useState(buildDetailDraft(issue));
   const [detailsError, setDetailsError] = useState("");
+  const [activeDetailTab, setActiveDetailTab] = useState("discussion");
 
   const selectedProject = useMemo(
     () => findProjectById(projects, detailDraft.projectId),
@@ -178,7 +188,21 @@ const IssueDetailsDialog = ({
     setDetailDraft(buildDetailDraft(issue));
     setDetailsError("");
     setSelectedFile(null);
+    setActiveDetailTab("discussion");
   }, [issue]);
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!availableTeams.length) {
@@ -337,39 +361,232 @@ const IssueDetailsDialog = ({
   const testerOwner = bugDetails.testerOwner;
   const developerLead = bugDetails.developerLead;
   const canChangeStatusForRole = Boolean(role) && canEditStatus;
+  const commentComposer = (
+    <form className="space-y-3 rounded-2xl border border-blue-100 bg-white p-3 shadow-sm" onSubmit={handleSubmitComment}>
+      <Input
+        className="rounded-xl border-slate-200 bg-slate-50"
+        placeholder="Add a status update or implementation note"
+        value={commentText}
+        onChange={(event) => setCommentText(event.target.value)}
+      />
+      <Button
+        className="w-full"
+        disabled={createCommentMutation.isPending}
+        type="submit"
+      >
+        {createCommentMutation.isPending ? "Posting..." : "Add Comment"}
+      </Button>
+    </form>
+  );
+  const commentsList = (
+    <div className="space-y-4">
+      {isCommentsLoading ? (
+        <>
+          <Skeleton className="h-20 w-full rounded-2xl" />
+          <Skeleton className="h-20 w-full rounded-2xl" />
+        </>
+      ) : comments.length ? (
+        comments.map((comment) => (
+          <div
+            key={comment._id}
+            className="rounded-[24px] border border-white bg-white p-4 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.48)]"
+          >
+            <div className="flex items-start gap-3">
+              <Avatar className="h-10 w-10">
+                <AvatarFallback>
+                  {getInitials(comment.userId?.name)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold text-gray-900">
+                    {comment.userId?.name}
+                  </p>
+                  <span className="text-xs text-gray-500">
+                    {formatDate(comment.createdAt)} at {formatTime(comment.createdAt)}
+                  </span>
+                </div>
+                <p className="mt-2 rounded-2xl bg-slate-50 px-3 py-2 text-sm leading-6 text-gray-700">
+                  {comment.comment || comment.text}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="rounded-[24px] border border-dashed border-gray-200 bg-white px-4 py-8 text-center text-sm leading-6 text-gray-500 shadow-sm">
+          No comments yet. Add the first delivery note for this issue.
+        </div>
+      )}
+    </div>
+  );
+  const attachmentsPanel = (
+    <div className="space-y-4">
+      <div className="space-y-3 rounded-2xl border border-dashed border-blue-200 bg-white p-3 shadow-sm">
+        <Input
+          className="cursor-pointer rounded-xl border-slate-200 bg-blue-50/50 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white hover:bg-blue-50"
+          type="file"
+          accept={ATTACHMENT_ACCEPT}
+          onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+        />
+        <Button
+          className="w-full"
+          disabled={!selectedFile || uploadAttachmentMutation.isPending}
+          type="button"
+          onClick={async () => {
+            if (!selectedFile) {
+              return;
+            }
+
+            try {
+              setDetailsError("");
+              await uploadAttachmentMutation.mutateAsync({
+                issueId: issue._id,
+                file: selectedFile,
+              });
+            } catch (error) {
+              setDetailsError(
+                error.response?.data?.message || "Unable to upload attachment."
+              );
+            }
+          }}
+        >
+          {uploadAttachmentMutation.isPending ? "Uploading..." : "Upload Attachment"}
+        </Button>
+      </div>
+
+      <div className="space-y-3">
+        {isAttachmentsLoading ? (
+          <Skeleton className="h-16 w-full" />
+        ) : attachments.length ? (
+          attachments.map((attachment) => (
+            <button
+              key={attachment._id}
+              type="button"
+              onClick={() => downloadAttachment(attachment, issue._id)}
+              className="block w-full cursor-pointer rounded-[20px] border border-gray-200 bg-white p-3 text-left text-sm shadow-sm transition hover:border-blue-200 hover:bg-blue-50"
+            >
+              <span className="font-semibold text-gray-900">
+                {attachment.fileName}
+              </span>
+              <span className="mt-1 block text-xs text-gray-500">
+                {attachment.uploadedBy?.name || "Unknown user"} at{" "}
+                {formatDateTime(attachment.createdAt)}
+              </span>
+            </button>
+          ))
+        ) : (
+          <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500 shadow-sm">
+            No attachments uploaded yet.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  const historyPanel = (
+    <div className="space-y-3">
+      {isHistoryLoading ? (
+        <>
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </>
+      ) : history.length ? (
+        history.map((entry) => (
+          <div
+            key={entry._id}
+            className="relative rounded-[20px] border border-gray-200 bg-white p-3 pl-4 shadow-sm before:absolute before:left-0 before:top-4 before:h-2 before:w-2 before:-translate-x-1/2 before:rounded-full before:bg-blue-500"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-gray-900">
+                {entry.actorId?.name || "Unknown user"}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                {String(entry.eventType || "Updated").replace(/_/g, " ")}
+              </span>
+            </div>
+            <p className="mt-2 text-sm leading-6 text-gray-600">
+              {entry.field === "status"
+                ? `${getIssueStatusLabel(entry.fromValue)} -> ${getIssueStatusLabel(entry.toValue)}`
+                : `${entry.field || "item"}: ${
+                    entry.toValue !== null &&
+                    typeof entry.toValue !== "undefined"
+                      ? String(entry.toValue)
+                      : "Updated"
+                  }`}
+            </p>
+            {entry.meta?.reason ? (
+              <p className="mt-1 text-sm leading-6 text-gray-500">
+                {entry.meta.reason}
+              </p>
+            ) : null}
+            <p className="mt-2 text-xs text-gray-500">
+              {formatDateTime(entry.createdAt)}
+            </p>
+          </div>
+        ))
+      ) : (
+        <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500 shadow-sm">
+          No history entries yet.
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge variant={getIssuePriorityVariant(issue.priority)}>{issue.priority}</Badge>
-            <Badge variant={getIssueTypeVariant(issue.type)}>{issue.type}</Badge>
+      <DialogContent
+        overlayClassName="z-50 bg-black/40 backdrop-blur-sm"
+        className={cn(
+          compactDrawer
+            ? "issue-detail-drawer grid grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden"
+            : "left-0 top-0 z-[60] grid h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-none border-0 bg-white p-0 shadow-2xl sm:left-1/2 sm:top-20 sm:h-[88vh] sm:max-h-[calc(100vh-5.5rem)] sm:w-[92vw] sm:max-w-[1400px] sm:-translate-x-1/2 sm:rounded-3xl sm:border sm:border-white/80 lg:top-24 lg:max-h-[calc(100vh-7rem)]",
+          contentClassName
+        )}
+      >
+        <DialogHeader
+          className={cn(
+            "sticky top-0 z-10 border-b border-slate-200/80 bg-white/95 px-4 py-3 pr-16 shadow-sm backdrop-blur-xl sm:px-6 sm:py-4",
+            compactDrawer && "pr-14"
+          )}
+        >
+          <div className={cn("flex min-w-0 flex-wrap items-center gap-2", compactDrawer && "gap-1.5")}>
+            <span className="rounded-full bg-slate-100 px-3 py-1 font-mono text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
+              {issueKey}
+            </span>
             <Badge variant={getIssueStatusVariant(issue.status)}>
               {getIssueStatusLabel(issue.status)}
             </Badge>
+            <Badge variant={getIssuePriorityVariant(issue.priority)}>{issue.priority}</Badge>
+            <Badge variant={getIssueTypeVariant(issue.type)}>{issue.type}</Badge>
             {issue.teamId?.name ? (
               <Badge className="border border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
                 {issue.teamId.name}
               </Badge>
             ) : null}
           </div>
-          <DialogTitle className="pr-10">
-            <span className="mr-3 font-mono text-sm uppercase tracking-[0.22em] text-slate-400">
-              {issueKey}
-            </span>
+          <DialogTitle className={cn("min-w-0 truncate pr-4 text-lg leading-7 sm:text-xl", compactDrawer && "pr-0 text-base leading-6")}>
             {issue.title}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             {issue.description || "No detailed description has been added yet."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-6 xl:grid-cols-[1.18fr_0.82fr]">
-          <section className="space-y-6">
+        <div className={cn("min-h-0 overflow-hidden", compactDrawer && "overflow-y-auto overscroll-contain scroll-smooth px-4 py-4")}>
+        <div className={cn("grid h-full min-h-0 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,65%)_minmax(0,35%)]", compactDrawer && "h-auto gap-4 overflow-visible lg:grid-cols-1")}>
+          <section className={cn("min-h-0 space-y-6 overflow-y-auto overscroll-contain bg-white p-4 sm:p-6", compactDrawer && "overflow-visible p-0")}>
+            <div className="rounded-[28px] border border-slate-200/80 bg-gradient-to-br from-slate-50 to-white p-5 shadow-[0_18px_50px_-42px_rgba(15,23,42,0.5)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                Description
+              </p>
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                {issue.description || "No detailed description has been added yet."}
+              </p>
+            </div>
+
             {canEditCoreDetails ? (
               <form
-                className="space-y-4 rounded-[28px] border border-slate-200 bg-slate-50 p-5"
+                className="space-y-4 rounded-[28px] border border-slate-200 bg-slate-50/80 p-5 shadow-[0_18px_50px_-42px_rgba(15,23,42,0.5)]"
                 onSubmit={async (event) => {
                   event.preventDefault();
 
@@ -922,14 +1139,14 @@ const IssueDetailsDialog = ({
             ) : null}
 
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+              <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                 <p className="text-xs uppercase tracking-[0.22em] text-gray-500">Project</p>
                 <p className="mt-2 text-sm font-semibold text-gray-900">
                   {issue.projectId?.name || "Unknown project"}
                 </p>
               </div>
 
-              <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+              <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-gray-500">
                   <Users2 className="h-3.5 w-3.5" />
                   Team
@@ -937,7 +1154,7 @@ const IssueDetailsDialog = ({
                 <p className="mt-2 text-sm font-semibold text-gray-900">{issueTeamName}</p>
               </div>
 
-              <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+              <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-gray-500">
                   <CalendarDays className="h-3.5 w-3.5" />
                   Created
@@ -947,7 +1164,7 @@ const IssueDetailsDialog = ({
                 </p>
               </div>
 
-              <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+              <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-gray-500">
                   <CalendarDays className="h-3.5 w-3.5" />
                   Started
@@ -957,7 +1174,7 @@ const IssueDetailsDialog = ({
                 </p>
               </div>
 
-              <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+              <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-gray-500">
                   <CalendarDays className="h-3.5 w-3.5" />
                   Due
@@ -967,7 +1184,7 @@ const IssueDetailsDialog = ({
                 </p>
               </div>
 
-              <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+              <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                 <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
                   Depends On
                 </p>
@@ -989,7 +1206,7 @@ const IssueDetailsDialog = ({
             </div>
 
             {isBug ? (
-              <div className="space-y-4 rounded-[28px] border border-slate-200 bg-white p-5">
+              <div className="space-y-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_50px_-42px_rgba(15,23,42,0.5)]">
                 <div>
                   <p className="text-sm font-semibold text-slate-950">
                     Defect Life Cycle
@@ -1032,7 +1249,7 @@ const IssueDetailsDialog = ({
 
             {isBug ? (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                <div className="rounded-[24px] border border-rose-100 bg-rose-50 p-4">
+                <div className="rounded-[24px] border border-rose-100 bg-rose-50 p-4 shadow-sm">
                   <p className="text-xs uppercase tracking-[0.22em] text-rose-500">
                     Severity
                   </p>
@@ -1040,7 +1257,7 @@ const IssueDetailsDialog = ({
                     {bugDetails.severity || "Not set"}
                   </p>
                 </div>
-                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+                <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                   <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
                     Tester / QA Owner
                   </p>
@@ -1048,7 +1265,7 @@ const IssueDetailsDialog = ({
                     {testerOwner?.name || "Unassigned"}
                   </p>
                 </div>
-                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+                <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                   <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
                     Developer / Dev Lead
                   </p>
@@ -1056,7 +1273,7 @@ const IssueDetailsDialog = ({
                     {developerLead?.name || "Unassigned"}
                   </p>
                 </div>
-                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4 sm:col-span-2 xl:col-span-3">
+                <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm sm:col-span-2 xl:col-span-3">
                   <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
                     Steps to Reproduce
                   </p>
@@ -1064,7 +1281,7 @@ const IssueDetailsDialog = ({
                     {bugDetails.stepsToReproduce || "Not provided"}
                   </p>
                 </div>
-                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+                <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                   <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
                     Expected Result
                   </p>
@@ -1072,7 +1289,7 @@ const IssueDetailsDialog = ({
                     {bugDetails.expectedResult || "Not provided"}
                   </p>
                 </div>
-                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+                <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                   <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
                     Actual Result
                   </p>
@@ -1080,7 +1297,7 @@ const IssueDetailsDialog = ({
                     {bugDetails.actualResult || "Not provided"}
                   </p>
                 </div>
-                <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+                <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                   <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
                     Target Release
                   </p>
@@ -1259,7 +1476,7 @@ const IssueDetailsDialog = ({
             ) : null}
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+              <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                 <p className="text-xs uppercase tracking-[0.22em] text-gray-500">Reporter</p>
                 <div className="mt-3 flex items-center gap-3">
                   <Avatar className="h-10 w-10">
@@ -1274,7 +1491,7 @@ const IssueDetailsDialog = ({
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-gray-200 bg-gray-50 p-4">
+              <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
                 <p className="text-xs uppercase tracking-[0.22em] text-gray-500">
                   Current owner
                 </p>
@@ -1306,7 +1523,7 @@ const IssueDetailsDialog = ({
 
             {canDeleteIssue ? (
               <Button
-                className="w-full sm:w-auto"
+                className="sticky bottom-4 z-10 w-full shadow-lg sm:w-auto"
                 variant="destructive"
                 type="button"
                 disabled={deletingId === issue._id}
@@ -1325,193 +1542,86 @@ const IssueDetailsDialog = ({
             ) : null}
           </section>
 
-          <section className="rounded-[28px] border border-gray-200 bg-gray-50 p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <MessageSquareText className="h-4 w-4 text-blue-600" />
-              <p className="font-semibold text-gray-900">Discussion</p>
-            </div>
-
-            <form className="space-y-3" onSubmit={handleSubmitComment}>
-              <Input
-                placeholder="Add a status update or implementation note"
-                value={commentText}
-                onChange={(event) => setCommentText(event.target.value)}
-              />
-              <Button
-                className="w-full"
-                disabled={createCommentMutation.isPending}
-                type="submit"
-              >
-                {createCommentMutation.isPending ? "Posting..." : "Add Comment"}
-              </Button>
-            </form>
-
-            <Separator className="my-5" />
-
-            <div className="space-y-4">
-              {isCommentsLoading ? (
-                <>
-                  <Skeleton className="h-20 w-full" />
-                  <Skeleton className="h-20 w-full" />
-                </>
-              ) : comments.length ? (
-                comments.map((comment) => (
-                  <div
-                    key={comment._id}
-                    className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm"
-                  >
-                    <div className="flex items-start gap-3">
-                      <Avatar className="h-10 w-10">
-                        <AvatarFallback>
-                          {getInitials(comment.userId?.name)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold text-gray-900">
-                            {comment.userId?.name}
-                          </p>
-                          <span className="text-xs text-gray-500">
-                            {formatDate(comment.createdAt)} at {formatTime(comment.createdAt)}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm leading-6 text-gray-600">
-                          {comment.comment || comment.text}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-[24px] border border-dashed border-gray-200 bg-white px-4 py-8 text-center text-sm leading-6 text-gray-500">
-                  No comments yet. Add the first delivery note for this issue.
-                </div>
-              )}
-            </div>
-
-            <Separator className="my-5" />
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-blue-600" />
-                <p className="font-semibold text-gray-900">Attachments</p>
-              </div>
-
-              <div className="space-y-3">
-                <Input
-                  type="file"
-                  accept={ATTACHMENT_ACCEPT}
-                  onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
-                />
-                <Button
-                  className="w-full"
-                  disabled={!selectedFile || uploadAttachmentMutation.isPending}
-                  type="button"
-                  onClick={async () => {
-                    if (!selectedFile) {
-                      return;
-                    }
-
-                    try {
-                      setDetailsError("");
-                      await uploadAttachmentMutation.mutateAsync({
-                        issueId: issue._id,
-                        file: selectedFile,
-                      });
-                    } catch (error) {
-                      setDetailsError(
-                        error.response?.data?.message || "Unable to upload attachment."
-                      );
-                    }
-                  }}
-                >
-                  {uploadAttachmentMutation.isPending ? "Uploading..." : "Upload Attachment"}
-                </Button>
-              </div>
-
-              <div className="space-y-3">
-                {isAttachmentsLoading ? (
-                  <Skeleton className="h-16 w-full" />
-                ) : attachments.length ? (
-                  attachments.map((attachment) => (
-                    <a
-                      key={attachment._id}
-                      className="block rounded-[20px] border border-gray-200 bg-white p-3 text-sm transition hover:border-blue-200"
-                      href={resolveApiAssetUrl(
-                        attachment.downloadUrl || attachment.storagePath
+          <section className={cn("min-h-0 overflow-y-auto overscroll-contain border-t border-slate-200 bg-slate-50 p-4 sm:p-6 lg:border-l lg:border-t-0", compactDrawer && "rounded-2xl border border-gray-200 p-3")}>
+            {compactDrawer ? (
+              <>
+                <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:grid-cols-4">
+                  {DETAIL_PANEL_TABS.map((tab) => (
+                    <button
+                      key={tab.id}
+                      className={cn(
+                        "h-8 whitespace-nowrap rounded-lg px-1.5 text-[10px] font-bold text-slate-600 transition hover:bg-blue-50 hover:text-blue-700 sm:text-[11px]",
+                        activeDetailTab === tab.id && "bg-blue-50 text-blue-700 shadow-sm"
                       )}
-                      target="_blank"
-                      rel="noreferrer"
+                      type="button"
+                      onClick={() => setActiveDetailTab(tab.id)}
                     >
-                      <span className="font-semibold text-gray-900">
-                        {attachment.fileName}
-                      </span>
-                      <span className="mt-1 block text-xs text-gray-500">
-                        {attachment.uploadedBy?.name || "Unknown user"} at{" "}
-                        {formatDateTime(attachment.createdAt)}
-                      </span>
-                    </a>
-                  ))
-                ) : (
-                  <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">
-                    No attachments uploaded yet.
-                  </div>
-                )}
-              </div>
-            </div>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
 
-            <Separator className="my-5" />
-
-            <div className="space-y-4">
-              <p className="font-semibold text-gray-900">History</p>
-              <div className="space-y-3">
-                {isHistoryLoading ? (
-                  <>
-                    <Skeleton className="h-16 w-full" />
-                    <Skeleton className="h-16 w-full" />
-                  </>
-                ) : history.length ? (
-                  history.map((entry) => (
-                    <div
-                      key={entry._id}
-                      className="rounded-[20px] border border-gray-200 bg-white p-3"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-900">
-                          {entry.actorId?.name || "Unknown user"}
-                        </span>
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                          {String(entry.eventType || "Updated").replace(/_/g, " ")}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm leading-6 text-gray-600">
-                        {entry.field === "status"
-                          ? `${getIssueStatusLabel(entry.fromValue)} -> ${getIssueStatusLabel(entry.toValue)}`
-                          : `${entry.field || "item"}: ${
-                              entry.toValue !== null &&
-                              typeof entry.toValue !== "undefined"
-                                ? String(entry.toValue)
-                                : "Updated"
-                            }`}
-                      </p>
-                      {entry.meta?.reason ? (
-                        <p className="mt-1 text-sm leading-6 text-gray-500">
-                          {entry.meta.reason}
-                        </p>
-                      ) : null}
-                      <p className="mt-2 text-xs text-gray-500">
-                        {formatDateTime(entry.createdAt)}
-                      </p>
+                {activeDetailTab === "discussion" ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <MessageSquareText className="h-4 w-4 text-blue-600" />
+                      <p className="font-semibold text-gray-900">Discussion</p>
                     </div>
-                  ))
-                ) : (
-                  <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">
-                    No history entries yet.
+                    {commentComposer}
+                    <Separator />
+                    {commentsList}
                   </div>
-                )}
-              </div>
-            </div>
+                ) : null}
+
+                {activeDetailTab === "attachments" ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-blue-600" />
+                      <p className="font-semibold text-gray-900">Attachments</p>
+                    </div>
+                    {attachmentsPanel}
+                  </div>
+                ) : null}
+
+                {activeDetailTab === "activity" ? (
+                  <div className="space-y-3">
+                    <p className="font-semibold text-gray-900">Activity</p>
+                    {historyPanel}
+                  </div>
+                ) : null}
+
+                {activeDetailTab === "comments" ? (
+                  <div className="space-y-3">
+                    <p className="font-semibold text-gray-900">Comments</p>
+                    {commentsList}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <div className="mb-4 flex items-center gap-2">
+                  <MessageSquareText className="h-4 w-4 text-blue-600" />
+                  <p className="font-semibold text-gray-900">Discussion</p>
+                </div>
+                <div className="space-y-5">
+                  {commentComposer}
+                  {commentsList}
+                  <div className="rounded-[28px] border border-slate-200 bg-white/70 p-4 shadow-sm">
+                    <div className="mb-4 flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-blue-600" />
+                      <p className="font-semibold text-gray-900">Attachments</p>
+                    </div>
+                    {attachmentsPanel}
+                  </div>
+                  <div className="rounded-[28px] border border-slate-200 bg-white/70 p-4 shadow-sm">
+                    <p className="mb-4 font-semibold text-gray-900">Activity</p>
+                    {historyPanel}
+                  </div>
+                </div>
+              </>
+            )}
           </section>
+        </div>
         </div>
       </DialogContent>
     </Dialog>

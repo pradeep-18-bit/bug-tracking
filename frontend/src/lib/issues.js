@@ -6,8 +6,11 @@ export const ISSUE_STATUS = Object.freeze({
   QA: "QA",
   DONE: "DONE",
   NEW: "NEW",
+  TRIAGED: "TRIAGED",
   OPEN: "OPEN",
   ASSIGNED: "ASSIGNED",
+  READY_FOR_QA: "READY_FOR_QA",
+  TESTING: "TESTING",
   FIXED: "FIXED",
   CLOSED: "CLOSED",
   RESOLVED: "RESOLVED",
@@ -22,18 +25,166 @@ export const ISSUE_ACTIVE_STATUS_VALUES = Object.freeze([
   ISSUE_STATUS.REVIEW,
   ISSUE_STATUS.QA,
   ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.TRIAGED,
   ISSUE_STATUS.ASSIGNED,
+  ISSUE_STATUS.READY_FOR_QA,
+  ISSUE_STATUS.TESTING,
   ISSUE_STATUS.FIXED,
   ISSUE_STATUS.REOPEN,
 ]);
 
 export const BUG_SEVERITY_OPTIONS = ["Blocker", "Critical", "Major", "Minor"];
 export const BUG_PRIORITY_OPTIONS = ["Critical", "High", "Medium", "Low"];
+export const BUG_MODULE_OPTIONS = [
+  "Login Page",
+  "Dashboard",
+  "Reports",
+  "User Management",
+  "API",
+  "Database",
+  "Mobile UI",
+  "Notifications",
+  "Authentication",
+  "Chat",
+  "File Upload",
+];
+export const BUG_CATEGORY_DESCRIPTIONS = Object.freeze({
+  "Functional Bug":
+    "Business logic not working as expected. Incorrect calculations. Workflow failures. Feature behavior differs from requirements.",
+  "UI / UX Bug":
+    "Layout issues. Alignment issues. Visual inconsistencies.",
+  "Backend Bug": "Service layer issues. Processing failures.",
+  "API Bug": "Endpoint failures. Request/response issues.",
+  "Database Bug": "Data storage and retrieval issues.",
+  "Integration Bug":
+    "Third-party service integration failures. Inter-system communication issues.",
+  "Performance Bug":
+    "Slow loading. High response times. Resource consumption issues.",
+  "Security Bug":
+    "Authentication, authorization, data exposure vulnerabilities.",
+  "Mobile Bug": "Mobile-specific behavior issues.",
+  "Compatibility Bug": "Browser/device compatibility issues.",
+  "Accessibility Bug":
+    "WCAG/usability issues for assistive technologies.",
+  "Validation Bug": "Incorrect input validation. Missing validation rules.",
+  "Enhancement Request": "New feature or improvement request.",
+});
+
+export const BUG_CATEGORY_GROUPS = Object.freeze([
+  {
+    label: "Core Bug Types",
+    categories: [
+      "Functional Bug",
+      "UI / UX Bug",
+      "Backend Bug",
+      "API Bug",
+      "Database Bug",
+      "Integration Bug",
+      "Performance Bug",
+      "Security Bug",
+      "Mobile Bug",
+      "Compatibility Bug",
+      "Accessibility Bug",
+      "Validation Bug",
+    ],
+  },
+  {
+    label: "Improvement Types",
+    categories: ["Enhancement Request"],
+  },
+]);
+
+export const BUG_CATEGORY_OPTIONS = BUG_CATEGORY_GROUPS.flatMap(
+  (group) => group.categories
+);
+
+export const getBugCategoryDescription = (category = "") =>
+  BUG_CATEGORY_DESCRIPTIONS[category] || "";
+
+export const getBugCategorySelectGroups = (currentValue = "") => {
+  const knownCategories = new Set(BUG_CATEGORY_OPTIONS);
+  const groups = BUG_CATEGORY_GROUPS.map((group) => ({
+    label: group.label,
+    options: group.categories.map((value) => ({
+      value,
+      label: value,
+      description: getBugCategoryDescription(value),
+    })),
+  }));
+
+  if (currentValue && !knownCategories.has(currentValue)) {
+    groups.unshift({
+      label: "Saved value",
+      options: [
+        {
+          value: currentValue,
+          label: currentValue,
+          description: "Previously saved category.",
+        },
+      ],
+    });
+  }
+
+  return groups;
+};
+
+export const filterBugCategoryOption = (option, inputValue = "") => {
+  const term = String(inputValue).trim().toLowerCase();
+
+  if (!term) {
+    return true;
+  }
+
+  const label = String(option.label || "").toLowerCase();
+  const description = String(
+    option.data?.description ?? option.description ?? ""
+  ).toLowerCase();
+
+  return label.includes(term) || description.includes(term);
+};
+
+export const BUG_PLATFORM_OPTIONS = ["Web", "Mobile", "API", "Admin Panel"];
+export const BUG_TEAM_OPTIONS = ["UI Team", "Backend Team", "QA Team", "DevOps Team"];
+export const getSuggestedTeamForCategory = (category = "") => {
+  const normalizedCategory = String(category).toLowerCase();
+
+  if (
+    normalizedCategory.includes("ui") ||
+    normalizedCategory.includes("ux") ||
+    normalizedCategory.includes("mobile") ||
+    normalizedCategory.includes("accessibility") ||
+    normalizedCategory.includes("compatibility")
+  ) {
+    return "UI Team";
+  }
+
+  if (
+    normalizedCategory.includes("backend") ||
+    normalizedCategory.includes("api") ||
+    normalizedCategory.includes("database") ||
+    normalizedCategory.includes("security") ||
+    normalizedCategory.includes("integration") ||
+    normalizedCategory.includes("validation")
+  ) {
+    return "Backend Team";
+  }
+
+  if (normalizedCategory.includes("performance")) {
+    return "DevOps Team";
+  }
+
+  return "QA Team";
+};
 export const BUG_STATUS_OPTIONS = [
   { value: ISSUE_STATUS.NEW, label: "New" },
+  { value: ISSUE_STATUS.TRIAGED, label: "Triaged" },
   { value: ISSUE_STATUS.OPEN, label: "Open" },
   { value: ISSUE_STATUS.ASSIGNED, label: "Assigned" },
+  { value: ISSUE_STATUS.IN_PROGRESS, label: "In Progress" },
+  { value: ISSUE_STATUS.READY_FOR_QA, label: "Ready for QA" },
+  { value: ISSUE_STATUS.TESTING, label: "Testing" },
   { value: ISSUE_STATUS.FIXED, label: "Fixed" },
+  { value: ISSUE_STATUS.DONE, label: "Done" },
   { value: ISSUE_STATUS.CLOSED, label: "Closed" },
   { value: ISSUE_STATUS.REOPEN, label: "Reopen" },
   { value: ISSUE_STATUS.REJECTED, label: "Rejected" },
@@ -41,9 +192,12 @@ export const BUG_STATUS_OPTIONS = [
 ];
 export const BUG_STATUS_FLOW = [
   ISSUE_STATUS.NEW,
-  ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.TRIAGED,
   ISSUE_STATUS.ASSIGNED,
-  ISSUE_STATUS.FIXED,
+  ISSUE_STATUS.IN_PROGRESS,
+  ISSUE_STATUS.READY_FOR_QA,
+  ISSUE_STATUS.TESTING,
+  ISSUE_STATUS.DONE,
   ISSUE_STATUS.CLOSED,
 ];
 export const BUG_ALTERNATE_TRANSITIONS = [
@@ -54,6 +208,7 @@ export const BUG_ALTERNATE_TRANSITIONS = [
   [ISSUE_STATUS.ASSIGNED, ISSUE_STATUS.DEFERRED],
 ];
 export const BUG_TERMINAL_STATUSES = [
+  ISSUE_STATUS.DONE,
   ISSUE_STATUS.CLOSED,
   ISSUE_STATUS.REJECTED,
   ISSUE_STATUS.DEFERRED,
@@ -151,12 +306,17 @@ const workflowRank = {
   [ISSUE_STATUS.DONE]: 5,
   [ISSUE_STATUS.NEW]: 0,
   [ISSUE_STATUS.OPEN]: 1,
+  [ISSUE_STATUS.TRIAGED]: 1,
   [ISSUE_STATUS.ASSIGNED]: 2,
-  [ISSUE_STATUS.FIXED]: 3,
-  [ISSUE_STATUS.REOPEN]: 4,
-  [ISSUE_STATUS.REJECTED]: 5,
-  [ISSUE_STATUS.DEFERRED]: 6,
-  [ISSUE_STATUS.CLOSED]: 7,
+  [ISSUE_STATUS.IN_PROGRESS]: 3,
+  [ISSUE_STATUS.READY_FOR_QA]: 4,
+  [ISSUE_STATUS.TESTING]: 5,
+  [ISSUE_STATUS.FIXED]: 5,
+  [ISSUE_STATUS.REOPEN]: 6,
+  [ISSUE_STATUS.DONE]: 7,
+  [ISSUE_STATUS.REJECTED]: 8,
+  [ISSUE_STATUS.DEFERRED]: 9,
+  [ISSUE_STATUS.CLOSED]: 10,
 };
 
 const projectKeyWord = (value = "") =>
@@ -195,7 +355,7 @@ export const normalizeIssueStatus = (value, fallback = ISSUE_STATUS.TODO) => {
   }
 
   if (normalizedValue === "READY_FOR_QA") {
-    return ISSUE_STATUS.QA;
+    return ISSUE_STATUS.READY_FOR_QA;
   }
 
   if (normalizedValue === "RE_OPEN" || normalizedValue === "REOPENED") {
@@ -334,11 +494,11 @@ export const normalizeBugStatusForIssue = (issue) => {
   }
 
   if (status === ISSUE_STATUS.REVIEW || status === ISSUE_STATUS.QA) {
-    return ISSUE_STATUS.FIXED;
+    return ISSUE_STATUS.READY_FOR_QA;
   }
 
   if (status === ISSUE_STATUS.DONE) {
-    return ISSUE_STATUS.CLOSED;
+    return ISSUE_STATUS.DONE;
   }
 
   return ISSUE_STATUS.NEW;

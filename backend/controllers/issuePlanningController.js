@@ -24,6 +24,10 @@ const {
   getNextPlanningOrder,
   getPlanningOrderByIndex,
 } = require("../utils/planningOrder");
+const {
+  buildPlanningIssueTypeQuery,
+  isPlanningIssueType,
+} = require("../utils/planningIssueTypes");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 
 const attachmentsRoot = path.resolve(__dirname, "..", "uploads", "issue-attachments");
@@ -92,6 +96,15 @@ const ensurePlanningAccessForIssue = async (user, issueId) => {
       error: {
         status: 403,
         message: "You do not have permission to update planning for this issue",
+      },
+    };
+  }
+
+  if (!isPlanningIssueType(issue.type)) {
+    return {
+      error: {
+        status: 400,
+        message: "Only planning work items can be moved through backlog planning",
       },
     };
   }
@@ -290,6 +303,7 @@ const appendToContainer = (items = [], movingIssue, beforeIssueId, afterIssueId)
 const buildContainerQuery = (projectId, sprintId) => ({
   projectId,
   sprintId: sprintId || null,
+  ...buildPlanningIssueTypeQuery(),
 });
 
 const updateIssuePlanning = asyncHandler(async (req, res) => {
@@ -803,6 +817,76 @@ const suggestIssuePriority = asyncHandler(async (req, res) => {
   });
 });
 
+const downloadIssueAttachment = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.issueId)) {
+    res.status(400);
+    throw new Error("Invalid issue id");
+  }
+
+  if (!mongoose.isValidObjectId(req.params.attachmentId)) {
+    res.status(400);
+    throw new Error("Invalid attachment id");
+  }
+
+  // Verify user has access to the issue
+  const issue = await loadReadableIssue(req.user, req.params.issueId);
+
+  if (!issue) {
+    res.status(404);
+    throw new Error("Issue not found or inaccessible");
+  }
+
+  // Find the attachment
+  const attachment = await IssueAttachment.findById(req.params.attachmentId);
+
+  if (!attachment) {
+    res.status(404);
+    throw new Error("Attachment not found");
+  }
+
+  // Verify attachment belongs to this issue
+  if (attachment.issueId.toString() !== issue._id.toString()) {
+    res.status(403);
+    throw new Error("Attachment does not belong to this issue");
+  }
+
+  // Resolve file path
+  const filePath = path.resolve(
+    __dirname,
+    "..",
+    "uploads",
+    "issue-attachments",
+    path.basename(attachment.storagePath)
+  );
+
+  // Verify file exists
+  if (!fs.existsSync(filePath)) {
+    res.status(404);
+    throw new Error("File not found on disk");
+  }
+
+  // Set response headers
+  res.setHeader("Content-Type", attachment.mimeType || "application/octet-stream");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${encodeURIComponent(attachment.fileName)}"`
+  );
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
+  // Stream the file
+  const fileStream = fs.createReadStream(filePath);
+  fileStream.pipe(res);
+
+  fileStream.on("error", (error) => {
+    console.error("File stream error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Error downloading file" });
+    }
+  });
+});
+
 module.exports = {
   uploadIssueAttachmentMiddleware,
   updateIssuePlanning,
@@ -811,6 +895,7 @@ module.exports = {
   reorderIssuePlanning,
   getIssueAttachments,
   uploadIssueAttachment,
+  downloadIssueAttachment,
   getIssueWorklogs,
   createIssueWorklog,
   getIssueHistory,

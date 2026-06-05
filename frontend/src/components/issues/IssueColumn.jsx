@@ -40,7 +40,7 @@ const IssueColumn = ({
       onDropColumn();
     }}
   >
-    <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="mb-3 flex items-center justify-between gap-3">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className={cn("h-2.5 w-2.5 rounded-full", column.accentClassName)} />
@@ -51,7 +51,7 @@ const IssueColumn = ({
       <Badge variant={getIssueStatusVariant(column.key)}>{issues.length}</Badge>
     </div>
 
-    <div className="space-y-3">
+    <div className="space-y-2">
       {issues.length ? (
         issues.map((issue) => (
           <IssueCard

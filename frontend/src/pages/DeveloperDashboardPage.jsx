@@ -13,16 +13,26 @@ import {
   Flame,
   FolderKanban,
   ListTodo,
-  Plus,
+  PauseCircle,
   RefreshCcw,
   Search,
   TimerReset,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+} from "recharts";
+import {
   fetchIssueActivity,
+  fetchIssueStats,
+  fetchBugBucket,
   fetchMyIssues,
   fetchProjects,
+  pickIssue,
   updateIssue,
 } from "@/lib/api";
 import {
@@ -43,6 +53,7 @@ import {
   sortIssues,
 } from "@/lib/issues";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
+import { getProjectTeams, resolveTeamId, resolveUserId } from "@/lib/project-teams";
 import { useAuth } from "@/hooks/use-auth";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import EmptyState from "@/components/shared/EmptyState";
@@ -75,9 +86,12 @@ const defaultFilters = createIssueListFilters({
 
 const statusStyleMap = {
   [ISSUE_STATUS.NEW]: "border-orange-200 bg-orange-50 text-orange-700",
+  [ISSUE_STATUS.TRIAGED]: "border-indigo-200 bg-indigo-50 text-indigo-700",
   [ISSUE_STATUS.OPEN]: "border-red-200 bg-red-50 text-red-700",
   [ISSUE_STATUS.ASSIGNED]: "border-violet-200 bg-violet-50 text-violet-700",
   [ISSUE_STATUS.IN_PROGRESS]: "border-blue-200 bg-blue-50 text-blue-700",
+  [ISSUE_STATUS.READY_FOR_QA]: "border-cyan-200 bg-cyan-50 text-cyan-700",
+  [ISSUE_STATUS.TESTING]: "border-sky-200 bg-sky-50 text-sky-700",
   [ISSUE_STATUS.QA]: "border-cyan-200 bg-cyan-50 text-cyan-700",
   [ISSUE_STATUS.FIXED]: "border-cyan-200 bg-cyan-50 text-cyan-700",
   [ISSUE_STATUS.REVIEW]: "border-cyan-200 bg-cyan-50 text-cyan-700",
@@ -122,9 +136,14 @@ const severityRank = {
 
 const bugWorkflowLabels = {
   [ISSUE_STATUS.NEW]: "Open",
+  [ISSUE_STATUS.TRIAGED]: "Triaged",
   [ISSUE_STATUS.OPEN]: "Open",
-  [ISSUE_STATUS.ASSIGNED]: "In Progress",
+  [ISSUE_STATUS.ASSIGNED]: "Assigned",
+  [ISSUE_STATUS.IN_PROGRESS]: "In Progress",
+  [ISSUE_STATUS.READY_FOR_QA]: "Ready for QA",
+  [ISSUE_STATUS.TESTING]: "Testing",
   [ISSUE_STATUS.FIXED]: "Testing",
+  [ISSUE_STATUS.DONE]: "Done",
   [ISSUE_STATUS.CLOSED]: "Closed",
   [ISSUE_STATUS.REOPEN]: "Reopened",
   [ISSUE_STATUS.REJECTED]: "Rejected",
@@ -132,10 +151,12 @@ const bugWorkflowLabels = {
 };
 
 const developerBugTransitions = {
-  [ISSUE_STATUS.NEW]: [ISSUE_STATUS.OPEN],
+  [ISSUE_STATUS.NEW]: [ISSUE_STATUS.ASSIGNED],
+  [ISSUE_STATUS.TRIAGED]: [ISSUE_STATUS.ASSIGNED],
   [ISSUE_STATUS.OPEN]: [ISSUE_STATUS.ASSIGNED, ISSUE_STATUS.REJECTED],
-  [ISSUE_STATUS.ASSIGNED]: [ISSUE_STATUS.FIXED, ISSUE_STATUS.REJECTED],
-  [ISSUE_STATUS.REOPEN]: [ISSUE_STATUS.ASSIGNED],
+  [ISSUE_STATUS.ASSIGNED]: [ISSUE_STATUS.IN_PROGRESS, ISSUE_STATUS.FIXED, ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.REJECTED],
+  [ISSUE_STATUS.IN_PROGRESS]: [ISSUE_STATUS.FIXED, ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.REJECTED],
+  [ISSUE_STATUS.REOPEN]: [ISSUE_STATUS.ASSIGNED, ISSUE_STATUS.IN_PROGRESS],
 };
 
 const taskStatusOptions = [
@@ -144,6 +165,63 @@ const taskStatusOptions = [
   { value: ISSUE_STATUS.REVIEW, label: "Review" },
   { value: ISSUE_STATUS.QA, label: "Testing" },
   { value: ISSUE_STATUS.DONE, label: "Done" },
+];
+
+const BUG_STATUS_ANALYTICS = [
+  {
+    key: "open",
+    label: "Open",
+    statuses: [ISSUE_STATUS.NEW, ISSUE_STATUS.TRIAGED, ISSUE_STATUS.OPEN],
+    color: "#f59e0b",
+    gradient: "from-amber-400 to-orange-500",
+    track: "bg-amber-100",
+    Icon: AlertTriangle,
+  },
+  {
+    key: "inProgress",
+    label: "In Progress",
+    statuses: [ISSUE_STATUS.ASSIGNED, ISSUE_STATUS.IN_PROGRESS],
+    color: "#6366f1",
+    gradient: "from-indigo-500 to-violet-500",
+    track: "bg-indigo-100",
+    Icon: TimerReset,
+  },
+  {
+    key: "resolved",
+    label: "Resolved",
+    statuses: [ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.TESTING, ISSUE_STATUS.FIXED, ISSUE_STATUS.QA],
+    color: "#10b981",
+    gradient: "from-emerald-500 to-teal-400",
+    track: "bg-emerald-100",
+    Icon: CheckCircle2,
+  },
+  {
+    key: "reopened",
+    label: "Reopened",
+    statuses: [ISSUE_STATUS.REOPEN],
+    color: "#ec4899",
+    gradient: "from-pink-500 to-rose-500",
+    track: "bg-pink-100",
+    Icon: RefreshCcw,
+  },
+  {
+    key: "closed",
+    label: "Closed",
+    statuses: [ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE],
+    color: "#64748b",
+    gradient: "from-slate-500 to-slate-700",
+    track: "bg-slate-200",
+    Icon: CheckCircle2,
+  },
+  {
+    key: "deferred",
+    label: "Deferred",
+    statuses: [ISSUE_STATUS.DEFERRED, ISSUE_STATUS.REJECTED],
+    color: "#14b8a6",
+    gradient: "from-cyan-500 to-teal-500",
+    track: "bg-cyan-100",
+    Icon: PauseCircle,
+  },
 ];
 
 const getStatusLabel = (issue) =>
@@ -208,6 +286,20 @@ const getProjectName = (issue) => issue?.projectId?.name || "Unknown project";
 const getTeamName = (issue) => issue?.teamId?.name || "No team";
 
 const getProjectId = (project) => String(project?._id || project || "");
+
+const getProjectStatusClass = (status = "") => {
+  const normalizedStatus = String(status || "").toLowerCase();
+
+  if (normalizedStatus === "completed") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (normalizedStatus === "on hold") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  return "border-blue-200 bg-blue-50 text-blue-700";
+};
 
 const getSlaInfo = (issue) => {
   if (!issue?.dueAt) {
@@ -297,7 +389,10 @@ const getNextBugAction = (issue) => {
   const labels = {
     [ISSUE_STATUS.OPEN]: "Open",
     [ISSUE_STATUS.ASSIGNED]: "Start",
-    [ISSUE_STATUS.FIXED]: "Send to Testing",
+    [ISSUE_STATUS.IN_PROGRESS]: "Start",
+    [ISSUE_STATUS.FIXED]: "Mark Fixed",
+    [ISSUE_STATUS.READY_FOR_QA]: "Send to QA",
+    [ISSUE_STATUS.FIXED]: "Send to QA",
   };
 
   return {
@@ -322,10 +417,51 @@ const activityText = (entry) => {
   return "updated";
 };
 
+const SprintProgressWidget = ({ metrics, isLoading }) => {
+  const percentage = metrics?.percentage || 0;
+
+  return (
+    <div
+      className="group ml-0 flex h-16 min-w-[240px] flex-1 flex-col justify-center rounded-[22px] border border-cyan-100/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.86),rgba(239,246,255,0.78),rgba(236,254,255,0.68))] px-4 py-2 shadow-[0_16px_34px_-26px_rgba(14,165,233,0.78)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-200 hover:shadow-[0_18px_38px_-24px_rgba(14,165,233,0.9)] sm:ml-auto sm:max-w-[340px]"
+      title="Sprint completion based on assigned tasks."
+    >
+      {isLoading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-28 rounded-full" />
+          <Skeleton className="h-2 w-full rounded-full" />
+          <Skeleton className="h-2.5 w-36 rounded-full" />
+        </div>
+      ) : metrics?.hasActiveSprint ? (
+        <>
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <p className="truncate text-xs font-semibold text-slate-900">Sprint Progress</p>
+            <span className="shrink-0 text-xs font-bold text-cyan-700">{percentage}%</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-slate-200/80 shadow-inner">
+            <div
+              className="h-full rounded-full bg-[linear-gradient(90deg,#2563EB_0%,#06B6D4_100%)] shadow-[0_0_16px_rgba(14,165,233,0.45)] transition-[width] duration-700 ease-out"
+              style={{ width: `${percentage}%` }}
+            />
+          </div>
+          <p className="mt-1 truncate text-[11px] font-medium text-slate-500">
+            {metrics.completed} / {metrics.total} Tasks Completed
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-xs font-semibold text-slate-900">Sprint Progress</p>
+          <p className="mt-1 text-[11px] font-medium text-slate-500">No active sprint</p>
+        </>
+      )}
+    </div>
+  );
+};
+
 const StatCard = ({ label, value, helper, Icon, className }) => (
-  <Card className="overflow-hidden border-white/70 bg-white/86 shadow-[0_20px_52px_-36px_rgba(15,23,42,0.34)] backdrop-blur-xl">
-    <CardContent className="relative p-4">
+  <Card className="group overflow-hidden border-white/70 bg-white/86 shadow-[0_20px_52px_-36px_rgba(15,23,42,0.34)] backdrop-blur-xl transition duration-300 hover:-translate-y-1 hover:border-blue-100 hover:shadow-[0_24px_54px_-30px_rgba(37,99,235,0.32)]">
+    <CardContent className="relative overflow-hidden p-4">
       <div className={cn("absolute inset-x-0 top-0 h-1", className)} />
+      <div className={cn("absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-10 blur-2xl transition group-hover:opacity-20", className)} />
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -339,10 +475,164 @@ const StatCard = ({ label, value, helper, Icon, className }) => (
           <Icon className="h-5 w-5" />
         </div>
       </div>
-      <p className="mt-3 text-sm text-slate-500">{helper}</p>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <p className="text-sm text-slate-500">{helper}</p>
+        <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Live</span>
+      </div>
     </CardContent>
   </Card>
 );
+
+const BugStatusAnalytics = ({ issues = [] }) => {
+  const statusData = useMemo(() => {
+    const total = issues.length;
+
+    return BUG_STATUS_ANALYTICS.map((item) => {
+      const value = issues.filter((issue) =>
+        item.statuses.includes(normalizeBugStatusForIssue(issue))
+      ).length;
+
+      return {
+        ...item,
+        value,
+        percentage: total ? Math.round((value / total) * 100) : 0,
+      };
+    });
+  }, [issues]);
+
+  const visibleStatusData = useMemo(
+    () => statusData.filter((item) => item.value > 0),
+    [statusData]
+  );
+
+  const totalWidth = visibleStatusData.reduce((acc, item) => acc + item.percentage, 0);
+
+  return (
+    <Card className="overflow-hidden rounded-2xl border-white/70 bg-white/88 shadow-[0_20px_56px_-36px_rgba(15,23,42,0.38)] backdrop-blur-xl">
+      <CardHeader className="border-b border-slate-200/70 pb-4">
+        <div className="flex items-start justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Activity className="h-4 w-4 text-blue-600" />
+              Bug Status
+            </CardTitle>
+            <CardDescription>Live distribution of your assigned bug workload.</CardDescription>
+          </div>
+          <div className="text-right">
+            <p className="text-2xl font-bold text-slate-950">{issues.length}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Total Bugs</p>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-4">
+        {issues.length ? (
+          <div className="space-y-6">
+            {/* Large Horizontal Segmented Bar */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status Distribution</p>
+                <span className="text-xs font-medium text-slate-400">100%</span>
+              </div>
+              <div className="flex h-3 gap-0.5 overflow-hidden rounded-full bg-slate-100 p-0.5">
+                {visibleStatusData.map((item, idx) => (
+                  <div
+                    key={item.key}
+                    className={cn(
+                      "transition-all duration-500 ease-out",
+                      idx === 0 ? "rounded-l-full" : "",
+                      idx === visibleStatusData.length - 1 ? "rounded-r-full" : ""
+                    )}
+                    style={{
+                      flex: item.percentage,
+                      backgroundColor: item.color,
+                      minWidth: item.percentage > 3 ? "auto" : "2px",
+                    }}
+                    title={`${item.label}: ${item.value} (${item.percentage}%)`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Status Cards Grid */}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleStatusData.map((item) => {
+                const StatusIcon = item.Icon;
+
+                return (
+                  <div
+                    key={item.key}
+                    className="group rounded-xl border border-slate-200/60 bg-gradient-to-br from-white/95 to-slate-50/70 p-3.5 shadow-sm transition duration-200 hover:border-blue-200/80 hover:shadow-md"
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-2.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white shadow-sm"
+                          style={{ backgroundColor: item.color }}
+                        >
+                          <StatusIcon className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-slate-600 truncate">{item.label}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-baseline gap-1 shrink-0">
+                        <span className="text-lg font-bold text-slate-950">{item.value}</span>
+                        <span className="text-[10px] font-semibold text-slate-400">{item.percentage}%</span>
+                      </div>
+                    </div>
+
+                    {/* Mini Progress Bar */}
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full transition-all duration-700 ease-out"
+                        style={{
+                          width: `${item.percentage}%`,
+                          backgroundColor: item.color,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Legend */}
+            {statusData.length > visibleStatusData.length && (
+              <div className="pt-2 border-t border-slate-100">
+                <p className="text-[10px] font-medium text-slate-400 mb-2">Other statuses</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {statusData
+                    .filter((item) => item.value === 0)
+                    .map((item) => (
+                      <div
+                        key={item.key}
+                        className="flex items-center gap-1.5 rounded-lg bg-slate-50 px-2 py-1 text-[10px] font-medium text-slate-600"
+                      >
+                        <div
+                          className="h-2 w-2 rounded-full"
+                          style={{ backgroundColor: item.color }}
+                        />
+                        {item.label}
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-6 py-6 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 mb-3">
+              <Bug className="h-6 w-6 text-slate-300" />
+            </div>
+            <p className="text-sm font-medium text-slate-600">No assigned bug activity yet</p>
+            <p className="mt-1 text-xs text-slate-400">Bugs you're assigned to will appear here</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const ProjectPanel = ({ projects, issues, onOpenProject }) => {
   const projectCards = useMemo(
@@ -426,6 +716,84 @@ const ProjectPanel = ({ projects, issues, onOpenProject }) => {
         ) : (
           <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
             No assigned projects yet.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+const ProjectDetailsCard = ({ projects, user }) => {
+  const userId = resolveUserId(user);
+  const projectDetails = useMemo(
+    () =>
+      projects.flatMap((project) => {
+        const teams = getProjectTeams(project);
+        const matchingTeams = teams.filter((team) =>
+          (team?.members || []).some((member) => resolveUserId(member) === userId)
+        );
+        const displayTeams = matchingTeams.length ? matchingTeams : [];
+
+        return displayTeams.map((team) => {
+          const member =
+            (team?.members || []).find((item) => resolveUserId(item) === userId) || user;
+
+          return {
+            id: `${getProjectId(project)}-${resolveTeamId(team)}`,
+            projectName: project.name || "Untitled project",
+            teamName: team?.name || "Project team",
+            role: member?.role || user?.role || "Developer",
+            status: project.status || (project.isCompleted ? "Completed" : "Active"),
+          };
+        });
+      }),
+    [projects, user, userId]
+  );
+
+  return (
+    <Card className="border-white/70 bg-white/88 shadow-[0_18px_48px_-36px_rgba(15,23,42,0.36)] backdrop-blur-xl">
+      <CardHeader className="border-b border-slate-200/80 pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FolderKanban className="h-4 w-4 text-cyan-600" />
+          Project Details
+        </CardTitle>
+        <CardDescription>Current project-team associations for your developer work.</CardDescription>
+      </CardHeader>
+      <CardContent className="p-3">
+        {projectDetails.length ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {projectDetails.map((detail) => (
+              <article
+                key={detail.id}
+                className="rounded-[18px] border border-slate-200/80 bg-white/82 p-3 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-950">
+                      {detail.projectName}
+                    </p>
+                    <p className="mt-1 truncate text-xs font-medium text-slate-500">
+                      {detail.teamName}
+                    </p>
+                  </div>
+                  <Pill className={getProjectStatusClass(detail.status)}>
+                    {detail.status}
+                  </Pill>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    Role
+                  </span>
+                  <span className="truncate text-xs font-semibold text-slate-700">
+                    {detail.role}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+            No project team details are attached to your profile yet.
           </p>
         )}
       </CardContent>
@@ -666,6 +1034,111 @@ const ActivityList = ({ activity, compact = false, fallbackIssues = [], onOpenIs
     </div>
   );
 };
+
+const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, pickingId }) => (
+  <Card className="overflow-hidden border-cyan-100/80 bg-white/94 shadow-[0_28px_80px_-42px_rgba(8,145,178,0.5)] ring-1 ring-cyan-100/70 backdrop-blur-xl">
+    <CardHeader className="border-b border-cyan-100/90 bg-[linear-gradient(135deg,rgba(236,254,255,0.98),rgba(239,246,255,0.94),rgba(255,255,255,0.92))]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-600">
+            Primary workflow
+          </p>
+          <CardTitle className="flex items-center gap-2 text-2xl tracking-tight text-slate-950">
+            <FolderKanban className="h-6 w-6 text-cyan-600" />
+            Available Bugs Queue
+          </CardTitle>
+          <CardDescription>Pickup-ready bugs waiting for developer ownership.</CardDescription>
+        </div>
+        <Pill className="h-8 border-cyan-200 bg-cyan-50 px-3 text-cyan-700">
+          {issues.length} available
+        </Pill>
+      </div>
+    </CardHeader>
+    <CardContent className="p-4 sm:p-5">
+      {isLoading ? (
+        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={`bucket-skeleton-${index}`} className="h-48 rounded-[18px]" />
+          ))}
+        </div>
+      ) : issues.length ? (
+        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
+          {issues.map((issue) => {
+            const details = resolveBugDetails(issue);
+            const canPick = issue.canPick !== false && issue.pickupEligibility?.canPick !== false;
+            const pickDisabled = pickingId === issue._id || !canPick;
+            const pickLabel = pickingId === issue._id ? "Picking" : canPick ? "Pick Bug" : "Not Eligible";
+
+            return (
+              <article key={issue._id} className="rounded-[18px] border border-cyan-100/80 bg-white/88 p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-200 hover:bg-white hover:shadow-md">
+                <div className="flex items-start justify-between gap-3">
+                  <button className="min-w-0 text-left" type="button" onClick={() => onOpenIssue(issue)}>
+                    <p className="font-mono text-xs font-semibold text-slate-500">
+                      {getIssueDisplayKey(issue)}
+                    </p>
+                    <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-slate-950">
+                      {issue.title}
+                    </h3>
+                  </button>
+                  <Pill className={getBadgeClass(priorityStyleMap, issue.priority)}>
+                    {issue.priority || "Medium"}
+                  </Pill>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Pill className="border-blue-200 bg-blue-50 text-blue-700">
+                    {details.affectedPlatform || "Web"}
+                  </Pill>
+                  <Pill className="border-slate-200 bg-slate-50 text-slate-700">
+                    {details.category || "Bug"}
+                  </Pill>
+                  <Pill className={getBadgeClass(severityStyleMap, getBugSeverity(issue))}>
+                    {getBugSeverity(issue)}
+                  </Pill>
+                </div>
+
+                <dl className="mt-3 grid gap-2 text-xs text-slate-600">
+                  {[
+                    ["Module", details.moduleName || "Unmapped module"],
+                    ["Reporter", getReporterName(issue)],
+                    ["Screenshots", issue.attachmentsCount || 0],
+                    ["Effort", details.estimatedEffort || "TBD"],
+                  ].map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between gap-3">
+                      <dt className="font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</dt>
+                      <dd className="min-w-0 truncate font-medium">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    className="h-9 flex-1 rounded-xl"
+                    type="button"
+                    disabled={pickDisabled}
+                    title={!canPick ? issue.pickupEligibility?.reason : undefined}
+                    onClick={() => onPickIssue(issue)}
+                  >
+                    {pickLabel}
+                  </Button>
+                  <Button className="h-9 rounded-xl" type="button" variant="outline" onClick={() => onOpenIssue(issue)}>
+                    View
+                  </Button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <EmptyState
+          title="No bugs in the bucket"
+          description="Unassigned tester bugs will appear here when they are added to the developer queue."
+          icon={<FolderKanban className="h-5 w-5" />}
+        />
+      )}
+    </CardContent>
+  </Card>
+);
 
 const WorkTable = ({
   issues,
@@ -992,6 +1465,19 @@ const DeveloperDashboardPage = () => {
   });
 
   const {
+    data: activeSprintStats = null,
+    isLoading: isSprintProgressLoading,
+  } = useQuery({
+    queryKey: ["issues", "stats", "developer-dashboard", "active-sprint-tasks", user?._id],
+    queryFn: () =>
+      fetchIssueStats({
+        sprintState: "ACTIVE",
+        excludeType: "Bug",
+      }),
+    enabled: Boolean(user?._id),
+  });
+
+  const {
     data: activity = [],
     isLoading: isActivityLoading,
   } = useQuery({
@@ -1000,7 +1486,21 @@ const DeveloperDashboardPage = () => {
     enabled: Boolean(user?._id),
   });
 
+  const {
+    data: bucketIssuesData = [],
+    isLoading: isBucketLoading,
+    refetch: refetchBucket,
+  } = useQuery({
+    queryKey: ["issues", "bucket", "developer-dashboard", user?._id],
+    queryFn: () => fetchBugBucket({ limit: 60, sortBy: "priority" }),
+    enabled: Boolean(user?._id),
+  });
+
   const allIssues = useMemo(() => (Array.isArray(issues) ? issues : []), [issues]);
+  const bucketIssues = useMemo(
+    () => (Array.isArray(bucketIssuesData) ? bucketIssuesData : []),
+    [bucketIssuesData]
+  );
   const bugIssues = useMemo(
     () => allIssues.filter((issue) => isBugIssue(issue)),
     [allIssues]
@@ -1008,6 +1508,20 @@ const DeveloperDashboardPage = () => {
   const taskIssues = useMemo(
     () => allIssues.filter((issue) => !isBugIssue(issue)),
     [allIssues]
+  );
+  const sprintProgress = useMemo(
+    () => {
+      const total = activeSprintStats?.total || 0;
+      const completed = activeSprintStats?.closed || 0;
+
+      return {
+        completed,
+        total,
+        percentage: total ? Math.round((completed / total) * 100) : 0,
+        hasActiveSprint: total > 0,
+      };
+    },
+    [activeSprintStats]
   );
 
   useEffect(() => {
@@ -1077,6 +1591,34 @@ const DeveloperDashboardPage = () => {
     },
   });
 
+  const pickMutation = useMutation({
+    mutationFn: (issue) => pickIssue(issue._id),
+    onMutate: () => {
+      setStatusError("");
+    },
+    onSuccess: (pickedIssue) => {
+      queryClient.setQueryData(myIssuesQueryKey, (current = []) =>
+        Array.isArray(current) ? [pickedIssue, ...current] : current
+      );
+      queryClient.setQueryData(
+        ["issues", "bucket", "developer-dashboard", user?._id],
+        (current = []) =>
+          Array.isArray(current)
+            ? current.filter((issue) => issue._id !== pickedIssue._id)
+            : current
+      );
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
+    },
+    onError: (error) => {
+      setStatusError(
+        error.response?.data?.message || "Unable to pick this bug right now."
+      );
+      queryClient.invalidateQueries({ queryKey: ["issues", "bucket"] });
+    },
+  });
+
   const stats = useMemo(() => getIssueStatusMetrics(allIssues), [allIssues]);
   const normalizedFilters = useMemo(
     () => ({
@@ -1142,6 +1684,10 @@ const DeveloperDashboardPage = () => {
       return;
     }
 
+    if (statusMutation.isPending && statusMutation.variables?.id === issue._id) {
+      return;
+    }
+
     statusMutation.mutate({
       id: issue._id,
       status,
@@ -1181,29 +1727,7 @@ const DeveloperDashboardPage = () => {
 
   return (
     <div className="page-wrapper space-y-5">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {isLoading
-          ? Array.from({ length: 4 }, (_, index) => (
-              <Skeleton
-                key={`developer-stat-${index}`}
-                className="h-[132px] w-full rounded-[24px]"
-              />
-            ))
-          : statCards.map((card) => <StatCard key={card.label} {...card} />)}
-      </section>
-
-      <section className="flex flex-wrap gap-3 rounded-[26px] border border-white/70 bg-white/78 p-3 shadow-sm backdrop-blur-xl">
-        <Button
-          className="h-11 rounded-2xl"
-          type="button"
-          variant="outline"
-          onClick={() =>
-            setStatusError("Developers can update assigned work here. Issue creation remains restricted by workspace permissions.")
-          }
-        >
-          <Plus className="h-4 w-4" />
-          Create Issue
-        </Button>
+      <section className="flex flex-wrap items-center gap-3 rounded-[26px] border border-white/70 bg-white/78 p-3 shadow-sm backdrop-blur-xl">
         <Button
           className="h-11 rounded-2xl"
           type="button"
@@ -1230,18 +1754,29 @@ const DeveloperDashboardPage = () => {
           <Flame className="h-4 w-4" />
           Priority Queue
         </Button>
-        <Button
-          className="ml-auto h-11 w-11 rounded-2xl p-0"
-          disabled={isIssuesFetching}
-          type="button"
-          variant="outline"
-          onClick={() => refetchIssues()}
-        >
-          <RefreshCcw className={cn("h-4 w-4", isIssuesFetching && "animate-spin")} />
-        </Button>
+        <SprintProgressWidget metrics={sprintProgress} isLoading={isSprintProgressLoading} />
       </section>
 
+      <BugBucketPanel
+        issues={bucketIssues}
+        isLoading={isBucketLoading}
+        pickingId={pickMutation.isPending ? pickMutation.variables?._id : ""}
+        onOpenIssue={setSelectedIssue}
+        onPickIssue={(issue) => pickMutation.mutate(issue)}
+      />
+
       <section className="space-y-5">
+          <section className="flex snap-x gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:pb-0 xl:grid-cols-4 [&>*]:min-w-[220px] [&>*]:snap-start md:[&>*]:min-w-0">
+            {isLoading
+              ? Array.from({ length: 4 }, (_, index) => (
+                  <Skeleton
+                    key={`developer-stat-${index}`}
+                    className="h-[132px] w-full rounded-[24px]"
+                  />
+                ))
+              : statCards.map((card) => <StatCard key={card.label} {...card} />)}
+          </section>
+
           <Card className="overflow-hidden border-white/70 bg-white/90 shadow-[0_22px_64px_-42px_rgba(15,23,42,0.42)] backdrop-blur-xl">
             <CardHeader className="border-b border-slate-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(239,246,255,0.9),rgba(240,253,250,0.78))]">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1254,37 +1789,53 @@ const DeveloperDashboardPage = () => {
                   </CardDescription>
                 </div>
 
-                <div className="grid grid-cols-2 gap-1 rounded-[22px] border border-white/80 bg-slate-100/80 p-1 shadow-inner sm:w-auto">
-                  {TABS.map(({ id, label, Icon }) => {
-                    const active = activeTab === id;
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="grid grid-cols-2 gap-1 rounded-[22px] border border-white/80 bg-slate-100/80 p-1 shadow-inner sm:w-auto">
+                    {TABS.map(({ id, label, Icon }) => {
+                      const active = activeTab === id;
 
-                    return (
-                      <button
-                        key={id}
-                        className={cn(
-                          "inline-flex h-11 items-center justify-center gap-2 rounded-[18px] px-4 text-sm font-semibold transition-all duration-300",
-                          active
-                            ? "bg-[linear-gradient(90deg,#2563EB_0%,#7C3AED_55%,#0891B2_100%)] text-white shadow-[0_14px_28px_-18px_rgba(37,99,235,0.8)]"
-                            : "text-slate-600 hover:bg-white/80 hover:text-slate-950"
-                        )}
-                        type="button"
-                        onClick={() => {
-                          setActiveTab(id);
-                          setFilters((current) => ({
-                            ...current,
-                            status: "all",
-                          }));
-                        }}
-                      >
-                        <Icon className="h-4 w-4" />
-                        {label}
-                      </button>
-                    );
-                  })}
+                      return (
+                        <button
+                          key={id}
+                          className={cn(
+                            "inline-flex h-11 items-center justify-center gap-2 rounded-[18px] px-4 text-sm font-semibold transition-all duration-300",
+                            active
+                              ? "bg-[linear-gradient(90deg,#2563EB_0%,#7C3AED_55%,#0891B2_100%)] text-white shadow-[0_14px_28px_-18px_rgba(37,99,235,0.8)]"
+                              : "text-slate-600 hover:bg-white/80 hover:text-slate-950"
+                          )}
+                          type="button"
+                          onClick={() => {
+                            setActiveTab(id);
+                            setFilters((current) => ({
+                              ...current,
+                              status: "all",
+                            }));
+                          }}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    className="h-11 w-11 rounded-2xl p-0"
+                    disabled={isIssuesFetching}
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      refetchIssues();
+                      refetchBucket();
+                    }}
+                  >
+                    <RefreshCcw className={cn("h-4 w-4", isIssuesFetching && "animate-spin")} />
+                  </Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4 p-4 sm:p-5">
+              <ProjectDetailsCard projects={projects} user={user} />
+
               <div className="grid gap-3 lg:grid-cols-[minmax(240px,1.3fr)_repeat(4,minmax(140px,0.8fr))]">
                 <label className="space-y-1.5">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -1495,6 +2046,8 @@ const DeveloperDashboardPage = () => {
             </Card>
           </section>
       </section>
+
+      <BugStatusAnalytics issues={bugIssues} />
 
       <Dialog open={isPriorityOpen} onOpenChange={setIsPriorityOpen}>
         <DialogContent className="max-w-6xl border-white/70 bg-white/95 p-5 shadow-[0_30px_90px_-48px_rgba(15,23,42,0.5)] backdrop-blur-xl sm:p-6">

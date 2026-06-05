@@ -14,6 +14,8 @@ const IssueAttachment = require("./IssueAttachment");
 const IssueWorklog = require("./IssueWorklog");
 const IssueHistory = require("./IssueHistory");
 const SprintNotification = require("./SprintNotification");
+const Conversation = require("./Conversation.model");
+const Message = require("./Message.model");
 
 module.exports = {
   User,
@@ -32,4 +34,6 @@ module.exports = {
   IssueWorklog,
   IssueHistory,
   SprintNotification,
+  Conversation,
+  Message,
 };

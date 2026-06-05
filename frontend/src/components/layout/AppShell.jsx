@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import Navbar from "@/components/layout/Navbar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBugWorkflowRealtime } from "@/hooks/useBugWorkflowRealtime";
 import useScrollRestoration from "@/hooks/use-scroll-restoration";
 
 const RouteContentFallback = () => (
@@ -17,6 +18,7 @@ const RouteContentFallback = () => (
 
 const AppShell = () => {
   const location = useLocation();
+  useBugWorkflowRealtime();
   useScrollRestoration();
 
   return (

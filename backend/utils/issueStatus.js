@@ -30,7 +30,10 @@ const ACTIVE_ISSUE_STATUS_VALUES = Object.freeze([
   ISSUE_STATUS.REVIEW,
   ISSUE_STATUS.QA,
   ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.TRIAGED,
   ISSUE_STATUS.ASSIGNED,
+  ISSUE_STATUS.READY_FOR_QA,
+  ISSUE_STATUS.TESTING,
   ISSUE_STATUS.FIXED,
   ISSUE_STATUS.REOPEN,
 ]);
@@ -62,7 +65,7 @@ const normalizeIssueStatus = (value, fallback = "") => {
   }
 
   if (normalizedValue === "READY_FOR_QA") {
-    return ISSUE_STATUS.QA;
+    return BUG_STATUS.READY_FOR_QA;
   }
 
   const normalizedBugStatus = normalizeBugStatus(normalizedValue, "");

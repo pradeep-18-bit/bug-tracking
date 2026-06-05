@@ -73,6 +73,39 @@ const workspaceSettingSchema = new Schema(
         },
       ],
     },
+    moduleOwnerships: [
+      {
+        moduleName: {
+          type: String,
+          trim: true,
+          required: true,
+        },
+        teamId: {
+          type: Schema.Types.ObjectId,
+          ref: "Team",
+          default: null,
+        },
+        developerId: {
+          type: Schema.Types.ObjectId,
+          ref: "User",
+          default: null,
+        },
+        responsibleTeamName: {
+          type: String,
+          trim: true,
+          default: "",
+        },
+        updatedBy: {
+          type: Schema.Types.ObjectId,
+          ref: "User",
+          default: null,
+        },
+        updatedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
     createdAt: {
       type: Date,
       default: Date.now,

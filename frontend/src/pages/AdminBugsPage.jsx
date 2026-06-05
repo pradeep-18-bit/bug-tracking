@@ -1,15 +1,25 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   Bug,
+  ChevronDown,
+  ChevronUp,
   CheckCircle2,
   Eye,
+  Filter,
+  Layers3,
+  ListChecks,
+  MessageSquarePlus,
+  MoreHorizontal,
+  Paperclip,
   RefreshCcw,
   Search,
-  ShieldCheck,
+  SlidersHorizontal,
   TimerReset,
+  UserPlus,
 } from "lucide-react";
 import {
   fetchBugs,
@@ -40,7 +50,8 @@ import {
   resolveTeamId,
   resolveUserId,
 } from "@/lib/project-teams";
-import { cn, formatDateTime } from "@/lib/utils";
+import { cn, formatDateTime, getInitials } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import EmptyState from "@/components/shared/EmptyState";
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +68,8 @@ const BUG_STATUS_FILTERS = [
   { value: ISSUE_STATUS.OPEN, label: "Open" },
   { value: ISSUE_STATUS.ASSIGNED, label: "Assigned" },
   { value: ISSUE_STATUS.IN_PROGRESS, label: "In Progress" },
-  { value: ISSUE_STATUS.QA, label: "Ready for QA" },
+  { value: ISSUE_STATUS.READY_FOR_QA, label: "Ready for QA" },
+  { value: ISSUE_STATUS.TESTING, label: "Testing" },
   { value: ISSUE_STATUS.FIXED, label: "Fixed" },
   { value: ISSUE_STATUS.REOPEN, label: "Reopened" },
   { value: ISSUE_STATUS.CLOSED, label: "Closed" },
@@ -151,10 +163,19 @@ const isReopenedBug = (issue) =>
   normalizeBugStatusForIssue(issue) === ISSUE_STATUS.REOPEN;
 
 const isReadyForQa = (issue) =>
-  [ISSUE_STATUS.FIXED, ISSUE_STATUS.QA].includes(normalizeBugStatusForIssue(issue));
+  [ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.TESTING, ISSUE_STATUS.FIXED, ISSUE_STATUS.QA].includes(
+    normalizeBugStatusForIssue(issue)
+  );
 
 const isClosedBug = (issue) =>
-  [ISSUE_STATUS.CLOSED, ISSUE_STATUS.REJECTED].includes(normalizeBugStatusForIssue(issue));
+  [ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE, ISSUE_STATUS.REJECTED].includes(
+    normalizeBugStatusForIssue(issue)
+  );
+
+const isInProgressBug = (issue) =>
+  [ISSUE_STATUS.ASSIGNED, ISSUE_STATUS.IN_PROGRESS].includes(
+    normalizeBugStatusForIssue(issue)
+  );
 
 const getReopenCount = (issue) => (isReopenedBug(issue) ? 1 : 0);
 
@@ -212,18 +233,207 @@ const getAvailableMembers = (
   );
 };
 
+const CompactSelect = ({ className, ...props }) => (
+  <select
+    className={cn(
+      "h-9 w-full rounded-[10px] border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-700 shadow-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-50 disabled:text-slate-400",
+      className
+    )}
+    {...props}
+  />
+);
+
+const CompactInput = ({ className, ...props }) => (
+  <Input
+    className={cn(
+      "h-9 rounded-[10px] border-slate-200 bg-white text-[12px] shadow-sm focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-500/20",
+      className
+    )}
+    {...props}
+  />
+);
+
+const FieldLabel = ({ children }) => (
+  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+    {children}
+  </span>
+);
+
+const SoftBadge = ({ children, className }) => (
+  <span
+    className={cn(
+      "inline-flex h-6 items-center rounded-full border px-2 text-[11px] font-semibold leading-none",
+      className
+    )}
+  >
+    {children}
+  </span>
+);
+
+const severityBadgeClassName = (severity) =>
+  cn(
+    "inline-flex h-5 max-w-full items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none",
+    ["Blocker", "Critical"].includes(severity)
+      ? "border-rose-200 bg-rose-50 text-rose-700"
+      : severity === "Major" || severity === "High"
+        ? "border-orange-200 bg-orange-50 text-orange-700"
+        : severity === "Medium"
+          ? "border-amber-200 bg-amber-50 text-amber-800"
+          : severity === "Low"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : "border-slate-200 bg-slate-100 text-slate-700"
+  );
+
+const severityAccentClassName = (severity) => {
+  if (["Blocker", "Critical"].includes(severity)) {
+    return "border-l-rose-500";
+  }
+
+  if (severity === "Major" || severity === "High") {
+    return "border-l-orange-500";
+  }
+
+  if (severity === "Medium") {
+    return "border-l-amber-400";
+  }
+
+  if (severity === "Low") {
+    return "border-l-emerald-500";
+  }
+
+  return "border-l-slate-300";
+};
+
+const priorityBadgeClassName = (priority) =>
+  cn(
+    "inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none",
+    priority === "Critical"
+      ? "border-rose-200 bg-rose-50 text-rose-700"
+      : priority === "High"
+        ? "border-orange-200 bg-orange-50 text-orange-700"
+        : priority === "Low"
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-blue-200 bg-blue-50 text-blue-700"
+  );
+
+const statusBadgeClassName = (status) => {
+  const normalizedStatus = status === ISSUE_STATUS.QA ? ISSUE_STATUS.READY_FOR_QA : status;
+
+  if (normalizedStatus === ISSUE_STATUS.NEW) {
+    return "border-slate-200 bg-slate-100 text-slate-700";
+  }
+
+  if ([ISSUE_STATUS.OPEN, ISSUE_STATUS.ASSIGNED].includes(normalizedStatus)) {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.IN_PROGRESS) {
+    return "border-violet-200 bg-violet-50 text-violet-700";
+  }
+
+  if ([ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.TESTING, ISSUE_STATUS.FIXED].includes(normalizedStatus)) {
+    return "border-orange-200 bg-orange-50 text-orange-700";
+  }
+
+  if ([ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE].includes(normalizedStatus)) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (normalizedStatus === ISSUE_STATUS.REOPEN) {
+    return "border-rose-200 bg-rose-50 text-rose-700";
+  }
+
+  return "border-slate-200 bg-slate-100 text-slate-700";
+};
+
+const ActionSelect = ({ className, ...props }) => (
+  <select
+    className={cn(
+      "h-7 max-w-full rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 shadow-sm outline-none transition hover:border-blue-200 focus:border-blue-300 focus:ring-2 focus:ring-blue-500/15 disabled:bg-slate-50 disabled:text-slate-400",
+      className
+    )}
+    {...props}
+  />
+);
+
+const getModuleTag = (issue) => {
+  const details = resolveBugDetails(issue);
+  const source = `${details?.category || ""} ${details?.affectedPlatform || ""} ${details?.moduleName || ""}`.toLowerCase();
+
+  if (source.includes("api")) return "API";
+  if (source.includes("backend")) return "Backend";
+  if (source.includes("database")) return "DB";
+  if (source.includes("mobile")) return "Mobile";
+  if (source.includes("ui") || source.includes("login") || source.includes("page")) return "UI";
+
+  return "Module";
+};
+
+const getAttachmentCount = (issue) => {
+  const details = resolveBugDetails(issue);
+
+  return [
+    issue?.attachments,
+    issue?.attachmentCount,
+    details?.attachments,
+    details?.attachmentCount,
+  ].reduce((count, value) => {
+    if (Array.isArray(value)) return Math.max(count, value.length);
+    if (Number.isFinite(Number(value))) return Math.max(count, Number(value));
+    return count;
+  }, 0);
+};
+
+const getIssueCategory = (issue) => resolveBugDetails(issue)?.category || "General";
+
+const quickFilterChips = [
+  ["critical", "Critical"],
+  ["unassigned", "Unassigned"],
+  ["reopened", "Reopened"],
+  ["mine", "My Team"],
+  ["api", "API"],
+  ["ui", "UI"],
+  ["backend", "Backend"],
+];
+
+const TRIAGE_ACTION_MENU_WIDTH = 248;
+const TRIAGE_ACTION_MENU_HEIGHT = 286;
+const TRIAGE_ACTION_MENU_GUTTER = 12;
+
+const getTriageActionMenuPosition = (triggerRect) => {
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+  const maxLeft = viewportWidth - TRIAGE_ACTION_MENU_WIDTH - TRIAGE_ACTION_MENU_GUTTER;
+  const maxTop = viewportHeight - TRIAGE_ACTION_MENU_HEIGHT - TRIAGE_ACTION_MENU_GUTTER;
+  let left = triggerRect.right - TRIAGE_ACTION_MENU_WIDTH;
+  let top = triggerRect.bottom + 8;
+
+  if (left < TRIAGE_ACTION_MENU_GUTTER) {
+    left = triggerRect.left;
+  }
+
+  if (top + TRIAGE_ACTION_MENU_HEIGHT > viewportHeight - TRIAGE_ACTION_MENU_GUTTER) {
+    top = triggerRect.top - TRIAGE_ACTION_MENU_HEIGHT - 8;
+  }
+
+  return {
+    left: Math.max(TRIAGE_ACTION_MENU_GUTTER, Math.min(left, maxLeft)),
+    top: Math.max(TRIAGE_ACTION_MENU_GUTTER, Math.min(top, maxTop)),
+  };
+};
+
 const MetricTile = ({ icon: Icon, label, tone, value }) => (
-  <Card className="overflow-hidden rounded-[16px] border-white/70 bg-white/82 shadow-[0_18px_42px_-30px_rgba(15,23,42,0.34)] backdrop-blur-xl">
-    <CardContent className="p-4">
+  <Card className="overflow-hidden rounded-[14px] border-white/70 bg-white/86 shadow-[0_14px_34px_-26px_rgba(15,23,42,0.3)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-26px_rgba(15,23,42,0.32)]">
+    <CardContent className="p-3.5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
             {label}
           </p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
+          <p className="mt-1.5 text-2xl font-semibold leading-none text-slate-950">{value}</p>
         </div>
-        <span className={cn("flex h-11 w-11 items-center justify-center rounded-2xl", tone)}>
-          <Icon className="h-5 w-5" />
+        <span className={cn("flex h-9 w-9 items-center justify-center rounded-[12px]", tone)}>
+          <Icon className="h-4 w-4" />
         </span>
       </div>
     </CardContent>
@@ -234,19 +444,19 @@ const DistributionPanel = ({ title, rows }) => {
   const maxCount = Math.max(...rows.map((row) => row.count), 1);
 
   return (
-    <Card className="overflow-hidden rounded-[16px] border-white/70 bg-white/82 shadow-[0_18px_42px_-30px_rgba(15,23,42,0.34)] backdrop-blur-xl">
-      <CardHeader className="border-b border-slate-200/70 px-4 py-3">
-        <CardTitle className="text-sm">{title}</CardTitle>
+    <Card className="overflow-hidden rounded-[14px] border-white/70 bg-white/82 shadow-[0_14px_34px_-26px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+      <CardHeader className="border-b border-slate-200/70 px-3.5 py-2.5">
+        <CardTitle className="text-[13px]">{title}</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3 p-4">
+      <CardContent className="space-y-2.5 p-3.5">
         {rows.length ? (
           rows.map((row) => (
-            <div key={row.label} className="space-y-1.5">
-              <div className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-500">
+            <div key={row.label} className="space-y-1">
+              <div className="flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-500">
                 <span className="truncate">{row.label}</span>
                 <span>{row.count}</span>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-slate-200/80">
+              <div className="h-1.5 overflow-hidden rounded-full bg-slate-200/80">
                 <div
                   className={cn("h-full rounded-full", row.className || "bg-blue-500")}
                   style={{ width: `${Math.max((row.count / maxCount) * 100, 6)}%` }}
@@ -255,7 +465,7 @@ const DistributionPanel = ({ title, rows }) => {
             </div>
           ))
         ) : (
-          <p className="text-sm text-slate-500">No data yet.</p>
+          <p className="text-[12px] text-slate-500">No data yet.</p>
         )}
       </CardContent>
     </Card>
@@ -264,6 +474,7 @@ const DistributionPanel = ({ title, rows }) => {
 
 const AdminBugsPage = () => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamString = searchParams.toString();
   const initialStatusQuery = normalizeStatusQueryValue(searchParams.get("status"));
@@ -271,6 +482,12 @@ const AdminBugsPage = () => {
     searchParams.get("filter") || searchParams.get("status")
   );
   const [selectedBug, setSelectedBug] = useState(null);
+  const [selectedTriageIds, setSelectedTriageIds] = useState([]);
+  const [bulkPriority, setBulkPriority] = useState("");
+  const [bulkDeveloperId, setBulkDeveloperId] = useState("");
+  const [actionMenu, setActionMenu] = useState(null);
+  const [areTriageFiltersOpen, setAreTriageFiltersOpen] = useState(false);
+  const [areFiltersOpen, setAreFiltersOpen] = useState(false);
   const [filters, setFilters] = useState({
     projectId: searchParams.get("projectId") || ALL_PROJECTS_VALUE,
     teamId: "all",
@@ -372,6 +589,7 @@ const AdminBugsPage = () => {
   });
 
   const bugs = useMemo(() => (Array.isArray(bugsData) ? bugsData : []), [bugsData]);
+  const actionMenuId = actionMenu?.issueId || "";
 
   useEffect(() => {
     if (!projects.length) {
@@ -463,7 +681,15 @@ const AdminBugsPage = () => {
         return false;
       }
 
-      if (filters.developerId !== "all" && resolveUserId(developer) !== filters.developerId) {
+      if (filters.developerId === "unassigned" && resolveUserId(developer)) {
+        return false;
+      }
+
+      if (
+        filters.developerId !== "all" &&
+        filters.developerId !== "unassigned" &&
+        resolveUserId(developer) !== filters.developerId
+      ) {
         return false;
       }
 
@@ -509,6 +735,9 @@ const AdminBugsPage = () => {
         developer?.name,
         developer?.email,
         bugDetails.severity,
+        bugDetails.moduleName,
+        bugDetails.category,
+        bugDetails.affectedPlatform,
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(searchTerm));
@@ -520,10 +749,26 @@ const AdminBugsPage = () => {
       total: filteredBugs.length,
       open: filteredBugs.filter((bugIssue) => !isClosedBug(bugIssue)).length,
       critical: getCriticalIssues(filteredBugs).length,
+      unassigned: filteredBugs.filter((bugIssue) => !resolveUserId(getBugDeveloper(bugIssue))).length,
+      inProgress: filteredBugs.filter(isInProgressBug).length,
       reopened: getReopenedIssues(filteredBugs).length,
       readyForQa: filteredBugs.filter(isReadyForQa).length,
-      closed: filteredBugs.filter((bugIssue) => normalizeBugStatusForIssue(bugIssue) === ISSUE_STATUS.CLOSED).length,
+      closed: filteredBugs.filter(isClosedBug).length,
     }),
+    [filteredBugs]
+  );
+
+  const triageBugs = useMemo(
+    () =>
+      filteredBugs.filter((bugIssue) => {
+        const status = normalizeBugStatusForIssue(bugIssue);
+        const developer = getBugDeveloper(bugIssue);
+
+        return (
+          [ISSUE_STATUS.NEW, ISSUE_STATUS.TRIAGED, ISSUE_STATUS.OPEN].includes(status) ||
+          !resolveUserId(developer)
+        );
+      }),
     [filteredBugs]
   );
 
@@ -605,6 +850,49 @@ const AdminBugsPage = () => {
     },
   });
 
+  const handleToggleTriageBug = (issueId, checked) => {
+    setSelectedTriageIds((current) =>
+      checked
+        ? Array.from(new Set([...current, issueId]))
+        : current.filter((id) => id !== issueId)
+    );
+  };
+
+  const handleBulkTriage = async () => {
+    const selectedBugs = triageBugs.filter((bugIssue) =>
+      selectedTriageIds.includes(bugIssue._id)
+    );
+
+    if (!selectedBugs.length) {
+      return;
+    }
+
+    for (const bugIssue of selectedBugs) {
+      const currentStatus = normalizeBugStatusForIssue(bugIssue);
+
+      await updateIssueMutation.mutateAsync({
+        id: bugIssue._id,
+        payload: {
+          ...(bulkPriority ? { priority: bulkPriority } : {}),
+          ...(bulkDeveloperId
+            ? {
+                assigneeId: bulkDeveloperId,
+                bugDetails: {
+                  ...resolveBugDetails(bugIssue),
+                  developerLeadId: bulkDeveloperId,
+                },
+                status: ISSUE_STATUS.ASSIGNED,
+              }
+            : currentStatus === ISSUE_STATUS.NEW
+              ? { status: ISSUE_STATUS.TRIAGED }
+              : {}),
+        },
+      });
+    }
+
+    setSelectedTriageIds([]);
+  };
+
   const error = projectsError || bugsError;
   const isLoading = isProjectsLoading || isBugsLoading;
 
@@ -630,6 +918,309 @@ const AdminBugsPage = () => {
     }));
   };
 
+  const applyQuickFilter = (filterId) => {
+    setFilters((current) => {
+      const baseFilters = {
+        ...current,
+        filter: "all",
+        lifecycle: "all",
+        priority: "all",
+        status: "all",
+        developerId: "all",
+      };
+
+      if (filterId === "mine") {
+        return {
+          ...baseFilters,
+          developerId: String(user?._id || user?.id || "all"),
+        };
+      }
+
+      if (filterId === "critical") {
+        return {
+          ...baseFilters,
+          filter: "critical",
+          priority: "Critical",
+        };
+      }
+
+      if (filterId === "unassigned") {
+        return {
+          ...baseFilters,
+          developerId: "unassigned",
+        };
+      }
+
+      if (filterId === "reopened") {
+        return {
+          ...baseFilters,
+          filter: "reopened",
+          lifecycle: "reopened",
+        };
+      }
+
+      if (filterId === "ready") {
+        return {
+          ...baseFilters,
+          lifecycle: "fixed",
+        };
+      }
+
+      if (["api", "ui", "backend"].includes(filterId)) {
+        return {
+          ...baseFilters,
+          search: filterId,
+        };
+      }
+
+      return baseFilters;
+    });
+  };
+
+  const isQuickFilterActive = (filterId) => {
+    if (filterId === "mine") {
+      return filters.developerId === String(user?._id || user?.id || "");
+    }
+
+    if (filterId === "critical") {
+      return filters.filter === "critical" || filters.priority === "Critical";
+    }
+
+    if (filterId === "unassigned") {
+      return filters.developerId === "unassigned";
+    }
+
+    if (filterId === "reopened") {
+      return filters.filter === "reopened" || filters.lifecycle === "reopened";
+    }
+
+    if (["api", "ui", "backend"].includes(filterId)) {
+      return filters.search.trim().toLowerCase() === filterId;
+    }
+
+    return false;
+  };
+
+  const handleQuickAssign = (bugIssue, developerId) => {
+    if (!developerId) {
+      return;
+    }
+
+    updateIssueMutation.mutate({
+      id: bugIssue._id,
+      payload: {
+        assigneeId: developerId,
+        bugDetails: {
+          ...resolveBugDetails(bugIssue),
+          developerLeadId: developerId,
+        },
+        status: ISSUE_STATUS.ASSIGNED,
+      },
+    });
+  };
+
+  const handleQuickPriority = (bugIssue, priority) => {
+    if (!priority || priority === bugIssue.priority) {
+      return;
+    }
+
+    updateIssueMutation.mutate({
+      id: bugIssue._id,
+      payload: {
+        priority,
+      },
+    });
+  };
+
+  const handleQuickStatus = (bugIssue, status) => {
+    if (!status || status === normalizeBugStatusForIssue(bugIssue)) {
+      return;
+    }
+
+    updateIssueMutation.mutate({
+      id: bugIssue._id,
+      payload: {
+        status,
+      },
+    });
+  };
+
+  const handleMoveToTriageBucket = (bugIssue) => {
+    const currentStatus = normalizeBugStatusForIssue(bugIssue);
+
+    if (currentStatus === ISSUE_STATUS.TRIAGED) {
+      return;
+    }
+
+    updateIssueMutation.mutate({
+      id: bugIssue._id,
+      payload: {
+        status: ISSUE_STATUS.TRIAGED,
+      },
+    });
+  };
+
+  const handleCloseBug = (bugIssue) => {
+    if (normalizeBugStatusForIssue(bugIssue) === ISSUE_STATUS.CLOSED) {
+      return;
+    }
+
+    updateIssueMutation.mutate({
+      id: bugIssue._id,
+      payload: {
+        status: ISSUE_STATUS.CLOSED,
+        statusChangeComment: "Closed from admin triage queue.",
+      },
+    });
+  };
+
+  const closeActionMenu = () => setActionMenu(null);
+
+  const handleToggleActionMenu = (event, issueId) => {
+    event.stopPropagation();
+
+    if (actionMenuId === issueId) {
+      closeActionMenu();
+      return;
+    }
+
+    setActionMenu({
+      issueId,
+      ...getTriageActionMenuPosition(event.currentTarget.getBoundingClientRect()),
+    });
+  };
+
+  useEffect(() => {
+    if (!actionMenuId) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (
+        event.target.closest("[data-triage-action-menu]") ||
+        event.target.closest("[data-triage-action-trigger]")
+      ) {
+        return;
+      }
+
+      closeActionMenu();
+    };
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        closeActionMenu();
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    window.addEventListener("resize", closeActionMenu);
+    window.addEventListener("scroll", closeActionMenu, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("resize", closeActionMenu);
+      window.removeEventListener("scroll", closeActionMenu, true);
+    };
+  }, [actionMenuId]);
+
+  const renderTriageActionMenu = (bugIssue) => {
+    if (actionMenuId !== bugIssue._id || typeof document === "undefined") {
+      return null;
+    }
+
+    return createPortal(
+      <div
+        data-triage-action-menu
+        className="fixed z-[45] max-h-[calc(100vh-1.5rem)] w-[248px] overflow-y-auto rounded-xl border border-slate-200/90 bg-white/95 p-2 text-slate-700 shadow-[0_24px_70px_-34px_rgba(15,23,42,0.65)] backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-top-1"
+        style={{ left: actionMenu.left, top: actionMenu.top }}
+      >
+        <div className="space-y-1">
+          <div className="rounded-lg px-1.5 py-1 transition hover:bg-slate-50">
+            <div className="mb-1 flex items-center gap-2 whitespace-nowrap text-[11px] font-bold text-slate-600">
+              <UserPlus className="h-3.5 w-3.5 text-blue-600" />
+              Assign Developer
+            </div>
+            <ActionSelect
+              aria-label="Assign developer"
+              className="h-7 w-full rounded-lg text-[11px]"
+              value=""
+              onChange={(event) => {
+                handleQuickAssign(bugIssue, event.target.value);
+                closeActionMenu();
+              }}
+            >
+              <option value="">Select developer</option>
+              {developers.map((developerOption) => (
+                <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>
+                  {getUserLabel(developerOption)}
+                </option>
+              ))}
+            </ActionSelect>
+          </div>
+
+          <div className="rounded-lg px-1.5 py-1 transition hover:bg-slate-50">
+            <div className="mb-1 flex items-center gap-2 whitespace-nowrap text-[11px] font-bold text-slate-600">
+              <RefreshCcw className="h-3.5 w-3.5 text-blue-600" />
+              Change Status
+            </div>
+            <ActionSelect
+              aria-label="Change status"
+              className="h-7 w-full rounded-lg text-[11px]"
+              value=""
+              onChange={(event) => {
+                handleQuickStatus(bugIssue, event.target.value);
+                closeActionMenu();
+              }}
+            >
+              <option value="">Select status</option>
+              {BUG_STATUS_FILTERS.filter((item) => item.value !== "all").map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
+            </ActionSelect>
+          </div>
+
+          <div className="rounded-lg px-1.5 py-1 transition hover:bg-slate-50">
+            <div className="mb-1 flex items-center gap-2 whitespace-nowrap text-[11px] font-bold text-slate-600">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+              Change Priority
+            </div>
+            <ActionSelect
+              aria-label="Change priority"
+              className="h-7 w-full rounded-lg text-[11px]"
+              value=""
+              onChange={(event) => {
+                handleQuickPriority(bugIssue, event.target.value);
+                closeActionMenu();
+              }}
+            >
+              <option value="">Select priority</option>
+              {["Critical", "High", "Medium", "Low"].map((priority) => (
+                <option key={priority} value={priority}>{priority}</option>
+              ))}
+            </ActionSelect>
+          </div>
+
+          <div className="my-1 h-px bg-slate-200" />
+
+          <button className="flex h-8 w-full items-center gap-2 whitespace-nowrap rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700" type="button" onClick={() => { handleMoveToTriageBucket(bugIssue); closeActionMenu(); }}>
+            <Layers3 className="h-3.5 w-3.5" />
+            Move to Bucket
+          </button>
+          <button className="flex h-8 w-full items-center gap-2 whitespace-nowrap rounded-lg px-2 text-left text-[12px] font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700" type="button" onClick={() => { setSelectedBug(bugIssue); closeActionMenu(); }}>
+            <MessageSquarePlus className="h-3.5 w-3.5" />
+            Add Comment
+          </button>
+          <button className="flex h-8 w-full items-center gap-2 whitespace-nowrap rounded-lg px-2 text-left text-[12px] font-semibold text-emerald-700 transition hover:bg-emerald-50" type="button" onClick={() => { handleCloseBug(bugIssue); closeActionMenu(); }}>
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Close Bug
+          </button>
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
   if (error) {
     return (
       <Card>
@@ -641,142 +1232,503 @@ const AdminBugsPage = () => {
   }
 
   return (
-    <div className="space-y-5">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+    <div className="space-y-4 text-[13px]">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <MetricTile icon={Bug} label="Total Bugs" value={metrics.total} tone="bg-blue-50 text-blue-700" />
-        <MetricTile icon={TimerReset} label="Open Bugs" value={metrics.open} tone="bg-amber-50 text-amber-700" />
-        <MetricTile icon={AlertTriangle} label="Critical Bugs" value={metrics.critical} tone="bg-rose-50 text-rose-700" />
+        <MetricTile icon={AlertTriangle} label="Critical" value={metrics.critical} tone="bg-rose-50 text-rose-700" />
+        <MetricTile icon={UserPlus} label="Unassigned" value={metrics.unassigned} tone="bg-slate-100 text-slate-700" />
+        <MetricTile icon={TimerReset} label="In Progress" value={metrics.inProgress} tone="bg-indigo-50 text-indigo-700" />
         <MetricTile icon={RefreshCcw} label="Reopened" value={metrics.reopened} tone="bg-pink-50 text-pink-700" />
-        <MetricTile icon={ShieldCheck} label="Ready For QA" value={metrics.readyForQa} tone="bg-cyan-50 text-cyan-700" />
-        <MetricTile icon={CheckCircle2} label="Closed Bugs" value={metrics.closed} tone="bg-emerald-50 text-emerald-700" />
+        <MetricTile icon={CheckCircle2} label="Closed" value={metrics.closed} tone="bg-emerald-50 text-emerald-700" />
       </section>
 
-      <Card className="sticky top-24 z-20 overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur-xl">
-        <CardContent className="space-y-4 p-4 sm:p-5">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-950">Bug Tracker</h2>
-              <p className="text-sm text-slate-500">
-                Project-wise tester bug tracking, QA progress, developer ownership, and reopen monitoring.
-              </p>
+      <Card className="overflow-visible rounded-[14px] border border-slate-200/90 bg-white shadow-[0_18px_48px_-32px_rgba(15,23,42,0.46)]">
+        <CardContent className="p-0">
+          <div className="sticky top-16 z-20 rounded-t-[14px] border-b border-slate-300/80 bg-white/92 px-3 py-2 backdrop-blur-xl sm:px-4">
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+              <div className="min-w-0">
+                <h2 className="flex items-center gap-2 text-[15px] font-semibold text-slate-950">
+                  <ListChecks className="h-4 w-4 text-blue-600" />
+                  Triage Board
+                </h2>
+                <p className="mt-0.5 text-[12px] font-medium text-slate-600">
+                  {triageBugs.length} incoming bugs ready for admin review.
+                </p>
+              </div>
+              <div className="flex w-full flex-wrap items-center gap-1.5 rounded-xl border border-slate-200/90 bg-slate-50/80 p-1 shadow-inner xl:w-auto">
+                <div className="relative w-full min-w-[190px] sm:w-[240px] xl:w-[250px]">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <CompactInput
+                    className="h-8 pl-9"
+                    placeholder="Search bugs"
+                    value={filters.search}
+                    onChange={(event) => updateFilter("search", event.target.value)}
+                  />
+                </div>
+                <CompactSelect className="h-8 w-[118px]" value={filters.severity} onChange={(event) => updateFilter("severity", event.target.value)}>
+                  <option value="all">Severity</option>
+                  {BUG_SEVERITY_OPTIONS.map((severity) => (
+                    <option key={severity} value={severity}>{severity}</option>
+                  ))}
+                </CompactSelect>
+                <CompactSelect className="h-8 w-[124px]" value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+                  {BUG_STATUS_FILTERS.map((status) => (
+                    <option key={status.value} value={status.value}>{status.label}</option>
+                  ))}
+                </CompactSelect>
+                <CompactSelect className="h-8 w-[142px]" value={filters.developerId} onChange={(event) => updateFilter("developerId", event.target.value)}>
+                  <option value="all">Developer</option>
+                  <option value="unassigned">Unassigned</option>
+                  {developers.map((developer) => (
+                    <option key={resolveUserId(developer)} value={resolveUserId(developer)}>{getUserLabel(developer)}</option>
+                  ))}
+                </CompactSelect>
+                <Button className="h-8 rounded-[10px] px-2.5 text-[11px]" type="button" variant="outline" onClick={() => setAreTriageFiltersOpen((current) => !current)}>
+                  <Filter className="h-3.5 w-3.5" />
+                  Filters
+                  {areTriageFiltersOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </Button>
+                <SoftBadge className="border-blue-100 bg-blue-50 text-blue-700">
+                  {triageBugs.length} review
+                </SoftBadge>
+              </div>
             </div>
-            <Badge className="border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-50">
-              {filteredBugs.length} visible
-            </Badge>
+
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {quickFilterChips.map(([id, label]) => (
+                <button
+                  key={id}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm transition",
+                    isQuickFilterActive(id)
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                  )}
+                  type="button"
+                  onClick={() => applyQuickFilter(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {areTriageFiltersOpen ? (
+              <div className="mt-2 grid gap-2 border-t border-slate-200/90 pt-2 sm:grid-cols-2 xl:grid-cols-6">
+                <CompactSelect value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
+                  <option value={ALL_PROJECTS_VALUE}>All projects</option>
+                  {projects.map((project) => (
+                    <option key={project._id} value={project._id}>{project.name}</option>
+                  ))}
+                </CompactSelect>
+                <CompactSelect value={filters.teamId} onChange={(event) => updateFilter("teamId", event.target.value)}>
+                  <option value="all">All teams</option>
+                  {teams.map((team) => (
+                    <option key={resolveTeamId(team)} value={resolveTeamId(team)}>{team.name}</option>
+                  ))}
+                </CompactSelect>
+                <CompactSelect value={filters.testerId} onChange={(event) => updateFilter("testerId", event.target.value)}>
+                  <option value="all">All testers</option>
+                  {testers.map((tester) => (
+                    <option key={resolveUserId(tester)} value={resolveUserId(tester)}>{getUserLabel(tester)}</option>
+                  ))}
+                </CompactSelect>
+                <CompactSelect value={filters.priority} onChange={(event) => updateFilter("priority", event.target.value)}>
+                  <option value="all">All priorities</option>
+                  {["Critical", "High", "Medium", "Low"].map((priority) => (
+                    <option key={priority} value={priority}>{priority}</option>
+                  ))}
+                </CompactSelect>
+                <CompactSelect value={filters.lifecycle} onChange={(event) => updateFilter("lifecycle", event.target.value)}>
+                  <option value="all">All bugs</option>
+                  <option value="reopened">Reopened bugs</option>
+                  <option value="fixed">Fixed / Ready for QA</option>
+                </CompactSelect>
+                <CompactInput type="date" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
+              </div>
+            ) : null}
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Project</span>
-              <select className="field-select" value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
-                <option value={ALL_PROJECTS_VALUE}>All projects</option>
-                {projects.map((project) => (
-                  <option key={project._id} value={project._id}>{project.name}</option>
+          {selectedTriageIds.length ? (
+            <div className="sticky top-[150px] z-10 flex flex-col gap-2 border-b border-blue-100 bg-blue-50/95 px-3 py-2 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-4">
+              <p className="text-[12px] font-bold text-blue-800">{selectedTriageIds.length} Bugs Selected</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <CompactSelect className="h-8 w-[150px]" value={bulkDeveloperId} onChange={(event) => setBulkDeveloperId(event.target.value)}>
+                  <option value="">Assign</option>
+                  {developers.map((developer) => (
+                    <option key={resolveUserId(developer)} value={resolveUserId(developer)}>{getUserLabel(developer)}</option>
+                  ))}
+                </CompactSelect>
+                <CompactSelect className="h-8 w-[150px]" value={bulkPriority} onChange={(event) => setBulkPriority(event.target.value)}>
+                  <option value="">Change Priority</option>
+                  {["Critical", "High", "Medium", "Low"].map((priority) => (
+                    <option key={priority} value={priority}>{priority}</option>
+                  ))}
+                </CompactSelect>
+                <Button className="h-8 rounded-lg px-3 text-[12px]" type="button" disabled={updateIssueMutation.isPending} onClick={handleBulkTriage}>
+                  Bulk Actions
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="bg-slate-100/80 p-2">
+            {isLoading ? (
+              <div className="space-y-1.5">
+                {Array.from({ length: 8 }).map((_, index) => (
+                  <Skeleton key={`triage-row-skeleton-${index}`} className="h-12 rounded-lg" />
                 ))}
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Team</span>
-              <select className="field-select" value={filters.teamId} onChange={(event) => updateFilter("teamId", event.target.value)}>
-                <option value="all">All teams</option>
-                {teams.map((team) => (
-                  <option key={resolveTeamId(team)} value={resolveTeamId(team)}>{team.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Tester</span>
-              <select className="field-select" value={filters.testerId} onChange={(event) => updateFilter("testerId", event.target.value)}>
-                <option value="all">All testers</option>
-                {testers.map((tester) => (
-                  <option key={resolveUserId(tester)} value={resolveUserId(tester)}>{getUserLabel(tester)}</option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Developer</span>
-              <select className="field-select" value={filters.developerId} onChange={(event) => updateFilter("developerId", event.target.value)}>
-                <option value="all">All developers</option>
-                {developers.map((developer) => (
-                  <option key={resolveUserId(developer)} value={resolveUserId(developer)}>{getUserLabel(developer)}</option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Severity</span>
-              <select className="field-select" value={filters.severity} onChange={(event) => updateFilter("severity", event.target.value)}>
-                <option value="all">All severities</option>
-                {BUG_SEVERITY_OPTIONS.map((severity) => (
-                  <option key={severity} value={severity}>{severity}</option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Priority</span>
-              <select className="field-select" value={filters.priority} onChange={(event) => updateFilter("priority", event.target.value)}>
-                <option value="all">All priorities</option>
-                {["Critical", "High", "Medium", "Low"].map((priority) => (
-                  <option key={priority} value={priority}>{priority}</option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Status</span>
-              <select className="field-select" value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
-                {BUG_STATUS_FILTERS.map((status) => (
-                  <option key={status.value} value={status.value}>{status.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Epic</span>
-              <select className="field-select" value={filters.epicId} disabled={!selectedProjectId} onChange={(event) => updateFilter("epicId", event.target.value)}>
-                <option value="all">All epics</option>
-                <option value="unassigned">No epic</option>
-                {epics.map((epic) => (
-                  <option key={epic._id} value={epic._id}>{epic.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Sprint</span>
-              <select className="field-select" value={filters.sprintId} disabled={!selectedProjectId} onChange={(event) => updateFilter("sprintId", event.target.value)}>
-                <option value="all">All sprints</option>
-                <option value="backlog">Backlog</option>
-                {sprints.map((sprint) => (
-                  <option key={sprint._id} value={sprint._id}>{sprint.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Bug State</span>
-              <select className="field-select" value={filters.lifecycle} onChange={(event) => updateFilter("lifecycle", event.target.value)}>
-                <option value="all">All bugs</option>
-                <option value="reopened">Reopened bugs</option>
-                <option value="fixed">Fixed / Ready for QA</option>
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Date From</span>
-              <Input type="date" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Date To</span>
-              <Input type="date" value={filters.dateTo} onChange={(event) => updateFilter("dateTo", event.target.value)} />
-            </label>
-            <label className="space-y-1.5 md:col-span-2 xl:col-span-3">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Search</span>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input
-                  className="pl-11"
-                  placeholder="Search bug ID, title, developer, tester, or severity"
-                  value={filters.search}
-                  onChange={(event) => updateFilter("search", event.target.value)}
+              </div>
+            ) : triageBugs.length ? (
+              <>
+                <div className="hidden md:block">
+                  <div className="max-h-[430px] overflow-auto pr-1">
+                    <div className="min-w-[900px] space-y-1.5 lg:min-w-0">
+                      <div className="grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]">
+                        <div className="flex justify-center">
+                          <input
+                            aria-label="Select all triage bugs"
+                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            type="checkbox"
+                            checked={triageBugs.length > 0 && triageBugs.every((bugIssue) => selectedTriageIds.includes(bugIssue._id))}
+                            onChange={(event) =>
+                              setSelectedTriageIds(event.target.checked ? triageBugs.map((bugIssue) => bugIssue._id) : [])
+                            }
+                          />
+                        </div>
+                        <span>Bug Info</span>
+                        <span>Module / Project</span>
+                        <span>Developer</span>
+                        <span>Status / Priority</span>
+                        <span>Date</span>
+                        <span className="text-right">Actions</span>
+                      </div>
+
+                      {triageBugs.slice(0, 60).map((bugIssue) => {
+                        const details = resolveBugDetails(bugIssue);
+                        const developer = getBugDeveloper(bugIssue);
+                        const developerName = getUserLabel(developer);
+                        const status = normalizeBugStatusForIssue(bugIssue);
+                        const severity = getSeverity(bugIssue);
+                        const moduleTag = getModuleTag(bugIssue);
+                        const attachmentCount = getAttachmentCount(bugIssue);
+
+                        return (
+                          <article
+                            key={bugIssue._id}
+                            className={cn(
+                              "group relative grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 rounded-lg border border-l-4 border-slate-200 bg-white px-2 py-2 shadow-sm transition duration-150 hover:-translate-y-px hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-md lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]",
+                              severityAccentClassName(severity)
+                            )}
+                          >
+                            <div className="flex justify-center">
+                              <input
+                                aria-label={`Select ${getIssueDisplayKey(bugIssue)}`}
+                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                type="checkbox"
+                                checked={selectedTriageIds.includes(bugIssue._id)}
+                                onChange={(event) => handleToggleTriageBug(bugIssue._id, event.target.checked)}
+                              />
+                            </div>
+
+                            <button className="min-w-0 text-left" type="button" onClick={() => setSelectedBug(bugIssue)}>
+                              <span className="block font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">{getIssueDisplayKey(bugIssue)}</span>
+                              <span className="mt-0.5 block truncate text-[13px] font-bold leading-5 text-slate-950">{bugIssue.title}</span>
+                              <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-500">
+                                {getProjectName(bugIssue, projects)} &bull; {details.moduleName || "Unmapped module"}
+                              </span>
+                            </button>
+
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <p className="truncate text-[12px] font-semibold text-slate-800">{details.moduleName || "Unmapped"}</p>
+                                <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-600">{moduleTag}</span>
+                              </div>
+                              <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">{getIssueCategory(bugIssue)}</p>
+                            </div>
+
+                            <div className="min-w-0">
+                              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white">{getInitials(developerName)}</span>
+                                <span className="truncate">{developerName}</span>
+                              </span>
+                            </div>
+
+                            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                              <span className={cn("inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none", statusBadgeClassName(status))}>
+                                {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
+                              </span>
+                              <span className={priorityBadgeClassName(bugIssue.priority || "Medium")}>{bugIssue.priority || "Medium"}</span>
+                              <span className={severityBadgeClassName(severity)}>{severity}</span>
+                              {isReopenedBug(bugIssue) ? (
+                                <span className="inline-flex h-5 items-center rounded-full border border-rose-200 bg-rose-50 px-2 text-[10px] font-bold uppercase text-rose-700">Reopened</span>
+                              ) : null}
+                            </div>
+
+                            <div className="min-w-0 text-[11px] font-medium text-slate-600">
+                              <span className="block truncate">{formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}</span>
+                              {attachmentCount ? (
+                                <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                                  <Paperclip className="h-3 w-3" />
+                                  {attachmentCount}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <div className="relative flex items-center justify-end gap-1">
+                              <Button className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={() => setSelectedBug(bugIssue)} aria-label="View bug">
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button data-triage-action-trigger className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={(event) => handleToggleActionMenu(event, bugIssue._id)} aria-label="More actions">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                              {renderTriageActionMenu(bugIssue)}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2 md:hidden">
+                  {triageBugs.slice(0, 60).map((bugIssue) => {
+                    const details = resolveBugDetails(bugIssue);
+                    const developer = getBugDeveloper(bugIssue);
+                    const developerName = getUserLabel(developer);
+                    const status = normalizeBugStatusForIssue(bugIssue);
+                    const severity = getSeverity(bugIssue);
+                    const attachmentCount = getAttachmentCount(bugIssue);
+
+                    return (
+                      <article
+                        key={bugIssue._id}
+                        className={cn(
+                          "relative rounded-lg border border-l-4 border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-px hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-md",
+                          severityAccentClassName(severity)
+                        )}
+                      >
+                        <div className="flex items-start gap-2">
+                          <input
+                            aria-label={`Select ${getIssueDisplayKey(bugIssue)}`}
+                            className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            type="checkbox"
+                            checked={selectedTriageIds.includes(bugIssue._id)}
+                            onChange={(event) => handleToggleTriageBug(bugIssue._id, event.target.checked)}
+                          />
+                          <button className="min-w-0 flex-1 text-left" type="button" onClick={() => setSelectedBug(bugIssue)}>
+                            <span className="block font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">{getIssueDisplayKey(bugIssue)}</span>
+                            <span className="mt-0.5 block truncate text-[13px] font-bold text-slate-950">{bugIssue.title}</span>
+                            <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-500">
+                              {getProjectName(bugIssue, projects)} &bull; {details.moduleName || "Unmapped module"}
+                            </span>
+                          </button>
+                          <div className="relative flex shrink-0 items-center gap-1">
+                            <Button className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={() => setSelectedBug(bugIssue)} aria-label="View bug">
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button data-triage-action-trigger className="h-7 w-7 rounded-md p-0" type="button" size="icon" variant="outline" onClick={(event) => handleToggleActionMenu(event, bugIssue._id)} aria-label="More actions">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                            {renderTriageActionMenu(bugIssue)}
+                          </div>
+                        </div>
+
+                        <div className="mt-2 grid gap-1.5 text-[11px] font-medium text-slate-600">
+                          <span className="truncate">{details.moduleName || "Unmapped"} / {getIssueCategory(bugIssue)}</span>
+                          <span className="truncate">{developerName}</span>
+                          <span className="truncate">{formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}</span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className={cn("inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none", statusBadgeClassName(status))}>
+                            {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
+                          </span>
+                          <span className={priorityBadgeClassName(bugIssue.priority || "Medium")}>{bugIssue.priority || "Medium"}</span>
+                          <span className={severityBadgeClassName(severity)}>{severity}</span>
+                          {isReopenedBug(bugIssue) ? (
+                            <span className="inline-flex h-5 items-center rounded-full border border-rose-200 bg-rose-50 px-2 text-[10px] font-bold uppercase text-rose-700">Reopened</span>
+                          ) : null}
+                          {attachmentCount ? (
+                            <span className="inline-flex h-5 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 text-[10px] font-bold uppercase text-slate-600">
+                              <Paperclip className="h-3 w-3" />
+                              {attachmentCount}
+                            </span>
+                          ) : null}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="rounded-xl bg-white p-8">
+                <EmptyState
+                  title="No bugs need triage"
+                  description="New, open, or unassigned bugs matching this view will appear here for quick review."
+                  icon={<ListChecks className="h-5 w-5" />}
                 />
               </div>
-            </label>
+            )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="sticky top-20 z-20 overflow-hidden rounded-[16px] border-white/70 bg-white/94 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl">
+        <CardContent className="space-y-3 p-3.5 sm:p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-base font-semibold text-slate-950">
+                <SlidersHorizontal className="h-4 w-4 text-blue-600" />
+                Bug Tracker
+              </h2>
+              <p className="mt-0.5 text-[12px] text-slate-500">
+                {filteredBugs.length} visible bugs across QA, ownership, and lifecycle filters.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                ["mine", "My Bugs"],
+                ["critical", "Critical"],
+                ["unassigned", "Unassigned"],
+                ["reopened", "Reopened"],
+                ["ready", "Ready for QA"],
+              ].map(([id, label]) => (
+                <Button
+                  key={id}
+                  className="h-8 rounded-[10px] px-2.5 text-[11px]"
+                  type="button"
+                  variant="outline"
+                  onClick={() => applyQuickFilter(id)}
+                >
+                  {label}
+                </Button>
+              ))}
+              <Button
+                className="h-8 rounded-[10px] px-2.5 text-[11px]"
+                type="button"
+                onClick={() => setAreFiltersOpen((current) => !current)}
+              >
+                <Filter className="h-3.5 w-3.5" />
+                {areFiltersOpen ? "Hide Filters" : "Show Filters"}
+                {areFiltersOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
+          </div>
+
+          {areFiltersOpen ? (
+            <div className="grid gap-2 border-t border-slate-200/80 pt-3 md:grid-cols-2 xl:grid-cols-4">
+              <label className="space-y-1.5">
+                <FieldLabel>Project</FieldLabel>
+                <CompactSelect value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
+                  <option value={ALL_PROJECTS_VALUE}>All projects</option>
+                  {projects.map((project) => (
+                    <option key={project._id} value={project._id}>{project.name}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Team</FieldLabel>
+                <CompactSelect value={filters.teamId} onChange={(event) => updateFilter("teamId", event.target.value)}>
+                  <option value="all">All teams</option>
+                  {teams.map((team) => (
+                    <option key={resolveTeamId(team)} value={resolveTeamId(team)}>{team.name}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Tester</FieldLabel>
+                <CompactSelect value={filters.testerId} onChange={(event) => updateFilter("testerId", event.target.value)}>
+                  <option value="all">All testers</option>
+                  {testers.map((tester) => (
+                    <option key={resolveUserId(tester)} value={resolveUserId(tester)}>{getUserLabel(tester)}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Developer</FieldLabel>
+                <CompactSelect value={filters.developerId} onChange={(event) => updateFilter("developerId", event.target.value)}>
+                  <option value="all">All developers</option>
+                  <option value="unassigned">Unassigned</option>
+                  {developers.map((developer) => (
+                    <option key={resolveUserId(developer)} value={resolveUserId(developer)}>{getUserLabel(developer)}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Severity</FieldLabel>
+                <CompactSelect value={filters.severity} onChange={(event) => updateFilter("severity", event.target.value)}>
+                  <option value="all">All severities</option>
+                  {BUG_SEVERITY_OPTIONS.map((severity) => (
+                    <option key={severity} value={severity}>{severity}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Priority</FieldLabel>
+                <CompactSelect value={filters.priority} onChange={(event) => updateFilter("priority", event.target.value)}>
+                  <option value="all">All priorities</option>
+                  {["Critical", "High", "Medium", "Low"].map((priority) => (
+                    <option key={priority} value={priority}>{priority}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Status</FieldLabel>
+                <CompactSelect value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+                  {BUG_STATUS_FILTERS.map((status) => (
+                    <option key={status.value} value={status.value}>{status.label}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Epic</FieldLabel>
+                <CompactSelect value={filters.epicId} disabled={!selectedProjectId} onChange={(event) => updateFilter("epicId", event.target.value)}>
+                  <option value="all">All epics</option>
+                  <option value="unassigned">No epic</option>
+                  {epics.map((epic) => (
+                    <option key={epic._id} value={epic._id}>{epic.name}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Sprint</FieldLabel>
+                <CompactSelect value={filters.sprintId} disabled={!selectedProjectId} onChange={(event) => updateFilter("sprintId", event.target.value)}>
+                  <option value="all">All sprints</option>
+                  <option value="backlog">Backlog</option>
+                  {sprints.map((sprint) => (
+                    <option key={sprint._id} value={sprint._id}>{sprint.name}</option>
+                  ))}
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Bug State</FieldLabel>
+                <CompactSelect value={filters.lifecycle} onChange={(event) => updateFilter("lifecycle", event.target.value)}>
+                  <option value="all">All bugs</option>
+                  <option value="reopened">Reopened bugs</option>
+                  <option value="fixed">Fixed / Ready for QA</option>
+                </CompactSelect>
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Date From</FieldLabel>
+                <CompactInput type="date" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
+              </label>
+              <label className="space-y-1.5">
+                <FieldLabel>Date To</FieldLabel>
+                <CompactInput type="date" value={filters.dateTo} onChange={(event) => updateFilter("dateTo", event.target.value)} />
+              </label>
+              <label className="space-y-1.5 md:col-span-2 xl:col-span-4">
+                <FieldLabel>Search</FieldLabel>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <CompactInput
+                    className="pl-9"
+                    placeholder="Search bug ID, title, developer, tester, or severity"
+                    value={filters.search}
+                    onChange={(event) => updateFilter("search", event.target.value)}
+                  />
+                </div>
+              </label>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

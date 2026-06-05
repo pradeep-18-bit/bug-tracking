@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { GripVertical, Layers3, MoreHorizontal, UserCircle2 } from "lucide-react";
+import { GripVertical, MoreHorizontal, UserCircle2 } from "lucide-react";
 import {
   getIssueDisplayKey,
   getIssuePriorityVariant,
@@ -178,7 +178,7 @@ const PlanningActionMenu = ({
               ref={menuRef}
               role="menu"
               className={cn(
-                "fixed z-[1600] w-56 max-w-[calc(100vw-1.5rem)] rounded-[18px] border border-white/75 bg-white/96 p-2 shadow-[0_26px_52px_-28px_rgba(15,23,42,0.34)] backdrop-blur-xl",
+                "fixed z-[70] w-56 max-w-[calc(100vw-1.5rem)] rounded-[18px] border border-white/75 bg-white/96 p-2 shadow-[0_26px_52px_-28px_rgba(15,23,42,0.34)] backdrop-blur-xl",
                 menuPosition.ready ? "opacity-100" : "opacity-0"
               )}
               style={{
@@ -296,14 +296,14 @@ const IssuePlanningCard = ({
         onDropBefore?.(issue);
       }}
       className={cn(
-        "group rounded-[18px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,250,252,0.84))] px-3 py-2 shadow-[0_14px_30px_-26px_rgba(15,23,42,0.38)] backdrop-blur-xl transition hover:border-blue-200/80 hover:shadow-[0_20px_38px_-26px_rgba(59,130,246,0.26)]",
+        "group rounded-[14px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.86))] px-2.5 py-2 shadow-[0_10px_24px_-22px_rgba(15,23,42,0.36)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-blue-200/80 hover:shadow-[0_18px_34px_-26px_rgba(59,130,246,0.28)]",
         canDrag && !isUpdating ? "cursor-grab active:cursor-grabbing" : ""
       )}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-2.5">
         <div
           className={cn(
-            "flex h-7 w-7 shrink-0 items-center justify-center rounded-[12px] border border-slate-200/80 bg-white/82 text-slate-400 shadow-sm",
+            "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-[10px] border border-slate-200/80 bg-white/82 text-slate-400 shadow-sm",
             canDrag && !isUpdating ? "opacity-100" : "opacity-50"
           )}
           aria-hidden="true"
@@ -312,14 +312,14 @@ const IssuePlanningCard = ({
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 items-start gap-2">
             <button
               type="button"
               onClick={() => onSelectIssue?.(issue)}
               className="min-w-0 flex-1 text-left"
             >
               <div className="flex min-w-0 items-center gap-2.5">
-                <span className="shrink-0 rounded-full border border-slate-200/80 bg-white/90 px-2 py-0.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.22em] text-slate-500 shadow-sm">
+                <span className="shrink-0 rounded-full border border-slate-200/80 bg-white/90 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 shadow-sm">
                   {issueKey}
                 </span>
                 <p className="min-w-0 truncate text-sm font-semibold leading-5 text-slate-950 transition group-hover:text-blue-700">
@@ -327,44 +327,48 @@ const IssuePlanningCard = ({
                 </p>
               </div>
             </button>
+            <PlanningActionMenu
+              issue={issue}
+              availableSprints={sprintOptions}
+              canManagePlanning={canManagePlanning}
+              isUpdating={isUpdating}
+              onMoveIssue={onMoveIssue}
+              onSelectIssue={onSelectIssue}
+            />
           </div>
 
-          <div className="mt-1.5 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div className="mt-1.5 flex flex-col gap-1.5 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0 flex flex-wrap items-center gap-1.5">
               <Badge
                 variant={getIssueTypeVariant(issue.type)}
-                className="inline-flex h-6 items-center px-2 py-0 text-[10.5px] font-semibold"
+                className="inline-flex h-5 items-center px-1.5 py-0 text-[10px] font-semibold"
               >
                 {issue.type}
               </Badge>
               <Badge
                 variant={getIssuePriorityVariant(issue.priority)}
-                className="inline-flex h-6 items-center px-2 py-0 text-[10.5px] font-semibold"
+                className="inline-flex h-5 items-center px-1.5 py-0 text-[10px] font-semibold"
               >
                 {issue.priority}
               </Badge>
               <Badge
                 variant={getIssueStatusVariant(issue.status)}
-                className="inline-flex h-6 items-center px-2 py-0 text-[10.5px] font-semibold"
+                className="inline-flex h-5 items-center px-1.5 py-0 text-[10px] font-semibold"
               >
                 {getIssueStatusLabel(issue.status)}
               </Badge>
-              <span className="inline-flex h-6 max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100/90 px-2 py-0 text-[10.5px] font-medium text-slate-600">
-                <Layers3 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                <span className="truncate">{issue?.epicId?.name || "Unassigned epic"}</span>
-              </span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5 lg:justify-end">
+            <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
               <label
-                className="inline-flex h-8 items-center gap-2 rounded-full border border-slate-200/80 bg-white/88 px-2.5 text-xs font-medium text-slate-500 shadow-sm"
+                className="inline-flex h-7 items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/88 px-2 text-xs font-medium text-slate-500 shadow-sm"
                 onClick={(event) => event.stopPropagation()}
               >
-                <span className="shrink-0 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                   Sprint
                 </span>
                 <select
-                  className="min-w-[108px] bg-transparent text-xs font-semibold text-slate-700 outline-none"
+                  className="min-w-[92px] bg-transparent text-xs font-semibold text-slate-700 outline-none"
                   value={currentSprintId}
                   disabled={!canManagePlanning || isUpdating}
                   onClick={(event) => event.stopPropagation()}
@@ -380,8 +384,8 @@ const IssuePlanningCard = ({
               </label>
 
               {assignee ? (
-                <div className="inline-flex h-8 max-w-[190px] items-center gap-2 rounded-full border border-slate-200/80 bg-white/88 px-2.5 shadow-sm">
-                  <Avatar className="h-6 w-6 rounded-full">
+                <div className="inline-flex h-7 max-w-[160px] items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/88 px-2 shadow-sm">
+                  <Avatar className="h-5 w-5 rounded-full">
                     <AvatarFallback>{getInitials(assignee.name)}</AvatarFallback>
                   </Avatar>
                   <span className="truncate text-xs font-medium text-slate-700">
@@ -389,20 +393,11 @@ const IssuePlanningCard = ({
                   </span>
                 </div>
               ) : (
-                <div className="inline-flex h-8 items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/88 px-2.5 text-xs font-medium text-slate-500 shadow-sm">
-                  <UserCircle2 className="h-4 w-4 shrink-0" />
+                <div className="inline-flex h-7 items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/88 px-2 text-xs font-medium text-slate-500 shadow-sm">
+                  <UserCircle2 className="h-3.5 w-3.5 shrink-0" />
                   <span>Unassigned</span>
                 </div>
               )}
-
-              <PlanningActionMenu
-                issue={issue}
-                availableSprints={sprintOptions}
-                canManagePlanning={canManagePlanning}
-                isUpdating={isUpdating}
-                onMoveIssue={onMoveIssue}
-                onSelectIssue={onSelectIssue}
-              />
             </div>
           </div>
         </div>

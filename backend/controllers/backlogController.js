@@ -9,6 +9,10 @@ const {
 } = require("../utils/backlogAccess");
 const { serializeProjectsWithRelations } = require("../utils/projectRelations");
 const { populateIssueQuery, serializeIssues } = require("../utils/issuePresentation");
+const {
+  buildPlanningIssueTypeQuery,
+  isPlanningIssueType,
+} = require("../utils/planningIssueTypes");
 
 const escapeRegExp = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -47,6 +51,7 @@ const parseDateFilterInput = (value, label, { endOfDay = false } = {}) => {
 const buildBacklogIssueQuery = async (req, project) => {
   const query = {
     projectId: project._id,
+    ...buildPlanningIssueTypeQuery(),
   };
 
   if (req.query.teamId && req.query.teamId !== "all") {
@@ -227,7 +232,9 @@ const getBacklogBoard = asyncHandler(async (req, res) => {
       })
       .lean(),
   ]);
-  const serializedIssues = serializeIssues(issues);
+  const serializedIssues = serializeIssues(issues).filter((issue) =>
+    isPlanningIssueType(issue?.type)
+  );
   const visibleIssueIds = new Set(serializedIssues.map((issue) => String(issue._id)));
   const epicCounts = serializedIssues.reduce((map, issue) => {
     const epicId = String(issue?.epicId?._id || issue?.epicId || "unassigned");

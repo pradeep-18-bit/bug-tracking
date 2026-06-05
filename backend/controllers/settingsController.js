@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const Team = require("../models/Team");
 const User = require("../models/User");
 const UserEmailConfig = require("../models/UserEmailConfig");
 const WorkspaceSetting = require("../models/WorkspaceSetting");
@@ -15,6 +16,7 @@ const {
   ROLE_ADMIN,
   ROLE_MANAGER,
   ROLE_TESTER,
+  hasAdminAccess,
   isEligibleWorkspaceSenderRole,
 } = require("../utils/roles");
 const {
@@ -124,6 +126,156 @@ const serializeSenderUser = (user, smtpConfigured = false) => {
     smtpConfigured,
   };
 };
+
+const serializeModuleOwnership = (ownership = {}) => ({
+  _id: ownership._id,
+  moduleName: ownership.moduleName || "",
+  teamId: ownership.teamId?._id || ownership.teamId || null,
+  team: ownership.teamId && typeof ownership.teamId === "object"
+    ? {
+        _id: ownership.teamId._id,
+        name: ownership.teamId.name,
+      }
+    : null,
+  developerId: ownership.developerId?._id || ownership.developerId || null,
+  developer: ownership.developerId && typeof ownership.developerId === "object"
+    ? {
+        _id: ownership.developerId._id,
+        name: ownership.developerId.name,
+        email: ownership.developerId.email,
+        role: ownership.developerId.role,
+      }
+    : null,
+  responsibleTeamName: ownership.responsibleTeamName || "",
+  updatedAt: ownership.updatedAt || null,
+});
+
+const requireOwnershipSettingsAccess = (req, res) => {
+  if (!hasAdminAccess(req.user?.role)) {
+    res.status(403);
+    throw new Error("Only admins and managers can manage module ownership");
+  }
+};
+
+const getModuleOwnerships = asyncHandler(async (req, res) => {
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const settings = await WorkspaceSetting.findOne({
+    workspaceId,
+  })
+    .select("moduleOwnerships")
+    .populate("moduleOwnerships.teamId", "name")
+    .populate("moduleOwnerships.developerId", "name email role")
+    .lean();
+
+  res.status(200).json({
+    ownerships: (settings?.moduleOwnerships || [])
+      .map(serializeModuleOwnership)
+      .sort((left, right) => left.moduleName.localeCompare(right.moduleName)),
+  });
+});
+
+const saveModuleOwnerships = asyncHandler(async (req, res) => {
+  requireOwnershipSettingsAccess(req, res);
+
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const rows = Array.isArray(req.body?.ownerships) ? req.body.ownerships : [];
+  const moduleNames = new Set();
+  const normalizedRows = [];
+
+  for (const row of rows) {
+    const moduleName = String(row?.moduleName || "").trim();
+
+    if (!moduleName) {
+      continue;
+    }
+
+    const moduleKey = moduleName.toLowerCase();
+
+    if (moduleNames.has(moduleKey)) {
+      res.status(400);
+      throw new Error(`Duplicate module mapping: ${moduleName}`);
+    }
+
+    moduleNames.add(moduleKey);
+
+    const teamId = row?.teamId ? String(row.teamId) : null;
+    const developerId = row?.developerId ? String(row.developerId) : null;
+
+    if (teamId) {
+      if (!mongoose.isValidObjectId(teamId)) {
+        res.status(400);
+        throw new Error(`Invalid team for ${moduleName}`);
+      }
+
+      const team = await Team.findOne({
+        _id: teamId,
+        workspaceId,
+      }).lean();
+
+      if (!team) {
+        res.status(400);
+        throw new Error(`Team not found for ${moduleName}`);
+      }
+    }
+
+    if (developerId) {
+      if (!mongoose.isValidObjectId(developerId)) {
+        res.status(400);
+        throw new Error(`Invalid developer for ${moduleName}`);
+      }
+
+      const developer = await User.findOne({
+        _id: developerId,
+        workspaceId,
+      }).lean();
+
+      if (!developer) {
+        res.status(400);
+        throw new Error(`Developer not found for ${moduleName}`);
+      }
+    }
+
+    normalizedRows.push({
+      moduleName,
+      teamId,
+      developerId,
+      responsibleTeamName: String(row?.responsibleTeamName || "").trim(),
+      updatedBy: req.user._id,
+      updatedAt: new Date(),
+    });
+  }
+
+  const settings = await WorkspaceSetting.findOneAndUpdate(
+    {
+      workspaceId,
+    },
+    {
+      $set: {
+        workspaceId,
+        moduleOwnerships: normalizedRows,
+        updatedAt: new Date(),
+      },
+      $setOnInsert: {
+        createdAt: new Date(),
+      },
+    },
+    {
+      upsert: true,
+      new: true,
+      setDefaultsOnInsert: true,
+    }
+  )
+    .populate("moduleOwnerships.teamId", "name")
+    .populate("moduleOwnerships.developerId", "name email role")
+    .lean();
+
+  res.status(200).json({
+    message: "Module ownership mapping saved.",
+    ownerships: (settings?.moduleOwnerships || [])
+      .map(serializeModuleOwnership)
+      .sort((left, right) => left.moduleName.localeCompare(right.moduleName)),
+  });
+});
 
 const hasStoredSmtpConfig = (config) =>
   Boolean(config?.passwordEncrypted) &&
@@ -1061,6 +1213,8 @@ module.exports = {
   getEmailConfig,
   saveEmailConfig,
   testEmailConfig,
+  getModuleOwnerships,
+  saveModuleOwnerships,
   getWorkspaceSender,
   saveWorkspaceSender,
   getEligibleSenders,
