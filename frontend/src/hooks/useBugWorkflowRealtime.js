@@ -27,6 +27,7 @@ const getAssignedDeveloperId = (bug) =>
 const isAvailableBucketBug = (bug) =>
   Boolean(bug) &&
   !getId(bug.assignee) &&
+  !getId(bug.assignedDeveloperId) &&
   !getId(bug?.bugDetails?.developerLead) &&
   AVAILABLE_BUCKET_STATUSES.has(String(bug.status || "").toUpperCase());
 
