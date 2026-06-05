@@ -124,8 +124,8 @@ const BugKanbanBoard = ({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveIssueId("")}
     >
-      <div className="-mx-1 overflow-x-auto pb-3">
-        <div className="flex min-w-max gap-4 px-1">
+      <div className="-mx-1 overflow-x-auto pb-3 lg:overflow-visible">
+        <div className="grid min-w-[1040px] grid-cols-5 gap-3 px-1 lg:min-w-0">
           {columnModels.map((column) => (
             <BugKanbanColumn
               key={column.key}

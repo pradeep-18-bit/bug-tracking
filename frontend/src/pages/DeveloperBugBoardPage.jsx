@@ -21,6 +21,11 @@ import {
 } from "@/lib/issues";
 import { useAuth } from "@/hooks/use-auth";
 import { useBugWorkflowRealtime } from "@/hooks/useBugWorkflowRealtime";
+import {
+  getDeveloperBugBucketQueryFilters,
+  getDeveloperBugBucketQueryKey,
+  removeIssueFromBucketCaches,
+} from "@/lib/bug-workflow-cache";
 import BugKanbanBoard from "@/components/bugs/BugKanbanBoard";
 import {
   DEVELOPER_BUG_COLUMNS,
@@ -65,7 +70,7 @@ const DeveloperBugBoardPage = () => {
   });
   const userId = String(user?._id || user?.id || "");
   const myIssuesQueryKey = useMemo(() => ["issues", "my", userId, "developer-bug-board"], [userId]);
-  const bucketQueryKey = useMemo(() => ["issues", "bucket", "developer-bug-board", userId], [userId]);
+  const bucketQueryKey = useMemo(() => getDeveloperBugBucketQueryKey(userId), [userId]);
 
   const {
     data: projects = [],
@@ -96,7 +101,7 @@ const DeveloperBugBoardPage = () => {
     isFetching: isBucketFetching,
   } = useQuery({
     queryKey: bucketQueryKey,
-    queryFn: () => fetchBugBucket({ limit: 120, sortBy: "priority" }),
+    queryFn: () => fetchBugBucket(getDeveloperBugBucketQueryFilters()),
     enabled: Boolean(userId),
   });
 
@@ -184,6 +189,7 @@ const DeveloperBugBoardPage = () => {
       setStatusError("");
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["issues", "bucket"] });
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
@@ -202,9 +208,7 @@ const DeveloperBugBoardPage = () => {
       queryClient.setQueryData(myIssuesQueryKey, (current = []) =>
         Array.isArray(current) ? [pickedIssue, ...current] : current
       );
-      queryClient.setQueryData(bucketQueryKey, (current = []) =>
-        Array.isArray(current) ? current.filter((issue) => issue._id !== pickedIssue._id) : current
-      );
+      removeIssueFromBucketCaches(queryClient, pickedIssue?._id);
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
@@ -297,7 +301,7 @@ const DeveloperBugBoardPage = () => {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-[98%] max-w-none space-y-4">
       <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
         <CardHeader className="border-b border-slate-200/80 bg-white/94">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

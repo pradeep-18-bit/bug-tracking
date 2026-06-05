@@ -55,6 +55,11 @@ import {
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { getProjectTeams, resolveTeamId, resolveUserId } from "@/lib/project-teams";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  getDeveloperBugBucketQueryFilters,
+  getDeveloperBugBucketQueryKey,
+  removeIssueFromBucketCaches,
+} from "@/lib/bug-workflow-cache";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import EmptyState from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -1442,6 +1447,10 @@ const DeveloperDashboardPage = () => {
     () => ["issues", "my", user?._id, "developer-dashboard"],
     [user?._id]
   );
+  const bucketQueryKey = useMemo(
+    () => getDeveloperBugBucketQueryKey(user?._id),
+    [user?._id]
+  );
 
   const {
     data: projects = [],
@@ -1491,8 +1500,8 @@ const DeveloperDashboardPage = () => {
     isLoading: isBucketLoading,
     refetch: refetchBucket,
   } = useQuery({
-    queryKey: ["issues", "bucket", "developer-dashboard", user?._id],
-    queryFn: () => fetchBugBucket({ limit: 60, sortBy: "priority" }),
+    queryKey: bucketQueryKey,
+    queryFn: () => fetchBugBucket(getDeveloperBugBucketQueryFilters()),
     enabled: Boolean(user?._id),
   });
 
@@ -1585,6 +1594,7 @@ const DeveloperDashboardPage = () => {
       );
     },
     onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["issues", "bucket"] });
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
@@ -1600,13 +1610,7 @@ const DeveloperDashboardPage = () => {
       queryClient.setQueryData(myIssuesQueryKey, (current = []) =>
         Array.isArray(current) ? [pickedIssue, ...current] : current
       );
-      queryClient.setQueryData(
-        ["issues", "bucket", "developer-dashboard", user?._id],
-        (current = []) =>
-          Array.isArray(current)
-            ? current.filter((issue) => issue._id !== pickedIssue._id)
-            : current
-      );
+      removeIssueFromBucketCaches(queryClient, pickedIssue?._id);
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });

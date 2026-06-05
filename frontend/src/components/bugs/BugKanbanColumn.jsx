@@ -32,7 +32,7 @@ const BugKanbanColumn = ({
     <section
       ref={setNodeRef}
       className={cn(
-        "flex min-h-[560px] w-[292px] shrink-0 flex-col rounded-lg border p-3 transition duration-200 ease-out",
+        "flex min-h-[560px] w-full min-w-0 flex-col rounded-lg border p-3 transition duration-200 ease-out",
         column.borderClassName,
         column.surfaceClassName,
         isOver && column.activeClassName

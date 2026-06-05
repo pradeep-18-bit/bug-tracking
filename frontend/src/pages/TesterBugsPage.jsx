@@ -332,9 +332,9 @@ const TesterBugsPage = () => {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-[98%] max-w-none space-y-4">
       <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
-        <CardHeader className="border-b border-slate-200/80 bg-white/94">
+        <CardHeader className="border-b border-slate-200/80 bg-white/94 p-4 sm:p-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <CardTitle>Reported Bug Board</CardTitle>
@@ -348,7 +348,7 @@ const TesterBugsPage = () => {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4 p-4 sm:p-5">
+        <CardContent className="space-y-3 p-4 sm:p-5">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {[
               ["Reported", reviewStats.reported],

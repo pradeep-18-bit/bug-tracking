@@ -119,6 +119,16 @@ export const DEVELOPER_BUG_COLUMNS = [
 ];
 
 export const getBugColumnKey = (issue, columns) => {
+  const hasAvailableColumn = columns.some((column) => column.key === "available");
+  const isUnassigned =
+    !issue?.assignee &&
+    !issue?.assignedDeveloperId &&
+    !resolveBugDetails(issue)?.developerLead;
+
+  if (hasAvailableColumn && isUnassigned && issue?.pickupEligibility) {
+    return "available";
+  }
+
   const status = normalizeBugStatusForIssue(issue);
   const matchedColumn = columns.find((column) => column.statuses.includes(status));
 
