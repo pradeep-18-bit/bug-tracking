@@ -52,6 +52,7 @@ export const getRoleNavigation = (role) => {
 
   return [
     { label: "Dashboard", href: dashboardPathByRole[ROLE_DEVELOPER], icon: "dashboard" },
+    { label: "Bugs", href: "/dev/bugs", icon: "bugs" },
     { label: "Tasks", href: "/tasks", icon: "tasks" },
     { label: "Reports", href: "/reports", icon: "reports" },
     { label: "Chat", href: "/chat", icon: "chat" },
@@ -85,6 +86,11 @@ export const getPageMeta = (pathname, role) => {
       title: "Developer Dashboard",
       description:
         "Stay focused on your assigned work items, active priorities, and release-ready delivery.",
+    },
+    "/dev/bugs": {
+      title: "Bug Board",
+      description:
+        "Pick available bugs and move bug fixes through a workflow that stays separate from tasks and sprints.",
     },
     [dashboardPathByRole[ROLE_TESTER]]: {
       title: "Assigned Projects",

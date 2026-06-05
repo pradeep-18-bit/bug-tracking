@@ -68,7 +68,7 @@ const mergeBugIntoList = (current, bug, { eventName, userId }) => {
 };
 
 const invalidateWorkflowQueries = (queryClient) => {
-  ["issues", "bugs", "tasks", "reports", "analytics"].forEach((key) => {
+  ["issues", "bugs", "reports", "analytics"].forEach((key) => {
     queryClient.invalidateQueries({ queryKey: [key] });
   });
 };
