@@ -82,6 +82,12 @@ const {
   normalizeBugPriority,
   normalizeBugSeverity,
 } = require("../utils/bugLifecycle");
+const {
+  AVAILABLE_BUG_QUEUE_STATUSES,
+  buildDeveloperBugQueueQuery,
+  logBugWorkflowQuery,
+  summarizeBugQueryFilters,
+} = require("../utils/bugQueueQuery");
 
 const isAdmin = (user) => hasAdminAccess(user?.role);
 const isBugType = (type) => getCanonicalIssueType(type, "") === ISSUE_TYPES.BUG;
@@ -249,7 +255,12 @@ const getWorkspaceTeamIdsForUser = async (user) => {
   }).distinct("_id");
 };
 
-const getBugPickupProjectEligibility = async ({ user, projectId, project = null }) => {
+const getBugPickupProjectEligibility = async ({
+  user,
+  projectId,
+  project = null,
+  issueTeamId = null,
+}) => {
   const [userTeamIds, projectTeamIds] = await Promise.all([
     getWorkspaceTeamIdsForUser(user),
     getProjectTeamIds(projectId, project),
@@ -258,10 +269,16 @@ const getBugPickupProjectEligibility = async ({ user, projectId, project = null 
   const matchingTeamIds = projectTeamIds
     .map(String)
     .filter((teamId) => userTeamIdSet.has(teamId));
-  const matchingTeams = matchingTeamIds.length
+  const hasIssueTeamAccess = Boolean(
+    issueTeamId && userTeamIdSet.has(String(issueTeamId))
+  );
+  const effectiveMatchingTeamIds = hasIssueTeamAccess
+    ? Array.from(new Set([...matchingTeamIds, String(issueTeamId)]))
+    : matchingTeamIds;
+  const matchingTeams = effectiveMatchingTeamIds.length
     ? await Team.find({
         _id: {
-          $in: matchingTeamIds,
+          $in: effectiveMatchingTeamIds,
         },
         workspaceId: normalizeWorkspaceId(user.workspaceId),
       })
@@ -270,32 +287,18 @@ const getBugPickupProjectEligibility = async ({ user, projectId, project = null 
     : [];
 
   return {
-    canPick: matchingTeamIds.length > 0,
-    reason: matchingTeamIds.length
+    canPick: effectiveMatchingTeamIds.length > 0,
+    reason: effectiveMatchingTeamIds.length
       ? ""
       : "You can only pick bugs when one of your teams is attached to this project.",
     userTeamIds: userTeamIds.map(String),
     projectTeamIds: projectTeamIds.map(String),
-    matchingTeamIds,
+    matchingTeamIds: effectiveMatchingTeamIds,
     matchingTeams: matchingTeams.map((team) => ({
       _id: team._id,
       name: team.name,
     })),
   };
-};
-
-const getBugPickupEligibilityByProject = async (user, projectIds = []) => {
-  const uniqueProjectIds = Array.from(
-    new Set(projectIds.map((projectId) => String(projectId || "")).filter(Boolean))
-  );
-  const entries = await Promise.all(
-    uniqueProjectIds.map(async (projectId) => [
-      projectId,
-      await getBugPickupProjectEligibility({ user, projectId }),
-    ])
-  );
-
-  return new Map(entries);
 };
 
 const ensureAssigneeExists = async (assigneeId, workspaceId) => {
@@ -1561,9 +1564,10 @@ const buildIssueQueryFromRequest = async (
 
     query.type = ISSUE_TYPES.BUG;
     query.assignee = null;
+    query.assignedDeveloperId = null;
     query["bugDetails.developerLead"] = null;
     query.status = {
-      $in: [BUG_STATUS.NEW, BUG_STATUS.TRIAGED, BUG_STATUS.OPEN, BUG_STATUS.REOPEN],
+      $in: AVAILABLE_BUG_QUEUE_STATUSES,
     };
   }
 
@@ -1580,47 +1584,51 @@ const buildIssueQueryFromRequest = async (
     }
   }
 
-  if (req.query.sprintId && req.query.sprintId !== "all") {
-    if (req.query.sprintId === "backlog") {
-      query.sprintId = null;
-    } else {
-      if (!mongoose.isValidObjectId(req.query.sprintId)) {
+  const isBugOnlyQuery = query.type === ISSUE_TYPES.BUG;
+
+  if (!isBugOnlyQuery) {
+    if (req.query.sprintId && req.query.sprintId !== "all") {
+      if (req.query.sprintId === "backlog") {
+        query.sprintId = null;
+      } else {
+        if (!mongoose.isValidObjectId(req.query.sprintId)) {
+          res.status(400);
+          throw new Error("Invalid sprint id filter");
+        }
+
+        query.sprintId = req.query.sprintId;
+      }
+    }
+
+    if (req.query.sprintState && req.query.sprintState !== "all") {
+      const sprintState = String(req.query.sprintState).trim().toUpperCase();
+
+      if (!["PLANNED", "ACTIVE", "COMPLETED"].includes(sprintState)) {
         res.status(400);
-        throw new Error("Invalid sprint id filter");
+        throw new Error("Invalid sprint state filter");
       }
 
-      query.sprintId = req.query.sprintId;
+      const sprintQuery = {
+        projectId:
+          typeof query.projectId === "object" && query.projectId.$in
+            ? { $in: query.projectId.$in }
+            : query.projectId,
+        state: sprintState,
+      };
+
+      if (query.teamId) {
+        sprintQuery.teamId = query.teamId;
+      }
+
+      const sprintIds = await Sprint.find(sprintQuery).distinct("_id");
+      query.sprintId = sprintIds.length
+        ? {
+            $in: sprintIds,
+          }
+        : {
+            $in: [],
+          };
     }
-  }
-
-  if (req.query.sprintState && req.query.sprintState !== "all") {
-    const sprintState = String(req.query.sprintState).trim().toUpperCase();
-
-    if (!["PLANNED", "ACTIVE", "COMPLETED"].includes(sprintState)) {
-      res.status(400);
-      throw new Error("Invalid sprint state filter");
-    }
-
-    const sprintQuery = {
-      projectId:
-        typeof query.projectId === "object" && query.projectId.$in
-          ? { $in: query.projectId.$in }
-          : query.projectId,
-      state: sprintState,
-    };
-
-    if (query.teamId) {
-      sprintQuery.teamId = query.teamId;
-    }
-
-    const sprintIds = await Sprint.find(sprintQuery).distinct("_id");
-    query.sprintId = sprintIds.length
-      ? {
-          $in: sprintIds,
-        }
-      : {
-          $in: [],
-        };
   }
 
   if (req.query.search?.trim()) {
@@ -1718,7 +1726,24 @@ const buildIssueQueryFromRequest = async (
 
 const getIssues = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res);
+  const isBugListQuery = query.type === ISSUE_TYPES.BUG;
+  const requestFilters = summarizeBugQueryFilters(req);
+  const totalBugsInDatabase = isBugListQuery
+    ? await Issue.countDocuments({ type: ISSUE_TYPES.BUG })
+    : 0;
   const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
+
+  if (isBugListQuery) {
+    logBugWorkflowQuery("triage-board", {
+      userId: String(req.user?.id || req.user?._id || ""),
+      role: req.user?.role || "",
+      totalBugsInDatabase,
+      bugsReturned: issues.length,
+      filtersApplied: requestFilters,
+      sprintFiltersIgnored: true,
+      query,
+    });
+  }
 
   res.status(200).json(serializeIssues(issues));
 });
@@ -1779,18 +1804,11 @@ const getBugBucket = asyncHandler(async (req, res) => {
     throw new Error("Only developers and leads can view the bug bucket");
   }
 
-  const accessibleProjectIds = await getAccessibleProjectIds(req.user);
-  const query = {
-    projectId: {
-      $in: accessibleProjectIds,
-    },
-    type: ISSUE_TYPES.BUG,
-    assignee: null,
-    "bugDetails.developerLead": null,
-    status: {
-      $in: [BUG_STATUS.NEW, BUG_STATUS.TRIAGED, BUG_STATUS.OPEN, BUG_STATUS.REOPEN],
-    },
-  };
+  const [accessibleProjectIds, userTeamIds] = await Promise.all([
+    getAccessibleProjectIds(req.user),
+    getWorkspaceTeamIdsForUser(req.user),
+  ]);
+  const queueFilters = {};
 
   if (req.query.projectId && req.query.projectId !== "all") {
     if (!mongoose.isValidObjectId(req.query.projectId)) {
@@ -1798,16 +1816,21 @@ const getBugBucket = asyncHandler(async (req, res) => {
       throw new Error("Invalid project id filter");
     }
 
-    const hasProjectAccess = accessibleProjectIds.some(
-      (projectId) => String(projectId) === String(req.query.projectId)
-    );
+    const projectTeamIds = await getProjectTeamIds(req.query.projectId);
+    const hasProjectAccess =
+      accessibleProjectIds.some(
+        (projectId) => String(projectId) === String(req.query.projectId)
+      ) ||
+      projectTeamIds.some((teamId) =>
+        userTeamIds.some((userTeamId) => String(userTeamId) === String(teamId))
+      );
 
     if (!hasProjectAccess) {
       res.status(403);
       throw new Error("You do not have access to that project");
     }
 
-    query.projectId = req.query.projectId;
+    queueFilters.projectId = req.query.projectId;
   }
 
   if (req.query.teamId && req.query.teamId !== "all") {
@@ -1816,29 +1839,48 @@ const getBugBucket = asyncHandler(async (req, res) => {
       throw new Error("Invalid team id filter");
     }
 
-    query.teamId = req.query.teamId;
+    queueFilters.teamId = req.query.teamId;
   }
 
   if (req.query.priority && req.query.priority !== "all") {
-    query.priority = req.query.priority;
+    queueFilters.priority = req.query.priority;
   }
 
   if (req.query.category && req.query.category !== "all") {
-    query["bugDetails.category"] = req.query.category;
+    queueFilters.category = req.query.category;
   }
 
   if (req.query.moduleName && req.query.moduleName !== "all") {
-    query["bugDetails.moduleName"] = new RegExp(
+    queueFilters.moduleName = new RegExp(
       escapeRegExp(String(req.query.moduleName).trim()),
       "i"
     );
   }
 
+  const query = buildDeveloperBugQueueQuery({
+    accessibleProjectIds,
+    userTeamIds,
+    filters: queueFilters,
+  });
+  const requestFilters = summarizeBugQueryFilters(req);
+  const [totalBugsInDatabase, matchingQueueCount] = await Promise.all([
+    Issue.countDocuments({ type: ISSUE_TYPES.BUG }),
+    Issue.countDocuments(query),
+  ]);
+
   const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
   const issueIds = issues.map((issue) => issue._id);
-  const pickupEligibilityByProject = await getBugPickupEligibilityByProject(
-    req.user,
-    issues.map((issue) => issue.projectId?._id || issue.projectId)
+  const pickupEligibilityByIssueId = new Map(
+    await Promise.all(
+      issues.map(async (issue) => [
+        String(issue._id),
+        await getBugPickupProjectEligibility({
+          user: req.user,
+          projectId: issue.projectId?._id || issue.projectId,
+          issueTeamId: issue.teamId?._id || issue.teamId,
+        }),
+      ])
+    )
   );
   const attachmentCounts = issueIds.length
     ? await IssueAttachment.aggregate([
@@ -1863,21 +1905,32 @@ const getBugBucket = asyncHandler(async (req, res) => {
     attachmentCounts.map((item) => [String(item._id), item.count])
   );
 
+  logBugWorkflowQuery("developer-queue", {
+    userId: String(req.user?.id || req.user?._id || ""),
+    role: req.user?.role || "",
+    totalBugsInDatabase,
+    bugsMatchingQueueQuery: matchingQueueCount,
+    bugsReturned: issues.length,
+    accessibleProjectCount: accessibleProjectIds.length,
+    userTeamCount: userTeamIds.length,
+    queueStatuses: AVAILABLE_BUG_QUEUE_STATUSES,
+    filtersApplied: requestFilters,
+    sprintFiltersIgnored: true,
+    query,
+  });
+
   res.status(200).json(
     serializeIssues(issues).map((issue) => ({
       ...issue,
-      pickupEligibility:
-        pickupEligibilityByProject.get(String(issue.projectId?._id || issue.projectId)) || {
-          canPick: false,
-          reason: "You can only pick bugs when one of your teams is attached to this project.",
-          userTeamIds: [],
-          projectTeamIds: [],
-          matchingTeamIds: [],
-          matchingTeams: [],
-        },
-      canPick: Boolean(
-        pickupEligibilityByProject.get(String(issue.projectId?._id || issue.projectId))?.canPick
-      ),
+      pickupEligibility: pickupEligibilityByIssueId.get(String(issue._id)) || {
+        canPick: false,
+        reason: "You can only pick bugs when one of your teams is attached to this project.",
+        userTeamIds: [],
+        projectTeamIds: [],
+        matchingTeamIds: [],
+        matchingTeams: [],
+      },
+      canPick: Boolean(pickupEligibilityByIssueId.get(String(issue._id))?.canPick),
       attachmentsCount: countsByIssueId.get(String(issue._id)) || 0,
     }))
   );
@@ -1906,9 +1959,15 @@ const pickIssue = asyncHandler(async (req, res) => {
     throw new Error("Only bugs can be picked from the bucket");
   }
 
-  const project = await loadAccessibleProject(req.user, existingIssue.projectId);
+  const [project, userTeamIds] = await Promise.all([
+    loadAccessibleProject(req.user, existingIssue.projectId),
+    getWorkspaceTeamIdsForUser(req.user),
+  ]);
+  const hasTeamAccess = userTeamIds.some(
+    (teamId) => String(teamId) === String(existingIssue.teamId || "")
+  );
 
-  if (!project) {
+  if (!project && !hasTeamAccess && !isLeadRole(req.user?.role)) {
     res.status(403);
     throw new Error("You do not have access to this bug");
   }
@@ -1917,6 +1976,7 @@ const pickIssue = asyncHandler(async (req, res) => {
     user: req.user,
     projectId: existingIssue.projectId,
     project,
+    issueTeamId: existingIssue.teamId,
   });
 
   if (!pickupEligibility.canPick) {
@@ -1930,9 +1990,10 @@ const pickIssue = asyncHandler(async (req, res) => {
       _id: existingIssue._id,
       type: ISSUE_TYPES.BUG,
       assignee: null,
+      assignedDeveloperId: null,
       "bugDetails.developerLead": null,
       status: {
-        $in: [BUG_STATUS.NEW, BUG_STATUS.TRIAGED, BUG_STATUS.OPEN, BUG_STATUS.REOPEN],
+        $in: AVAILABLE_BUG_QUEUE_STATUSES,
       },
     },
     {
