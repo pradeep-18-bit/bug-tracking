@@ -18,7 +18,11 @@ const allowedMimeTypes = new Set([
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/octet-stream",
   "text/plain",
+  "",
 ]);
 const allowedExtensions = [
   ".jpg",
@@ -30,9 +34,13 @@ const allowedExtensions = [
   ".doc",
   ".docx",
   ".xlsx",
+  ".zip",
   ".txt",
 ];
-const maxFileSize = 10 * 1024 * 1024;
+const maxFileSizeMb = 25;
+const maxFileSize = maxFileSizeMb * 1024 * 1024;
+const maxFileSizeMessage = "Maximum upload size is 25 MB";
+const allowedFileTypeMessage = "Allowed files: images, PDF, DOC/DOCX, XLSX, ZIP, TXT.";
 
 const formatFileSize = (size = 0) => {
   if (size < 1024) {
@@ -49,10 +57,21 @@ const formatFileSize = (size = 0) => {
 const isAllowedFile = (file) => {
   const extension = `.${String(file?.name || "").split(".").pop()}`.toLowerCase();
   return (
-    file?.size <= maxFileSize &&
     allowedMimeTypes.has(file?.type) &&
     allowedExtensions.includes(extension)
   );
+};
+
+const getFileValidationError = (file) => {
+  if (file?.size > maxFileSize) {
+    return maxFileSizeMessage;
+  }
+
+  if (!isAllowedFile(file)) {
+    return allowedFileTypeMessage;
+  }
+
+  return "";
 };
 
 const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
@@ -135,8 +154,10 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
     setUploadError("");
 
     files.slice(0, 4).forEach(async (file) => {
-      if (!isAllowedFile(file)) {
-        setUploadError("Allowed files: images, PDF, DOC/DOCX, XLSX, TXT up to 10MB.");
+      const validationError = getFileValidationError(file);
+
+      if (validationError) {
+        setUploadError(validationError);
         return;
       }
 
@@ -192,14 +213,19 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
           )
         );
       } catch (error) {
-        setUploadError(
-          error?.response?.data?.message || error?.message || "Upload failed"
-        );
+        const failureReason =
+          error?.response?.data?.message ||
+          (error?.response?.status === 413 ? maxFileSizeMessage : "") ||
+          error?.message ||
+          "Upload failed";
+
+        setUploadError(failureReason);
         setAttachments((currentAttachments) =>
           currentAttachments.map((attachment) =>
             attachment.id === localId
               ? {
                   ...attachment,
+                  errorMessage: failureReason,
                   progress: 0,
                   status: "error",
                 }
@@ -282,10 +308,18 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
                 <div className="mt-1 flex items-center gap-2 text-xs font-semibold text-slate-500">
                   <span>{formatFileSize(attachment.size)}</span>
                   {attachment.status === "uploading" ? (
-                    <span>{attachment.progress}%</span>
+                    <>
+                      <span>Uploading...</span>
+                      <span>{attachment.progress}%</span>
+                    </>
+                  ) : null}
+                  {attachment.status === "uploaded" ? (
+                    <span className="text-emerald-600">Complete</span>
                   ) : null}
                   {attachment.status === "error" ? (
-                    <span className="text-rose-500">Failed</span>
+                    <span className="text-rose-500">
+                      {attachment.errorMessage || "Upload failed"}
+                    </span>
                   ) : null}
                 </div>
                 {attachment.status === "uploading" ? (
@@ -322,7 +356,7 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
           type="file"
           className="hidden"
           multiple
-          accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xlsx,.txt"
+          accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xlsx,.zip,.txt"
           onChange={handleAttachmentSelect}
         />
         <Button

@@ -20,7 +20,8 @@ const CHAT_ACCESS_ROLES = ["Admin", "Manager", "Team Lead", "Developer", "Tester
 const MAX_MESSAGE_LENGTH = 4000;
 const DEFAULT_MESSAGE_LIMIT = 30;
 const MAX_MESSAGE_LIMIT = 80;
-const MAX_CHAT_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+const MAX_CHAT_ATTACHMENT_SIZE_MB = 25;
+const MAX_CHAT_ATTACHMENT_SIZE = MAX_CHAT_ATTACHMENT_SIZE_MB * 1024 * 1024;
 const chatAttachmentsRoot = path.resolve(__dirname, "..", "uploads", "chat-attachments");
 const allowedAttachmentExtensions = new Set([
   ".jpg",
@@ -32,19 +33,33 @@ const allowedAttachmentExtensions = new Set([
   ".doc",
   ".docx",
   ".xlsx",
+  ".zip",
   ".txt",
 ]);
-const allowedAttachmentMimeTypes = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/plain",
+const allowedAttachmentMimeTypesByExtension = new Map([
+  [".jpg", new Set(["image/jpeg"])],
+  [".jpeg", new Set(["image/jpeg"])],
+  [".png", new Set(["image/png"])],
+  [".gif", new Set(["image/gif"])],
+  [".webp", new Set(["image/webp"])],
+  [".pdf", new Set(["application/pdf"])],
+  [".doc", new Set(["application/msword"])],
+  [
+    ".docx",
+    new Set([
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ]),
+  ],
+  [
+    ".xlsx",
+    new Set([
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ]),
+  ],
+  [".zip", new Set(["application/zip", "application/x-zip-compressed"])],
+  [".txt", new Set(["text/plain"])],
 ]);
+const fallbackAttachmentMimeTypes = new Set(["", "application/octet-stream"]);
 
 fs.mkdirSync(chatAttachmentsRoot, {
   recursive: true,
@@ -111,10 +126,11 @@ const sanitizeFileName = (value = "attachment") => {
 const isAllowedAttachment = (file = {}) => {
   const extension = path.extname(file.originalname || "").toLowerCase();
   const mimeType = String(file.mimetype || "").toLowerCase();
+  const allowedMimeTypes = allowedAttachmentMimeTypesByExtension.get(extension);
 
   return (
     allowedAttachmentExtensions.has(extension) &&
-    allowedAttachmentMimeTypes.has(mimeType)
+    (allowedMimeTypes?.has(mimeType) || fallbackAttachmentMimeTypes.has(mimeType))
   );
 };
 
