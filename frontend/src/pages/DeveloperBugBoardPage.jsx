@@ -187,12 +187,12 @@ const DeveloperBugBoardPage = () => {
   const columnCounts = useMemo(
     () =>
       DEVELOPER_BUG_COLUMNS.reduce((counts, column) => {
-        counts[column.key] = boardIssues.filter(
+        counts[column.key] = filteredIssues.filter(
           (issue) => getBugColumnKey(issue, DEVELOPER_BUG_COLUMNS) === column.key
         ).length;
         return counts;
       }, {}),
-    [boardIssues]
+    [filteredIssues]
   );
 
   const statusMutation = useMutation({

@@ -15,6 +15,7 @@ import {
   BUG_STATUS_OPTIONS,
   ISSUE_STATUS,
   getIssueDisplayKey,
+  groupBugsByLifecycle,
   normalizeBugStatusForIssue,
   resolveBugDetails,
   resolveIssueProjectId,
@@ -221,22 +222,23 @@ const TesterBugsPage = () => {
     });
   }, [filters, reportedIssues]);
 
+  const groupedFilteredIssues = useMemo(
+    () => groupBugsByLifecycle(filteredIssues),
+    [filteredIssues]
+  );
   const reviewStats = useMemo(
     () => ({
-      reported: reportedIssues.length,
-      active: reportedIssues.filter(
-        (issue) => ![ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE].includes(normalizeBugStatusForIssue(issue))
-      ).length,
-      qa: reportedIssues.filter((issue) =>
-        [ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.FIXED, ISSUE_STATUS.TESTING, ISSUE_STATUS.QA].includes(
-          normalizeBugStatusForIssue(issue)
-        )
-      ).length,
-      closed: reportedIssues.filter((issue) =>
-        [ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE].includes(normalizeBugStatusForIssue(issue))
-      ).length,
+      reported: groupedFilteredIssues.reported.length,
+      active:
+        groupedFilteredIssues.reported.length +
+        groupedFilteredIssues.assigned.length +
+        groupedFilteredIssues.inProgress.length +
+        groupedFilteredIssues.readyForQa.length +
+        groupedFilteredIssues.reopened.length,
+      qa: groupedFilteredIssues.readyForQa.length,
+      closed: groupedFilteredIssues.closed.length,
     }),
-    [reportedIssues]
+    [groupedFilteredIssues]
   );
 
   const createIssueMutation = useMutation({

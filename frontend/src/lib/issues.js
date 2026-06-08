@@ -19,6 +19,19 @@ export const ISSUE_STATUS = Object.freeze({
   DEFERRED: "DEFERRED",
 });
 
+export const BUG_LIFECYCLE_STATUS = Object.freeze({
+  REPORTED: "REPORTED",
+  ASSIGNED: "ASSIGNED",
+  IN_PROGRESS: "IN_PROGRESS",
+  READY_FOR_QA: "READY_FOR_QA",
+  REOPENED: "REOPENED",
+  CLOSED: "CLOSED",
+});
+
+export const BUG_LIFECYCLE_STATUS_VALUES = Object.freeze(
+  Object.values(BUG_LIFECYCLE_STATUS)
+);
+
 export const ISSUE_ACTIVE_STATUS_VALUES = Object.freeze([
   ISSUE_STATUS.IN_PROGRESS,
   ISSUE_STATUS.BLOCKED,
@@ -375,6 +388,59 @@ export const normalizeIssueStatus = (value, fallback = ISSUE_STATUS.TODO) => {
     : fallback;
 };
 
+const normalizeStatusToken = (value = "") =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+
+export const normalizeBugLifecycleStatus = (
+  issueOrStatus,
+  fallback = BUG_LIFECYCLE_STATUS.REPORTED
+) => {
+  const explicitLifecycle =
+    typeof issueOrStatus === "object"
+      ? issueOrStatus?.bugLifecycleStatus ||
+        issueOrStatus?.bugStatus ||
+        issueOrStatus?.workflowStatus ||
+        issueOrStatus?.bugDetails?.bugLifecycleStatus ||
+        issueOrStatus?.bugDetails?.status
+      : "";
+  const rawStatus =
+    typeof issueOrStatus === "object" ? issueOrStatus?.status : issueOrStatus;
+  const token = normalizeStatusToken(explicitLifecycle || rawStatus);
+
+  if (BUG_LIFECYCLE_STATUS_VALUES.includes(token)) {
+    return token;
+  }
+
+  if (["NEW", "OPEN", "TRIAGED", "TODO", "REPORTED"].includes(token)) {
+    return BUG_LIFECYCLE_STATUS.REPORTED;
+  }
+
+  if (token === "ASSIGNED") {
+    return BUG_LIFECYCLE_STATUS.ASSIGNED;
+  }
+
+  if (["IN_PROGRESS", "INPROGRESS"].includes(token)) {
+    return BUG_LIFECYCLE_STATUS.IN_PROGRESS;
+  }
+
+  if (["READY_FOR_QA", "READYFORQA", "FIXED", "TESTING", "QA", "REVIEW"].includes(token)) {
+    return BUG_LIFECYCLE_STATUS.READY_FOR_QA;
+  }
+
+  if (["REOPEN", "RE_OPEN", "REOPENED"].includes(token)) {
+    return BUG_LIFECYCLE_STATUS.REOPENED;
+  }
+
+  if (["CLOSED", "DONE", "RESOLVED"].includes(token)) {
+    return BUG_LIFECYCLE_STATUS.CLOSED;
+  }
+
+  return fallback;
+};
+
 export const normalizeIssueType = (value, fallback = ISSUE_TYPES.TASK) => {
   if (value === null || typeof value === "undefined") {
     return fallback;
@@ -483,6 +549,24 @@ export const getWorkflowStatusOptionsForIssue = (issueOrType) =>
     : GENERIC_ISSUE_WORKFLOW_STATUS_OPTIONS;
 
 export const normalizeBugStatusForIssue = (issue) => {
+  const lifecycleStatus = normalizeBugLifecycleStatus(issue, "");
+
+  if (lifecycleStatus === BUG_LIFECYCLE_STATUS.REPORTED) {
+    return ISSUE_STATUS.NEW;
+  }
+
+  if (lifecycleStatus === BUG_LIFECYCLE_STATUS.REOPENED) {
+    return ISSUE_STATUS.REOPEN;
+  }
+
+  if (lifecycleStatus && lifecycleStatus !== BUG_LIFECYCLE_STATUS.CLOSED) {
+    return lifecycleStatus;
+  }
+
+  if (lifecycleStatus === BUG_LIFECYCLE_STATUS.CLOSED) {
+    return ISSUE_STATUS.CLOSED;
+  }
+
   const status = normalizeIssueStatus(issue?.status, "");
 
   if (BUG_LIFECYCLE_STATUSES.includes(status)) {
@@ -503,6 +587,36 @@ export const normalizeBugStatusForIssue = (issue) => {
 
   return ISSUE_STATUS.NEW;
 };
+
+export const isBugLifecycleClosed = (issueOrStatus) =>
+  normalizeBugLifecycleStatus(issueOrStatus, "") === BUG_LIFECYCLE_STATUS.CLOSED;
+
+export const groupBugsByLifecycle = (issues = []) =>
+  issues.reduce(
+    (groups, issue) => {
+      const lifecycleStatus = normalizeBugLifecycleStatus(issue);
+      const keyByStatus = {
+        [BUG_LIFECYCLE_STATUS.REPORTED]: "reported",
+        [BUG_LIFECYCLE_STATUS.ASSIGNED]: "assigned",
+        [BUG_LIFECYCLE_STATUS.IN_PROGRESS]: "inProgress",
+        [BUG_LIFECYCLE_STATUS.READY_FOR_QA]: "readyForQa",
+        [BUG_LIFECYCLE_STATUS.REOPENED]: "reopened",
+        [BUG_LIFECYCLE_STATUS.CLOSED]: "closed",
+      };
+      const key = keyByStatus[lifecycleStatus] || "reported";
+
+      groups[key].push(issue);
+      return groups;
+    },
+    {
+      reported: [],
+      assigned: [],
+      inProgress: [],
+      readyForQa: [],
+      reopened: [],
+      closed: [],
+    }
+  );
 
 export const resolveBugDetails = (issue) => issue?.bugDetails || {};
 
