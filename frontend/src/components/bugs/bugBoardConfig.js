@@ -123,7 +123,74 @@ export const DEVELOPER_BUG_COLUMNS = [
   },
 ];
 
+const normalizeStatusToken = (value = "") =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+
+const getIssueStatusTokens = (issue) =>
+  [
+    issue?.status,
+    issue?.bugStatus,
+    issue?.statusKey,
+    issue?.workflowStatus,
+    resolveBugDetails(issue)?.status,
+    resolveBugDetails(issue)?.bugStatus,
+    resolveBugDetails(issue)?.workflowStatus,
+  ]
+    .map(normalizeStatusToken)
+    .filter(Boolean);
+
+const getTesterBugColumnKey = (issue, columns) => {
+  const tokens = new Set(getIssueStatusTokens(issue));
+  const normalizedStatus = normalizeBugStatusForIssue(issue);
+
+  const statusColumnMap = [
+    {
+      key: "reported",
+      values: [ISSUE_STATUS.NEW, ISSUE_STATUS.OPEN, ISSUE_STATUS.TRIAGED, "REPORTED", "TODO"],
+    },
+    {
+      key: "assigned",
+      values: [ISSUE_STATUS.ASSIGNED],
+    },
+    {
+      key: "inProgress",
+      values: [ISSUE_STATUS.IN_PROGRESS, "INPROGRESS"],
+    },
+    {
+      key: "readyForQa",
+      values: [ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.FIXED, ISSUE_STATUS.TESTING, ISSUE_STATUS.QA, "READYFORQA"],
+    },
+    {
+      key: "closed",
+      values: [ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE, ISSUE_STATUS.RESOLVED],
+    },
+  ];
+
+  const matchedEntry = statusColumnMap.find((entry) =>
+    entry.values.some((value) => tokens.has(normalizeStatusToken(value)) || normalizedStatus === value)
+  );
+
+  if (matchedEntry && columns.some((column) => column.key === matchedEntry.key)) {
+    return matchedEntry.key;
+  }
+
+  const matchedColumn = columns.find((column) => column.statuses.includes(normalizedStatus));
+
+  return matchedColumn?.key || "";
+};
+
 export const getBugColumnKey = (issue, columns) => {
+  const isTesterBoard = columns.some((column) => column.key === "reported") &&
+    columns.some((column) => column.key === "closed") &&
+    !columns.some((column) => column.key === "available");
+
+  if (isTesterBoard) {
+    return getTesterBugColumnKey(issue, columns);
+  }
+
   const hasClosedColumn = columns.some((column) =>
     column.statuses.includes(ISSUE_STATUS.CLOSED)
   );
