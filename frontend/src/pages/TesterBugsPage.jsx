@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { FolderKanban, Search, SlidersHorizontal } from "lucide-react";
+import { FolderKanban, Plus, Search, SlidersHorizontal } from "lucide-react";
 import {
   createIssue,
   fetchIssues,
@@ -84,7 +84,8 @@ const TesterBugsPage = () => {
 
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const reportFormRef = useRef(null);
   const [selectedIssue, setSelectedIssue] = useState(null);
   const [toast, setToast] = useState(null);
   const [filters, setFilters] = useState({
@@ -96,6 +97,7 @@ const TesterBugsPage = () => {
   });
   const testerId = String(user?._id || user?.id || "");
   const focusedBugId = searchParams.get("bug") || "";
+  const activeView = searchParams.get("view") || "";
 
   const showToast = (type, message) => {
     setToast({ id: Date.now(), type, message });
@@ -169,6 +171,21 @@ const TesterBugsPage = () => {
       setSelectedIssue(focusedIssue);
     }
   }, [focusedBugId, reportedIssues]);
+
+  useEffect(() => {
+    if (activeView !== "report") {
+      return undefined;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      reportFormRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeView]);
 
   const filteredIssues = useMemo(() => {
     const search = filters.search.trim().toLowerCase();
@@ -300,6 +317,20 @@ const TesterBugsPage = () => {
     return Promise.resolve();
   };
 
+  const handleOpenReportBug = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("view", "report");
+    nextParams.delete("bug");
+    setSearchParams(nextParams);
+
+    window.requestAnimationFrame(() => {
+      reportFormRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+
   const error = projectsError || issuesError;
   const isLoading = isProjectsLoading || isIssuesLoading;
 
@@ -342,10 +373,16 @@ const TesterBugsPage = () => {
                 Track your reported bugs by workflow stage and verify fixes from Ready For QA.
               </CardDescription>
             </div>
-            <Button type="button" variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["issues"] })}>
-              <SlidersHorizontal className="h-4 w-4" />
-              Refresh Board
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" onClick={handleOpenReportBug}>
+                <Plus className="h-4 w-4" />
+                Report Bug
+              </Button>
+              <Button type="button" variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["issues"] })}>
+                <SlidersHorizontal className="h-4 w-4" />
+                Refresh Board
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-3 p-4 sm:p-5">
@@ -432,45 +469,47 @@ const TesterBugsPage = () => {
         </CardContent>
       </Card>
 
-      <IssueComposer
-        defaultAssigneeId={testerId}
-        defaultStatus={ISSUE_STATUS.TODO}
-        defaultType="Bug"
-        isPending={createIssueMutation.isPending || uploadAttachmentMutation.isPending}
-        lockType
-        onSubmit={async (payload) => {
-          const createdIssue = await createIssueMutation.mutateAsync(payload);
-          const hasAssignedDeveloper = Boolean(payload?.bugDetails?.developerLeadId);
+      <div ref={reportFormRef}>
+        <IssueComposer
+          defaultAssigneeId={testerId}
+          defaultStatus={ISSUE_STATUS.TODO}
+          defaultType="Bug"
+          isPending={createIssueMutation.isPending || uploadAttachmentMutation.isPending}
+          lockType
+          onSubmit={async (payload) => {
+            const createdIssue = await createIssueMutation.mutateAsync(payload);
+            const hasAssignedDeveloper = Boolean(payload?.bugDetails?.developerLeadId);
 
-          if (hasAssignedDeveloper) {
-            showToast(
-              createdIssue?.emailNotification?.status === "sent" ? "success" : "warning",
-              createdIssue?.emailNotification?.status === "sent"
-                ? "Bug created and email sent to developer."
-                : "Bug created, but email notification failed."
-            );
-          }
+            if (hasAssignedDeveloper) {
+              showToast(
+                createdIssue?.emailNotification?.status === "sent" ? "success" : "warning",
+                createdIssue?.emailNotification?.status === "sent"
+                  ? "Bug created and email sent to developer."
+                  : "Bug created, but email notification failed."
+              );
+            }
 
-          return createdIssue;
-        }}
-        onUploadAttachment={(payload) => uploadAttachmentMutation.mutateAsync(payload)}
-        projects={assignedProjects}
-        allowedTypes={["Bug"]}
-        showAssigneeField={false}
-        showStatusField={false}
-        submitLabel="Report Assigned Project Bug / Issue"
-        headerLabel="Bug / Issue Reporting Form"
-        cardTitle="Report assigned project bug / issue"
-        cardDescription="Choose one of your assigned projects, describe the issue clearly, and attach screenshots, documents, PDFs, or logs."
-        projectLabel="Assigned Project"
-        titleLabel="Issue title"
-        titlePlaceholder="Describe the assigned project issue"
-        descriptionPlaceholder="Summarize the behavior, impacted area, and testing context."
-        includeAttachments
-        attachmentAccept={ATTACHMENT_ACCEPT}
-        isTesterBugReport
-        reporterName={user?.name || user?.email || "Tester"}
-      />
+            return createdIssue;
+          }}
+          onUploadAttachment={(payload) => uploadAttachmentMutation.mutateAsync(payload)}
+          projects={assignedProjects}
+          allowedTypes={["Bug"]}
+          showAssigneeField={false}
+          showStatusField={false}
+          submitLabel="Report Assigned Project Bug / Issue"
+          headerLabel="Bug / Issue Reporting Form"
+          cardTitle="Report assigned project bug / issue"
+          cardDescription="Choose one of your assigned projects, describe the issue clearly, and attach screenshots, documents, PDFs, or logs."
+          projectLabel="Assigned Project"
+          titleLabel="Issue title"
+          titlePlaceholder="Describe the assigned project issue"
+          descriptionPlaceholder="Summarize the behavior, impacted area, and testing context."
+          includeAttachments
+          attachmentAccept={ATTACHMENT_ACCEPT}
+          isTesterBugReport
+          reporterName={user?.name || user?.email || "Tester"}
+        />
+      </div>
 
       <IssueDetailsDialog
         deletingId=""

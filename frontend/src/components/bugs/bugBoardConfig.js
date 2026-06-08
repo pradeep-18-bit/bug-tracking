@@ -124,7 +124,11 @@ export const DEVELOPER_BUG_COLUMNS = [
 ];
 
 export const getBugColumnKey = (issue, columns) => {
-  if (isIssueClosed(issue)) {
+  const hasClosedColumn = columns.some((column) =>
+    column.statuses.includes(ISSUE_STATUS.CLOSED)
+  );
+
+  if (isIssueClosed(issue) && !hasClosedColumn) {
     return "";
   }
 
