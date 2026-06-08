@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bug, RefreshCcw, Search } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import {
   fetchBugBucket,
   fetchMyIssues,
@@ -60,11 +61,12 @@ const DeveloperBugBoardPage = () => {
 
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const [selectedIssue, setSelectedIssue] = useState(null);
   const [statusError, setStatusError] = useState("");
   const [filters, setFilters] = useState({
     search: "",
-    status: "all",
+    status: searchParams.get("status") === "available" ? "available" : "all",
     severity: "all",
     priority: "all",
     projectId: "all",
@@ -152,7 +154,14 @@ const DeveloperBugBoardPage = () => {
     return boardIssues.filter((issue) => {
       const status = normalizeBugStatusForIssue(issue);
 
-      if (filters.status !== "all" && status !== filters.status) {
+      if (
+        filters.status === "available" &&
+        getBugColumnKey(issue, DEVELOPER_BUG_COLUMNS) !== "available"
+      ) {
+        return false;
+      }
+
+      if (filters.status !== "all" && filters.status !== "available" && status !== filters.status) {
         return false;
       }
 
@@ -358,6 +367,7 @@ const DeveloperBugBoardPage = () => {
               onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
             >
               <option value="all">All statuses</option>
+              <option value="available">Available Bugs</option>
               {BUG_STATUS_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}

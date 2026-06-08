@@ -7,6 +7,8 @@ import {
   BarChart3,
   Bug,
   CalendarClock,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   CircleDotDashed,
   ClipboardList,
@@ -381,6 +383,25 @@ const sortPriorityQueue = (issues = []) =>
     }
 
     return new Date(getLastUpdated(right) || 0) - new Date(getLastUpdated(left) || 0);
+  });
+
+const sortAvailableBugQueue = (issues = []) =>
+  [...issues].sort((left, right) => {
+    const severityDelta =
+      (severityRank[getBugSeverity(left)] ?? 10) - (severityRank[getBugSeverity(right)] ?? 10);
+
+    if (severityDelta !== 0) {
+      return severityDelta;
+    }
+
+    const priorityDelta =
+      (priorityRank[left.priority] ?? 10) - (priorityRank[right.priority] ?? 10);
+
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
   });
 
 const getNextBugAction = (issue) => {
@@ -1040,110 +1061,169 @@ const ActivityList = ({ activity, compact = false, fallbackIssues = [], onOpenIs
   );
 };
 
-const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, pickingId }) => (
-  <Card className="overflow-hidden border-cyan-100/80 bg-white/94 shadow-[0_28px_80px_-42px_rgba(8,145,178,0.5)] ring-1 ring-cyan-100/70 backdrop-blur-xl">
-    <CardHeader className="border-b border-cyan-100/90 bg-[linear-gradient(135deg,rgba(236,254,255,0.98),rgba(239,246,255,0.94),rgba(255,255,255,0.92))]">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-600">
-            Primary workflow
-          </p>
-          <CardTitle className="flex items-center gap-2 text-2xl tracking-tight text-slate-950">
-            <FolderKanban className="h-6 w-6 text-cyan-600" />
-            Available Bugs Queue
-          </CardTitle>
-          <CardDescription>Pickup-ready bugs waiting for developer ownership.</CardDescription>
+const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAllBugs, pickingId }) => {
+  const pageSize = 5;
+  const [page, setPage] = useState(1);
+  const sortedIssues = useMemo(() => sortAvailableBugQueue(issues), [issues]);
+  const pageCount = Math.max(1, Math.ceil(sortedIssues.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const startIndex = (safePage - 1) * pageSize;
+  const visibleIssues = sortedIssues.slice(startIndex, startIndex + pageSize);
+  const endIndex = Math.min(startIndex + visibleIssues.length, sortedIssues.length);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
+
+  return (
+    <Card className="overflow-hidden border-cyan-100/80 bg-white/94 shadow-[0_28px_80px_-42px_rgba(8,145,178,0.5)] ring-1 ring-cyan-100/70 backdrop-blur-xl">
+      <CardHeader className="border-b border-cyan-100/90 bg-[linear-gradient(135deg,rgba(236,254,255,0.98),rgba(239,246,255,0.94),rgba(255,255,255,0.92))]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-600">
+              Primary workflow
+            </p>
+            <CardTitle className="flex items-center gap-2 text-2xl tracking-tight text-slate-950">
+              <FolderKanban className="h-6 w-6 text-cyan-600" />
+              Available Bugs Queue
+            </CardTitle>
+            <CardDescription>Pickup-ready bugs waiting for developer ownership.</CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Pill className="h-8 border-cyan-200 bg-cyan-50 px-3 text-cyan-700">
+              {issues.length} available
+            </Pill>
+            <Button
+              className="h-8 rounded-full px-3 text-xs"
+              type="button"
+              variant="outline"
+              onClick={onViewAllBugs}
+            >
+              <FolderKanban className="h-3.5 w-3.5" />
+              View All Bugs
+            </Button>
+          </div>
         </div>
-        <Pill className="h-8 border-cyan-200 bg-cyan-50 px-3 text-cyan-700">
-          {issues.length} available
-        </Pill>
-      </div>
-    </CardHeader>
-    <CardContent className="p-4 sm:p-5">
-      {isLoading ? (
-        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <Skeleton key={`bucket-skeleton-${index}`} className="h-48 rounded-[18px]" />
-          ))}
-        </div>
-      ) : issues.length ? (
-        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
-          {issues.map((issue) => {
-            const details = resolveBugDetails(issue);
-            const canPick = issue.canPick !== false && issue.pickupEligibility?.canPick !== false;
-            const pickDisabled = pickingId === issue._id || !canPick;
-            const pickLabel = pickingId === issue._id ? "Picking" : canPick ? "Pick Bug" : "Not Eligible";
+      </CardHeader>
+      <CardContent className="space-y-4 p-4 sm:p-5">
+        {isLoading ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <Skeleton key={`bucket-skeleton-${index}`} className="h-[206px] rounded-[18px]" />
+            ))}
+          </div>
+        ) : sortedIssues.length ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              {visibleIssues.map((issue) => {
+                const canPick = issue.canPick !== false && issue.pickupEligibility?.canPick !== false;
+                const pickDisabled = pickingId === issue._id || !canPick;
+                const pickLabel = pickingId === issue._id ? "Picking" : canPick ? "Pick Bug" : "Not Eligible";
 
-            return (
-              <article key={issue._id} className="rounded-[18px] border border-cyan-100/80 bg-white/88 p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-200 hover:bg-white hover:shadow-md">
-                <div className="flex items-start justify-between gap-3">
-                  <button className="min-w-0 text-left" type="button" onClick={() => onOpenIssue(issue)}>
-                    <p className="font-mono text-xs font-semibold text-slate-500">
-                      {getIssueDisplayKey(issue)}
-                    </p>
-                    <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-slate-950">
-                      {issue.title}
-                    </h3>
-                  </button>
-                  <Pill className={getBadgeClass(priorityStyleMap, issue.priority)}>
-                    {issue.priority || "Medium"}
-                  </Pill>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Pill className="border-blue-200 bg-blue-50 text-blue-700">
-                    {details.affectedPlatform || "Web"}
-                  </Pill>
-                  <Pill className="border-slate-200 bg-slate-50 text-slate-700">
-                    {details.category || "Bug"}
-                  </Pill>
-                  <Pill className={getBadgeClass(severityStyleMap, getBugSeverity(issue))}>
-                    {getBugSeverity(issue)}
-                  </Pill>
-                </div>
-
-                <dl className="mt-3 grid gap-2 text-xs text-slate-600">
-                  {[
-                    ["Module", details.moduleName || "Unmapped module"],
-                    ["Reporter", getReporterName(issue)],
-                    ["Screenshots", issue.attachmentsCount || 0],
-                    ["Effort", details.estimatedEffort || "TBD"],
-                  ].map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between gap-3">
-                      <dt className="font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</dt>
-                      <dd className="min-w-0 truncate font-medium">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-
-                <div className="mt-4 flex gap-2">
-                  <Button
-                    className="h-9 flex-1 rounded-xl"
-                    type="button"
-                    disabled={pickDisabled}
-                    title={!canPick ? issue.pickupEligibility?.reason : undefined}
-                    onClick={() => onPickIssue(issue)}
+                return (
+                  <article
+                    key={issue._id}
+                    className="flex min-h-[206px] flex-col rounded-[18px] border border-cyan-100/80 bg-white/88 p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-200 hover:bg-white hover:shadow-md"
                   >
-                    {pickLabel}
+                    <button
+                      className="min-w-0 text-left"
+                      type="button"
+                      onClick={() => onOpenIssue(issue)}
+                    >
+                      <p className="font-mono text-xs font-semibold text-slate-500">
+                        {getIssueDisplayKey(issue)}
+                      </p>
+                      <h3 className="mt-1 line-clamp-2 min-h-10 text-sm font-semibold leading-5 text-slate-950">
+                        {issue.title}
+                      </h3>
+                    </button>
+
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      <Pill className={getBadgeClass(severityStyleMap, getBugSeverity(issue))}>
+                        {getBugSeverity(issue)}
+                      </Pill>
+                      <Pill className={getBadgeClass(priorityStyleMap, issue.priority)}>
+                        {issue.priority || "Medium"}
+                      </Pill>
+                    </div>
+
+                    <dl className="mt-3 grid gap-2 text-xs text-slate-600">
+                      {[
+                        ["Project", getProjectName(issue)],
+                        ["Reporter", getReporterName(issue)],
+                      ].map(([label, value]) => (
+                        <div key={label} className="flex items-center justify-between gap-3">
+                          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</dt>
+                          <dd className="min-w-0 truncate font-medium" title={value}>
+                            {value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+
+                    <div className="mt-auto flex gap-2 pt-4">
+                      <Button
+                        className="h-9 flex-1 rounded-xl"
+                        type="button"
+                        disabled={pickDisabled}
+                        title={!canPick ? issue.pickupEligibility?.reason : undefined}
+                        onClick={() => onPickIssue(issue)}
+                      >
+                        {pickLabel}
+                      </Button>
+                      <Button className="h-9 rounded-xl" type="button" variant="outline" onClick={() => onOpenIssue(issue)}>
+                        View
+                      </Button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            {sortedIssues.length > pageSize ? (
+              <div className="flex flex-col gap-3 border-t border-cyan-100/80 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs font-medium text-slate-500">
+                  Showing {startIndex + 1}-{endIndex} of {sortedIssues.length} bugs
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    className="h-8 rounded-xl px-2 text-xs"
+                    type="button"
+                    variant="outline"
+                    disabled={safePage === 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    Previous
                   </Button>
-                  <Button className="h-9 rounded-xl" type="button" variant="outline" onClick={() => onOpenIssue(issue)}>
-                    View
+                  <span className="min-w-[4rem] text-center text-xs font-semibold text-slate-600">
+                    Page {safePage} of {pageCount}
+                  </span>
+                  <Button
+                    className="h-8 rounded-xl px-2 text-xs"
+                    type="button"
+                    variant="outline"
+                    disabled={safePage === pageCount}
+                    onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                  >
+                    Next
+                    <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
                 </div>
-              </article>
-            );
-          })}
-        </div>
-      ) : (
-        <EmptyState
-          title="No bugs in the bucket"
-          description="Unassigned tester bugs will appear here when they are added to the developer queue."
-          icon={<FolderKanban className="h-5 w-5" />}
-        />
-      )}
-    </CardContent>
-  </Card>
-);
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <EmptyState
+            title="No bugs in the bucket"
+            description="Unassigned tester bugs will appear here when they are added to the developer queue."
+            icon={<FolderKanban className="h-5 w-5" />}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const WorkTable = ({
   issues,
@@ -1779,6 +1859,7 @@ const DeveloperDashboardPage = () => {
         pickingId={pickMutation.isPending ? pickMutation.variables?._id : ""}
         onOpenIssue={setSelectedIssue}
         onPickIssue={(issue) => pickMutation.mutate(issue)}
+        onViewAllBugs={() => navigate("/dev/bugs?status=available")}
       />
 
       <section className="space-y-5">
