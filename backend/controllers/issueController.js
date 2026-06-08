@@ -47,6 +47,7 @@ const {
 } = require("../utils/issueTypes");
 const { getNextPlanningOrder } = require("../utils/planningOrder");
 const {
+  COMPLETED_STATUS_QUERY_VALUES,
   buildClosedIssueCondition,
   buildCriticalIssueCondition,
   buildHighPriorityIssueCondition,
@@ -1793,6 +1794,24 @@ const getMyIssues = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: true,
   });
+
+  if (["true", "1"].includes(String(req.query.excludeClosedBugs || "").trim().toLowerCase())) {
+    addAndCondition(query, {
+      $or: [
+        {
+          type: {
+            $ne: ISSUE_TYPES.BUG,
+          },
+        },
+        {
+          status: {
+            $nin: COMPLETED_STATUS_QUERY_VALUES,
+          },
+        },
+      ],
+    });
+  }
+
   const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
 
   res.status(200).json(serializeIssues(issues));

@@ -1,4 +1,9 @@
-import { ISSUE_STATUS, normalizeBugStatusForIssue, resolveBugDetails } from "@/lib/issues";
+import {
+  ISSUE_STATUS,
+  isIssueClosed,
+  normalizeBugStatusForIssue,
+  resolveBugDetails,
+} from "@/lib/issues";
 
 export const BUG_BOARD_PAGE_SIZE = 20;
 
@@ -119,6 +124,10 @@ export const DEVELOPER_BUG_COLUMNS = [
 ];
 
 export const getBugColumnKey = (issue, columns) => {
+  if (isIssueClosed(issue)) {
+    return "";
+  }
+
   const hasAvailableColumn = columns.some((column) => column.key === "available");
   const isUnassigned =
     !issue?.assignee &&
@@ -132,7 +141,7 @@ export const getBugColumnKey = (issue, columns) => {
   const status = normalizeBugStatusForIssue(issue);
   const matchedColumn = columns.find((column) => column.statuses.includes(status));
 
-  return matchedColumn?.key || columns[0]?.key || "";
+  return matchedColumn?.key || "";
 };
 
 export const getBugStatusForColumn = (columnKey, role = "tester") => {

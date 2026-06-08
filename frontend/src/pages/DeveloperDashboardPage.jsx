@@ -1469,7 +1469,12 @@ const DeveloperDashboardPage = () => {
     isFetching: isIssuesFetching,
   } = useQuery({
     queryKey: myIssuesQueryKey,
-    queryFn: () => fetchMyIssues({ limit: 200, sortBy: "recently-updated" }),
+    queryFn: () =>
+      fetchMyIssues({
+        excludeClosedBugs: true,
+        limit: 200,
+        sortBy: "recently-updated",
+      }),
     enabled: Boolean(user?._id),
   });
 
@@ -1507,11 +1512,14 @@ const DeveloperDashboardPage = () => {
 
   const allIssues = useMemo(() => (Array.isArray(issues) ? issues : []), [issues]);
   const bucketIssues = useMemo(
-    () => (Array.isArray(bucketIssuesData) ? bucketIssuesData : []),
+    () =>
+      (Array.isArray(bucketIssuesData) ? bucketIssuesData : []).filter(
+        (issue) => !isIssueClosed(issue)
+      ),
     [bucketIssuesData]
   );
   const bugIssues = useMemo(
-    () => allIssues.filter((issue) => isBugIssue(issue)),
+    () => allIssues.filter((issue) => isBugIssue(issue) && !isIssueClosed(issue)),
     [allIssues]
   );
   const taskIssues = useMemo(
@@ -1623,7 +1631,11 @@ const DeveloperDashboardPage = () => {
     },
   });
 
-  const stats = useMemo(() => getIssueStatusMetrics(allIssues), [allIssues]);
+  const workflowIssues = useMemo(
+    () => [...bugIssues, ...taskIssues],
+    [bugIssues, taskIssues]
+  );
+  const stats = useMemo(() => getIssueStatusMetrics(workflowIssues), [workflowIssues]);
   const normalizedFilters = useMemo(
     () => ({
       ...filters,
@@ -1638,13 +1650,13 @@ const DeveloperDashboardPage = () => {
   );
   const recentlyUpdatedIssues = useMemo(
     () =>
-      [...allIssues]
+      [...workflowIssues]
         .sort(
           (left, right) =>
             new Date(getLastUpdated(right) || 0) - new Date(getLastUpdated(left) || 0)
         )
         .slice(0, 8),
-    [allIssues]
+    [workflowIssues]
   );
   const statCards = useMemo(
     () => [
@@ -1984,7 +1996,7 @@ const DeveloperDashboardPage = () => {
           <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             <ProjectPanel
               projects={projects}
-              issues={allIssues}
+              issues={workflowIssues}
               onOpenProject={handleOpenProject}
             />
 
@@ -2062,7 +2074,7 @@ const DeveloperDashboardPage = () => {
             </DialogTitle>
           </DialogHeader>
           <PriorityQueue
-            issues={allIssues}
+            issues={workflowIssues}
             updatingId={statusMutation.isPending ? statusMutation.variables?.id : ""}
             onClose={() => setIsPriorityOpen(false)}
             onOpenIssue={setSelectedIssue}

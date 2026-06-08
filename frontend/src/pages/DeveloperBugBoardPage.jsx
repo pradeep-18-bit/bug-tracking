@@ -15,6 +15,7 @@ import {
   ISSUE_STATUS,
   getIssueDisplayKey,
   isBugIssue,
+  isIssueClosed,
   normalizeBugStatusForIssue,
   resolveBugDetails,
   resolveIssueProjectId,
@@ -89,7 +90,13 @@ const DeveloperBugBoardPage = () => {
     isFetching: isMyIssuesFetching,
   } = useQuery({
     queryKey: myIssuesQueryKey,
-    queryFn: () => fetchMyIssues({ type: "Bug", limit: 250, sortBy: "recently-updated" }),
+    queryFn: () =>
+      fetchMyIssues({
+        type: "Bug",
+        excludeClosedBugs: true,
+        limit: 250,
+        sortBy: "recently-updated",
+      }),
     enabled: Boolean(userId),
   });
 
@@ -106,15 +113,20 @@ const DeveloperBugBoardPage = () => {
   });
 
   const assignedBugIssues = useMemo(
-    () => (Array.isArray(myIssues) ? myIssues.filter(isBugIssue) : []),
+    () =>
+      (Array.isArray(myIssues)
+        ? myIssues.filter((issue) => isBugIssue(issue) && !isIssueClosed(issue))
+        : []),
     [myIssues]
   );
   const availableBugIssues = useMemo(
     () =>
-      (Array.isArray(bucketIssues) ? bucketIssues : []).map((issue) => ({
-        ...issue,
-        status: normalizeBugStatusForIssue(issue),
-      })),
+      (Array.isArray(bucketIssues) ? bucketIssues : [])
+        .filter((issue) => !isIssueClosed(issue))
+        .map((issue) => ({
+          ...issue,
+          status: normalizeBugStatusForIssue(issue),
+        })),
     [bucketIssues]
   );
   const boardIssues = useMemo(
