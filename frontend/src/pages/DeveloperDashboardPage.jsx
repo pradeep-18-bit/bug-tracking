@@ -1022,12 +1022,12 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
         ) : sortedIssues.length ? (
           <>
             <div className="overflow-hidden rounded-2xl border border-cyan-100/80 bg-white/88 shadow-sm">
-              <div className="hidden grid-cols-[108px_minmax(220px,1fr)_108px_104px_150px_172px] items-center gap-3 border-b border-cyan-100/80 bg-cyan-50/60 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-700 md:grid">
+              <div className="hidden grid-cols-[108px_minmax(220px,1fr)_150px_140px_108px_172px] items-center gap-3 border-b border-cyan-100/80 bg-cyan-50/60 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-700 md:grid">
                 <span>ID</span>
                 <span>Title</span>
+                <span>Module / Page</span>
+                <span>Bug Type</span>
                 <span>Severity</span>
-                <span>Priority</span>
-                <span>Reporter</span>
                 <span className="text-right">Action</span>
               </div>
               <div className="divide-y divide-cyan-100/70">
@@ -1036,11 +1036,14 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
                   const pickDisabled = pickingId === issue._id || !canPick;
                   const pickLabel = pickingId === issue._id ? "Picking" : canPick ? "Pick Bug" : "Not Eligible";
                   const severity = getBugSeverity(issue);
+                  const bugDetails = resolveBugDetails(issue);
+                  const moduleName = bugDetails?.moduleName || "General";
+                  const category = bugDetails?.category || "Bug";
 
                   return (
                     <article
                       key={issue._id}
-                      className="grid gap-2 px-3 py-2.5 transition hover:bg-cyan-50/50 md:grid-cols-[108px_minmax(220px,1fr)_108px_104px_150px_172px] md:items-center md:gap-3 md:py-1.5"
+                      className="grid gap-2 px-3 py-2.5 transition hover:bg-cyan-50/50 md:grid-cols-[108px_minmax(220px,1fr)_150px_140px_108px_172px] md:items-center md:gap-3 md:py-1.5"
                     >
                       <button
                         className="truncate text-left font-mono text-xs font-semibold text-slate-500"
@@ -1056,28 +1059,26 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
                         onClick={() => onOpenIssue(issue)}
                       >
                         <span className="block truncate text-sm font-semibold text-slate-950" title={issue.title}>
-                          {issue.title}
+                          {issue.title.length > 60 ? issue.title.substring(0, 57) + "..." : issue.title}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-slate-500 md:hidden">
-                          Reporter: {getReporterName(issue)}
+                          {moduleName} • {category}
                         </span>
                       </button>
+
+                      <span className="hidden truncate text-xs font-medium text-slate-600 md:block" title={moduleName}>
+                        {moduleName}
+                      </span>
+
+                      <span className="hidden truncate text-xs font-medium text-slate-600 md:block" title={category}>
+                        {category}
+                      </span>
 
                       <div>
                         <Pill className={getBadgeClass(severityStyleMap, severity)}>
                           {severity}
                         </Pill>
                       </div>
-
-                      <div>
-                        <Pill className={getBadgeClass(priorityStyleMap, issue.priority)}>
-                          {issue.priority || "Medium"}
-                        </Pill>
-                      </div>
-
-                      <span className="hidden truncate text-xs font-medium text-slate-600 md:block" title={getReporterName(issue)}>
-                        {getReporterName(issue)}
-                      </span>
 
                       <div className="flex gap-2 md:justify-end">
                         <Button
