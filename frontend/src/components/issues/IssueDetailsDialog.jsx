@@ -360,6 +360,10 @@ const IssueDetailsDialog = ({
   const bugDetails = resolveBugDetails(issue);
   const testerOwner = bugDetails.testerOwner;
   const developerLead = bugDetails.developerLead;
+  const testerOwnerName =
+    testerOwner?.name || issue.testerOwnerName || issue.reporterName || "Unassigned";
+  const reporterName = issue.reporter?.name || issue.reporterName || "Unknown reporter";
+  const reporterRole = issue.reporter?.role || "Tester";
   const canChangeStatusForRole = Boolean(role) && canEditStatus;
   const commentComposer = (
     <form className="space-y-3 rounded-2xl border border-blue-100 bg-white p-3 shadow-sm" onSubmit={handleSubmitComment}>
@@ -1262,7 +1266,7 @@ const IssueDetailsDialog = ({
                     Tester / QA Owner
                   </p>
                   <p className="mt-2 text-sm font-semibold text-gray-900">
-                    {testerOwner?.name || "Unassigned"}
+                    {testerOwnerName}
                   </p>
                 </div>
                 <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
@@ -1480,13 +1484,13 @@ const IssueDetailsDialog = ({
                 <p className="text-xs uppercase tracking-[0.22em] text-gray-500">Reporter</p>
                 <div className="mt-3 flex items-center gap-3">
                   <Avatar className="h-10 w-10">
-                    <AvatarFallback>{getInitials(issue.reporter?.name)}</AvatarFallback>
+                    <AvatarFallback>{getInitials(reporterName)}</AvatarFallback>
                   </Avatar>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">
-                      {issue.reporter?.name}
+                      {reporterName}
                     </p>
-                    <p className="text-xs text-gray-500">{issue.reporter?.role}</p>
+                    <p className="text-xs text-gray-500">{reporterRole}</p>
                   </div>
                 </div>
               </div>

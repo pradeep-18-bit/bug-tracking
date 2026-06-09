@@ -24,10 +24,15 @@ const errorHandler = (err, req, res, next) => {
     message = "A record with that value already exists";
   }
 
+  if (err.type === "entity.too.large") {
+    statusCode = 413;
+    message = "Maximum upload size is 25 MB";
+  }
+
   if (err.name === "MulterError" && err.code === "LIMIT_FILE_SIZE") {
-    statusCode = 400;
+    statusCode = 413;
     message = req.originalUrl?.includes("/chat/")
-      ? "Chat attachment is too large"
+      ? "Maximum upload size is 25 MB"
       : "CSV file is too large";
   }
 

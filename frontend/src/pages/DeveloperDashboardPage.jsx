@@ -7,6 +7,8 @@ import {
   BarChart3,
   Bug,
   CalendarClock,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   CircleDotDashed,
   ClipboardList,
@@ -53,8 +55,12 @@ import {
   sortIssues,
 } from "@/lib/issues";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
-import { getProjectTeams, resolveTeamId, resolveUserId } from "@/lib/project-teams";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  getDeveloperBugBucketQueryFilters,
+  getDeveloperBugBucketQueryKey,
+  removeIssueFromBucketCaches,
+} from "@/lib/bug-workflow-cache";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import EmptyState from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -287,20 +293,6 @@ const getTeamName = (issue) => issue?.teamId?.name || "No team";
 
 const getProjectId = (project) => String(project?._id || project || "");
 
-const getProjectStatusClass = (status = "") => {
-  const normalizedStatus = String(status || "").toLowerCase();
-
-  if (normalizedStatus === "completed") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  }
-
-  if (normalizedStatus === "on hold") {
-    return "border-amber-200 bg-amber-50 text-amber-700";
-  }
-
-  return "border-blue-200 bg-blue-50 text-blue-700";
-};
-
 const getSlaInfo = (issue) => {
   if (!issue?.dueAt) {
     return {
@@ -376,6 +368,25 @@ const sortPriorityQueue = (issues = []) =>
     }
 
     return new Date(getLastUpdated(right) || 0) - new Date(getLastUpdated(left) || 0);
+  });
+
+const sortAvailableBugQueue = (issues = []) =>
+  [...issues].sort((left, right) => {
+    const severityDelta =
+      (severityRank[getBugSeverity(left)] ?? 10) - (severityRank[getBugSeverity(right)] ?? 10);
+
+    if (severityDelta !== 0) {
+      return severityDelta;
+    }
+
+    const priorityDelta =
+      (priorityRank[left.priority] ?? 10) - (priorityRank[right.priority] ?? 10);
+
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
   });
 
 const getNextBugAction = (issue) => {
@@ -723,84 +734,6 @@ const ProjectPanel = ({ projects, issues, onOpenProject }) => {
   );
 };
 
-const ProjectDetailsCard = ({ projects, user }) => {
-  const userId = resolveUserId(user);
-  const projectDetails = useMemo(
-    () =>
-      projects.flatMap((project) => {
-        const teams = getProjectTeams(project);
-        const matchingTeams = teams.filter((team) =>
-          (team?.members || []).some((member) => resolveUserId(member) === userId)
-        );
-        const displayTeams = matchingTeams.length ? matchingTeams : [];
-
-        return displayTeams.map((team) => {
-          const member =
-            (team?.members || []).find((item) => resolveUserId(item) === userId) || user;
-
-          return {
-            id: `${getProjectId(project)}-${resolveTeamId(team)}`,
-            projectName: project.name || "Untitled project",
-            teamName: team?.name || "Project team",
-            role: member?.role || user?.role || "Developer",
-            status: project.status || (project.isCompleted ? "Completed" : "Active"),
-          };
-        });
-      }),
-    [projects, user, userId]
-  );
-
-  return (
-    <Card className="border-white/70 bg-white/88 shadow-[0_18px_48px_-36px_rgba(15,23,42,0.36)] backdrop-blur-xl">
-      <CardHeader className="border-b border-slate-200/80 pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <FolderKanban className="h-4 w-4 text-cyan-600" />
-          Project Details
-        </CardTitle>
-        <CardDescription>Current project-team associations for your developer work.</CardDescription>
-      </CardHeader>
-      <CardContent className="p-3">
-        {projectDetails.length ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {projectDetails.map((detail) => (
-              <article
-                key={detail.id}
-                className="rounded-[18px] border border-slate-200/80 bg-white/82 p-3 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-950">
-                      {detail.projectName}
-                    </p>
-                    <p className="mt-1 truncate text-xs font-medium text-slate-500">
-                      {detail.teamName}
-                    </p>
-                  </div>
-                  <Pill className={getProjectStatusClass(detail.status)}>
-                    {detail.status}
-                  </Pill>
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                    Role
-                  </span>
-                  <span className="truncate text-xs font-semibold text-slate-700">
-                    {detail.role}
-                  </span>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-            No project team details are attached to your profile yet.
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-};
-
 const PriorityQueue = ({
   issues,
   onOpenIssue,
@@ -1035,110 +968,186 @@ const ActivityList = ({ activity, compact = false, fallbackIssues = [], onOpenIs
   );
 };
 
-const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, pickingId }) => (
-  <Card className="overflow-hidden border-cyan-100/80 bg-white/94 shadow-[0_28px_80px_-42px_rgba(8,145,178,0.5)] ring-1 ring-cyan-100/70 backdrop-blur-xl">
-    <CardHeader className="border-b border-cyan-100/90 bg-[linear-gradient(135deg,rgba(236,254,255,0.98),rgba(239,246,255,0.94),rgba(255,255,255,0.92))]">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-600">
-            Primary workflow
-          </p>
-          <CardTitle className="flex items-center gap-2 text-2xl tracking-tight text-slate-950">
-            <FolderKanban className="h-6 w-6 text-cyan-600" />
-            Available Bugs Queue
-          </CardTitle>
-          <CardDescription>Pickup-ready bugs waiting for developer ownership.</CardDescription>
+const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAllBugs, pickingId }) => {
+  const pageSize = 5;
+  const [page, setPage] = useState(1);
+  const sortedIssues = useMemo(() => sortAvailableBugQueue(issues), [issues]);
+  const pageCount = Math.max(1, Math.ceil(sortedIssues.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const startIndex = (safePage - 1) * pageSize;
+  const visibleIssues = sortedIssues.slice(startIndex, startIndex + pageSize);
+  const endIndex = Math.min(startIndex + visibleIssues.length, sortedIssues.length);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
+
+  return (
+    <Card className="overflow-hidden border-cyan-100/80 bg-white/94 shadow-[0_28px_80px_-42px_rgba(8,145,178,0.5)] ring-1 ring-cyan-100/70 backdrop-blur-xl">
+      <CardHeader className="border-b border-cyan-100/90 bg-[linear-gradient(135deg,rgba(236,254,255,0.98),rgba(239,246,255,0.94),rgba(255,255,255,0.92))]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-600">
+              Primary workflow
+            </p>
+            <CardTitle className="flex items-center gap-2 text-2xl tracking-tight text-slate-950">
+              <FolderKanban className="h-6 w-6 text-cyan-600" />
+              Available Bugs Queue
+            </CardTitle>
+            <CardDescription>Pickup-ready bugs waiting for developer ownership.</CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Pill className="h-8 border-cyan-200 bg-cyan-50 px-3 text-cyan-700">
+              {issues.length} available
+            </Pill>
+            <Button
+              className="h-8 rounded-full px-3 text-xs"
+              type="button"
+              variant="outline"
+              onClick={onViewAllBugs}
+            >
+              <FolderKanban className="h-3.5 w-3.5" />
+              View All Bugs
+            </Button>
+          </div>
         </div>
-        <Pill className="h-8 border-cyan-200 bg-cyan-50 px-3 text-cyan-700">
-          {issues.length} available
-        </Pill>
-      </div>
-    </CardHeader>
-    <CardContent className="p-4 sm:p-5">
-      {isLoading ? (
-        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <Skeleton key={`bucket-skeleton-${index}`} className="h-48 rounded-[18px]" />
-          ))}
-        </div>
-      ) : issues.length ? (
-        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
-          {issues.map((issue) => {
-            const details = resolveBugDetails(issue);
-            const canPick = issue.canPick !== false && issue.pickupEligibility?.canPick !== false;
-            const pickDisabled = pickingId === issue._id || !canPick;
-            const pickLabel = pickingId === issue._id ? "Picking" : canPick ? "Pick Bug" : "Not Eligible";
+      </CardHeader>
+      <CardContent className="space-y-4 p-4 sm:p-5">
+        {isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <Skeleton key={`bucket-skeleton-${index}`} className="h-10 rounded-xl" />
+            ))}
+          </div>
+        ) : sortedIssues.length ? (
+          <>
+            <div className="overflow-hidden rounded-2xl border border-cyan-100/80 bg-white/88 shadow-sm">
+              <div className="hidden grid-cols-[108px_minmax(220px,1fr)_108px_104px_150px_172px] items-center gap-3 border-b border-cyan-100/80 bg-cyan-50/60 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-700 md:grid">
+                <span>ID</span>
+                <span>Title</span>
+                <span>Severity</span>
+                <span>Priority</span>
+                <span>Reporter</span>
+                <span className="text-right">Action</span>
+              </div>
+              <div className="divide-y divide-cyan-100/70">
+                {visibleIssues.map((issue) => {
+                  const canPick = issue.canPick !== false && issue.pickupEligibility?.canPick !== false;
+                  const pickDisabled = pickingId === issue._id || !canPick;
+                  const pickLabel = pickingId === issue._id ? "Picking" : canPick ? "Pick Bug" : "Not Eligible";
+                  const severity = getBugSeverity(issue);
 
-            return (
-              <article key={issue._id} className="rounded-[18px] border border-cyan-100/80 bg-white/88 p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-200 hover:bg-white hover:shadow-md">
-                <div className="flex items-start justify-between gap-3">
-                  <button className="min-w-0 text-left" type="button" onClick={() => onOpenIssue(issue)}>
-                    <p className="font-mono text-xs font-semibold text-slate-500">
-                      {getIssueDisplayKey(issue)}
-                    </p>
-                    <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-slate-950">
-                      {issue.title}
-                    </h3>
-                  </button>
-                  <Pill className={getBadgeClass(priorityStyleMap, issue.priority)}>
-                    {issue.priority || "Medium"}
-                  </Pill>
-                </div>
+                  return (
+                    <article
+                      key={issue._id}
+                      className="grid gap-2 px-3 py-2.5 transition hover:bg-cyan-50/50 md:grid-cols-[108px_minmax(220px,1fr)_108px_104px_150px_172px] md:items-center md:gap-3 md:py-1.5"
+                    >
+                      <button
+                        className="truncate text-left font-mono text-xs font-semibold text-slate-500"
+                        type="button"
+                        onClick={() => onOpenIssue(issue)}
+                      >
+                        {getIssueDisplayKey(issue)}
+                      </button>
 
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Pill className="border-blue-200 bg-blue-50 text-blue-700">
-                    {details.affectedPlatform || "Web"}
-                  </Pill>
-                  <Pill className="border-slate-200 bg-slate-50 text-slate-700">
-                    {details.category || "Bug"}
-                  </Pill>
-                  <Pill className={getBadgeClass(severityStyleMap, getBugSeverity(issue))}>
-                    {getBugSeverity(issue)}
-                  </Pill>
-                </div>
+                      <button
+                        className="min-w-0 text-left"
+                        type="button"
+                        onClick={() => onOpenIssue(issue)}
+                      >
+                        <span className="block truncate text-sm font-semibold text-slate-950" title={issue.title}>
+                          {issue.title}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-slate-500 md:hidden">
+                          Reporter: {getReporterName(issue)}
+                        </span>
+                      </button>
 
-                <dl className="mt-3 grid gap-2 text-xs text-slate-600">
-                  {[
-                    ["Module", details.moduleName || "Unmapped module"],
-                    ["Reporter", getReporterName(issue)],
-                    ["Screenshots", issue.attachmentsCount || 0],
-                    ["Effort", details.estimatedEffort || "TBD"],
-                  ].map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between gap-3">
-                      <dt className="font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</dt>
-                      <dd className="min-w-0 truncate font-medium">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
+                      <div>
+                        <Pill className={getBadgeClass(severityStyleMap, severity)}>
+                          {severity}
+                        </Pill>
+                      </div>
 
-                <div className="mt-4 flex gap-2">
+                      <div>
+                        <Pill className={getBadgeClass(priorityStyleMap, issue.priority)}>
+                          {issue.priority || "Medium"}
+                        </Pill>
+                      </div>
+
+                      <span className="hidden truncate text-xs font-medium text-slate-600 md:block" title={getReporterName(issue)}>
+                        {getReporterName(issue)}
+                      </span>
+
+                      <div className="flex gap-2 md:justify-end">
+                        <Button
+                          className="h-8 rounded-xl px-3 text-xs"
+                          type="button"
+                          disabled={pickDisabled}
+                          title={!canPick ? issue.pickupEligibility?.reason : undefined}
+                          onClick={() => onPickIssue(issue)}
+                        >
+                          {pickLabel}
+                        </Button>
+                        <Button
+                          className="h-8 rounded-xl px-3 text-xs"
+                          type="button"
+                          variant="outline"
+                          onClick={() => onOpenIssue(issue)}
+                        >
+                          View
+                        </Button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+
+            {sortedIssues.length > pageSize ? (
+              <div className="flex flex-col gap-3 border-t border-cyan-100/80 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs font-medium text-slate-500">
+                  Showing {startIndex + 1}-{endIndex} of {sortedIssues.length} bugs
+                </p>
+                <div className="flex items-center gap-2">
                   <Button
-                    className="h-9 flex-1 rounded-xl"
+                    className="h-8 rounded-xl px-2 text-xs"
                     type="button"
-                    disabled={pickDisabled}
-                    title={!canPick ? issue.pickupEligibility?.reason : undefined}
-                    onClick={() => onPickIssue(issue)}
+                    variant="outline"
+                    disabled={safePage === 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
                   >
-                    {pickLabel}
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    Previous
                   </Button>
-                  <Button className="h-9 rounded-xl" type="button" variant="outline" onClick={() => onOpenIssue(issue)}>
-                    View
+                  <span className="min-w-[4rem] text-center text-xs font-semibold text-slate-600">
+                    Page {safePage} of {pageCount}
+                  </span>
+                  <Button
+                    className="h-8 rounded-xl px-2 text-xs"
+                    type="button"
+                    variant="outline"
+                    disabled={safePage === pageCount}
+                    onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                  >
+                    Next
+                    <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
                 </div>
-              </article>
-            );
-          })}
-        </div>
-      ) : (
-        <EmptyState
-          title="No bugs in the bucket"
-          description="Unassigned tester bugs will appear here when they are added to the developer queue."
-          icon={<FolderKanban className="h-5 w-5" />}
-        />
-      )}
-    </CardContent>
-  </Card>
-);
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <EmptyState
+            title="No bugs in the bucket"
+            description="Unassigned tester bugs will appear here when they are added to the developer queue."
+            icon={<FolderKanban className="h-5 w-5" />}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const WorkTable = ({
   issues,
@@ -1442,6 +1451,10 @@ const DeveloperDashboardPage = () => {
     () => ["issues", "my", user?._id, "developer-dashboard"],
     [user?._id]
   );
+  const bucketQueryKey = useMemo(
+    () => getDeveloperBugBucketQueryKey(user?._id),
+    [user?._id]
+  );
 
   const {
     data: projects = [],
@@ -1460,7 +1473,12 @@ const DeveloperDashboardPage = () => {
     isFetching: isIssuesFetching,
   } = useQuery({
     queryKey: myIssuesQueryKey,
-    queryFn: () => fetchMyIssues({ limit: 200, sortBy: "recently-updated" }),
+    queryFn: () =>
+      fetchMyIssues({
+        excludeClosedBugs: true,
+        limit: 200,
+        sortBy: "recently-updated",
+      }),
     enabled: Boolean(user?._id),
   });
 
@@ -1491,18 +1509,21 @@ const DeveloperDashboardPage = () => {
     isLoading: isBucketLoading,
     refetch: refetchBucket,
   } = useQuery({
-    queryKey: ["issues", "bucket", "developer-dashboard", user?._id],
-    queryFn: () => fetchBugBucket({ limit: 60, sortBy: "priority" }),
+    queryKey: bucketQueryKey,
+    queryFn: () => fetchBugBucket(getDeveloperBugBucketQueryFilters()),
     enabled: Boolean(user?._id),
   });
 
   const allIssues = useMemo(() => (Array.isArray(issues) ? issues : []), [issues]);
   const bucketIssues = useMemo(
-    () => (Array.isArray(bucketIssuesData) ? bucketIssuesData : []),
+    () =>
+      (Array.isArray(bucketIssuesData) ? bucketIssuesData : []).filter(
+        (issue) => !isIssueClosed(issue)
+      ),
     [bucketIssuesData]
   );
   const bugIssues = useMemo(
-    () => allIssues.filter((issue) => isBugIssue(issue)),
+    () => allIssues.filter((issue) => isBugIssue(issue) && !isIssueClosed(issue)),
     [allIssues]
   );
   const taskIssues = useMemo(
@@ -1585,6 +1606,7 @@ const DeveloperDashboardPage = () => {
       );
     },
     onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["issues", "bucket"] });
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
@@ -1600,13 +1622,7 @@ const DeveloperDashboardPage = () => {
       queryClient.setQueryData(myIssuesQueryKey, (current = []) =>
         Array.isArray(current) ? [pickedIssue, ...current] : current
       );
-      queryClient.setQueryData(
-        ["issues", "bucket", "developer-dashboard", user?._id],
-        (current = []) =>
-          Array.isArray(current)
-            ? current.filter((issue) => issue._id !== pickedIssue._id)
-            : current
-      );
+      removeIssueFromBucketCaches(queryClient, pickedIssue?._id);
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
@@ -1619,7 +1635,11 @@ const DeveloperDashboardPage = () => {
     },
   });
 
-  const stats = useMemo(() => getIssueStatusMetrics(allIssues), [allIssues]);
+  const workflowIssues = useMemo(
+    () => [...bugIssues, ...taskIssues],
+    [bugIssues, taskIssues]
+  );
+  const stats = useMemo(() => getIssueStatusMetrics(workflowIssues), [workflowIssues]);
   const normalizedFilters = useMemo(
     () => ({
       ...filters,
@@ -1634,13 +1654,13 @@ const DeveloperDashboardPage = () => {
   );
   const recentlyUpdatedIssues = useMemo(
     () =>
-      [...allIssues]
+      [...workflowIssues]
         .sort(
           (left, right) =>
             new Date(getLastUpdated(right) || 0) - new Date(getLastUpdated(left) || 0)
         )
         .slice(0, 8),
-    [allIssues]
+    [workflowIssues]
   );
   const statCards = useMemo(
     () => [
@@ -1763,6 +1783,7 @@ const DeveloperDashboardPage = () => {
         pickingId={pickMutation.isPending ? pickMutation.variables?._id : ""}
         onOpenIssue={setSelectedIssue}
         onPickIssue={(issue) => pickMutation.mutate(issue)}
+        onViewAllBugs={() => navigate("/dev/bugs?status=available")}
       />
 
       <section className="space-y-5">
@@ -1818,6 +1839,26 @@ const DeveloperDashboardPage = () => {
                       );
                     })}
                   </div>
+                  <label className="relative">
+                    <span className="sr-only">Project</span>
+                    <select
+                      className="field-select h-11 min-w-[180px] rounded-2xl border-white/80 bg-white/92 text-sm shadow-sm"
+                      value={filters.projectId}
+                      onChange={(event) =>
+                        setFilters((current) => ({
+                          ...current,
+                          projectId: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="all">All Projects</option>
+                      {projects.map((project) => (
+                        <option key={project._id} value={project._id}>
+                          {project.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <Button
                     className="h-11 w-11 rounded-2xl p-0"
                     disabled={isIssuesFetching}
@@ -1834,9 +1875,7 @@ const DeveloperDashboardPage = () => {
               </div>
             </CardHeader>
             <CardContent className="space-y-4 p-4 sm:p-5">
-              <ProjectDetailsCard projects={projects} user={user} />
-
-              <div className="grid gap-3 lg:grid-cols-[minmax(240px,1.3fr)_repeat(4,minmax(140px,0.8fr))]">
+              <div className="grid gap-3 lg:grid-cols-[minmax(240px,1.3fr)_repeat(3,minmax(140px,0.8fr))]">
                 <label className="space-y-1.5">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                     Search
@@ -1855,29 +1894,6 @@ const DeveloperDashboardPage = () => {
                       }
                     />
                   </div>
-                </label>
-
-                <label className="space-y-1.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Project
-                  </span>
-                  <select
-                    className="field-select rounded-2xl"
-                    value={filters.projectId}
-                    onChange={(event) =>
-                      setFilters((current) => ({
-                        ...current,
-                        projectId: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="all">All projects</option>
-                    {projects.map((project) => (
-                      <option key={project._id} value={project._id}>
-                        {project.name}
-                      </option>
-                    ))}
-                  </select>
                 </label>
 
                 <label className="space-y-1.5">
@@ -1980,7 +1996,7 @@ const DeveloperDashboardPage = () => {
           <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             <ProjectPanel
               projects={projects}
-              issues={allIssues}
+              issues={workflowIssues}
               onOpenProject={handleOpenProject}
             />
 
@@ -2058,7 +2074,7 @@ const DeveloperDashboardPage = () => {
             </DialogTitle>
           </DialogHeader>
           <PriorityQueue
-            issues={allIssues}
+            issues={workflowIssues}
             updatingId={statusMutation.isPending ? statusMutation.variables?.id : ""}
             onClose={() => setIsPriorityOpen(false)}
             onOpenIssue={setSelectedIssue}

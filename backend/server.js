@@ -38,7 +38,8 @@ const server = http.createServer(app);
 app.disable("x-powered-by");
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ limit: "25mb", extended: true }));
 
 // Protect issue attachments from direct access - must use API endpoint
 app.use("/uploads/issue-attachments", (req, res) => {

@@ -17,6 +17,7 @@ const BUG_PRIORITIES = Object.freeze({
 const BUG_PRIORITY_VALUES = Object.freeze(Object.values(BUG_PRIORITIES));
 
 const BUG_STATUS = Object.freeze({
+  REPORTED: "REPORTED",
   NEW: "NEW",
   TRIAGED: "TRIAGED",
   OPEN: "OPEN",
@@ -28,6 +29,7 @@ const BUG_STATUS = Object.freeze({
   DONE: "DONE",
   CLOSED: "CLOSED",
   REOPEN: "REOPEN",
+  REOPENED: "REOPENED",
   REJECTED: "REJECTED",
   DEFERRED: "DEFERRED",
 });
@@ -36,6 +38,7 @@ const BUG_STATUS_VALUES = Object.freeze(Object.values(BUG_STATUS));
 
 const BUG_STATUS_LABELS = Object.freeze({
   [BUG_STATUS.NEW]: "New",
+  [BUG_STATUS.REPORTED]: "Reported",
   [BUG_STATUS.TRIAGED]: "Triaged",
   [BUG_STATUS.OPEN]: "Open",
   [BUG_STATUS.ASSIGNED]: "Assigned",
@@ -46,6 +49,7 @@ const BUG_STATUS_LABELS = Object.freeze({
   [BUG_STATUS.DONE]: "Done",
   [BUG_STATUS.CLOSED]: "Closed",
   [BUG_STATUS.REOPEN]: "Reopen",
+  [BUG_STATUS.REOPENED]: "Reopened",
   [BUG_STATUS.REJECTED]: "Rejected",
   [BUG_STATUS.DEFERRED]: "Deferred",
 });
@@ -137,11 +141,52 @@ const normalizeToken = (value, fallback = "") => {
 const normalizeBugStatus = (value, fallback = "") => {
   const normalizedValue = normalizeToken(value, fallback);
 
-  if (normalizedValue === "RE_OPEN" || normalizedValue === "REOPENED") {
+  if (normalizedValue === "RE_OPEN") {
     return BUG_STATUS.REOPEN;
   }
 
   return normalizedValue;
+};
+
+const BUG_LIFECYCLE_STATUS = Object.freeze({
+  REPORTED: "REPORTED",
+  ASSIGNED: "ASSIGNED",
+  IN_PROGRESS: "IN_PROGRESS",
+  READY_FOR_QA: "READY_FOR_QA",
+  REOPENED: "REOPENED",
+  CLOSED: "CLOSED",
+});
+
+const BUG_LIFECYCLE_STATUS_VALUES = Object.freeze(Object.values(BUG_LIFECYCLE_STATUS));
+
+const getBugLifecycleStatus = (value, fallback = BUG_LIFECYCLE_STATUS.REPORTED) => {
+  const normalizedValue = normalizeToken(value, fallback);
+
+  if (["REPORTED", "NEW", "OPEN", "TRIAGED", "TODO"].includes(normalizedValue)) {
+    return BUG_LIFECYCLE_STATUS.REPORTED;
+  }
+
+  if (normalizedValue === "ASSIGNED") {
+    return BUG_LIFECYCLE_STATUS.ASSIGNED;
+  }
+
+  if (["IN_PROGRESS", "INPROGRESS"].includes(normalizedValue)) {
+    return BUG_LIFECYCLE_STATUS.IN_PROGRESS;
+  }
+
+  if (["READY_FOR_QA", "READYFORQA", "FIXED", "TESTING", "QA", "REVIEW"].includes(normalizedValue)) {
+    return BUG_LIFECYCLE_STATUS.READY_FOR_QA;
+  }
+
+  if (["REOPEN", "RE_OPEN", "REOPENED"].includes(normalizedValue)) {
+    return BUG_LIFECYCLE_STATUS.REOPENED;
+  }
+
+  if (["CLOSED", "DONE", "RESOLVED"].includes(normalizedValue)) {
+    return BUG_LIFECYCLE_STATUS.CLOSED;
+  }
+
+  return fallback;
 };
 
 const getCanonicalBugStatus = (value, fallback = BUG_STATUS.NEW) => {
@@ -187,11 +232,14 @@ module.exports = {
   BUG_STATUS,
   BUG_STATUS_VALUES,
   BUG_STATUS_LABELS,
+  BUG_LIFECYCLE_STATUS,
+  BUG_LIFECYCLE_STATUS_VALUES,
   BUG_STATUS_FLOW,
   BUG_ALTERNATE_TRANSITIONS,
   BUG_ALLOWED_TRANSITIONS,
   BUG_TERMINAL_STATUS_VALUES,
   normalizeBugStatus,
+  getBugLifecycleStatus,
   getCanonicalBugStatus,
   isBugStatus,
   getBugStatusLabel,

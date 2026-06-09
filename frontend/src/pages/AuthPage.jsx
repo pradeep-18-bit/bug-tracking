@@ -10,7 +10,7 @@ import {
   Mail,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import authWorkspaceImage from "@/assets/auth/bug-tracker-workspace-login.png";
+import authWorkspaceImage from "@/assets/auth/bug-tracker-workspace-login.jpg";
 import pirnavLogo from "@/assets/pirnav-logo.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

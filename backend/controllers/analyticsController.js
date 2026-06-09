@@ -280,6 +280,9 @@ const addPersonalAccess = (match, user) => {
 const buildAnalyticsMatch = async (req, res) => {
   const accessibleProjectIds = await getAccessibleProjectIds(req.user);
   const match = {
+    isDeleted: {
+      $ne: true,
+    },
     projectId: {
       $in: accessibleProjectIds,
     },

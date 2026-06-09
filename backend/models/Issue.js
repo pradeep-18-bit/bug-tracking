@@ -149,6 +149,16 @@ const issueSchema = new Schema(
       default: undefined,
       index: true,
     },
+    reporterName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    testerOwnerName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
@@ -270,6 +280,22 @@ const issueSchema = new Schema(
       type: [Schema.Types.Mixed],
       default: [],
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
   },
   {
     versionKey: false,
@@ -283,5 +309,6 @@ issueSchema.index({ projectId: 1, epicId: 1, planningOrder: 1 });
 issueSchema.index({ assignee: 1, sprintId: 1, status: 1 });
 issueSchema.index({ displayBugId: 1 }, { unique: true, sparse: true });
 issueSchema.index({ projectId: 1, displayBugId: 1 });
+issueSchema.index({ isDeleted: 1, projectId: 1, status: 1 });
 
 module.exports = models.Issue || model("Issue", issueSchema);

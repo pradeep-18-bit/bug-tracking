@@ -620,7 +620,7 @@ const TesterDashboardPage = () => {
 
         <Button
           className="interactive-button h-11 w-full shrink-0 rounded-2xl border border-indigo-300/30 bg-[linear-gradient(90deg,#2563EB_0%,#6366F1_55%,#8B5CF6_100%)] px-4 text-white shadow-[0_14px_28px_-18px_rgba(99,102,241,0.82)] hover:brightness-105 sm:w-auto sm:px-5"
-          onClick={() => navigate("/bugs")}
+          onClick={() => navigate("/bugs?view=report")}
           type="button"
         >
           <Plus className="h-4 w-4" />

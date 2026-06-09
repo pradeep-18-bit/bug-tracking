@@ -1,6 +1,4 @@
 const mongoose = require("mongoose");
-const fs = require("fs/promises");
-const path = require("path");
 const Comment = require("../models/Comment");
 const Epic = require("../models/Epic");
 const Issue = require("../models/Issue");
@@ -12,8 +10,6 @@ const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const User = require("../models/User");
 const IssueAttachment = require("../models/IssueAttachment");
-const IssueWorklog = require("../models/IssueWorklog");
-const SprintNotification = require("../models/SprintNotification");
 const {
   TESTER_SMTP_REQUIRED_MESSAGE,
   ensureUserSmtpConfigured,
@@ -47,6 +43,7 @@ const {
 } = require("../utils/issueTypes");
 const { getNextPlanningOrder } = require("../utils/planningOrder");
 const {
+  COMPLETED_STATUS_QUERY_VALUES,
   buildClosedIssueCondition,
   buildCriticalIssueCondition,
   buildHighPriorityIssueCondition,
@@ -104,6 +101,8 @@ const escapeRegExp = (value = "") =>
 
 const isAssignedToUser = (issue, userId) =>
   Boolean(issue?.assignee) && String(issue.assignee) === String(userId);
+
+const ACTIVE_ISSUE_QUERY = Object.freeze({ isDeleted: { $ne: true } });
 
 const hasBugQaOwnership = (issue, userId) => {
   if (!issue || !userId || !isBugType(issue.type)) {
@@ -182,6 +181,7 @@ const getAccessibleProjectIds = async (user) => {
   const [memberProjectIds, directlyAssignedProjectIds] = await Promise.all([
     Project.find(projectAccessQuery).distinct("_id"),
     Issue.find({
+      ...ACTIVE_ISSUE_QUERY,
       $or: [
         { assignee: user._id },
         { reporter: user._id },
@@ -400,6 +400,32 @@ const hasBugDeveloperAssignment = (issue) =>
 
 const getBugTesterOwnerId = (issue) =>
   getUserIdString(issue?.bugDetails?.testerOwner);
+
+const getBugDeveloperAssignmentId = (issue) =>
+  getUserIdString(
+    issue?.bugDetails?.developerLead ||
+      issue?.assignedDeveloperId ||
+      issue?.assignee
+  );
+
+const isBugReportedAndUnpicked = (issue) => {
+  if (!issue || !isBugType(issue.type)) {
+    return false;
+  }
+
+  const status = getBugStatusForIssueStatus(issue.status);
+
+  return (
+    [BUG_STATUS.REPORTED, BUG_STATUS.NEW, BUG_STATUS.OPEN].includes(status) &&
+    !getBugDeveloperAssignmentId(issue) &&
+    !issue.startedAt
+  );
+};
+
+const canTesterModifyReportedBug = (issue, user) =>
+  user?.role === ROLE_TESTER &&
+  hasBugQaOwnership(issue, user?._id || user?.id) &&
+  isBugReportedAndUnpicked(issue);
 
 const buildBugAssignmentEmailPayload = (issue, actorUser) => {
   const developerUser = resolveBugDeveloperUser(issue);
@@ -1421,6 +1447,7 @@ const buildIssueQueryFromRequest = async (
 ) => {
   const accessibleProjectIds = await getAccessibleProjectIds(req.user);
   const query = {
+    ...ACTIVE_ISSUE_QUERY,
     projectId: {
       $in: accessibleProjectIds,
     },
@@ -1729,7 +1756,7 @@ const getIssues = asyncHandler(async (req, res) => {
   const isBugListQuery = query.type === ISSUE_TYPES.BUG;
   const requestFilters = summarizeBugQueryFilters(req);
   const totalBugsInDatabase = isBugListQuery
-    ? await Issue.countDocuments({ type: ISSUE_TYPES.BUG })
+    ? await Issue.countDocuments({ ...ACTIVE_ISSUE_QUERY, type: ISSUE_TYPES.BUG })
     : 0;
   const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
 
@@ -1767,6 +1794,7 @@ const getIssueStats = asyncHandler(async (req, res) => {
 const getMyReportedBugs = asyncHandler(async (req, res) => {
   const issues = await populateIssueQuery(
     Issue.find({
+      ...ACTIVE_ISSUE_QUERY,
       reporter: req.user.id,
       type: ISSUE_TYPES.BUG,
     })
@@ -1793,6 +1821,24 @@ const getMyIssues = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res, {
     forceOwnAssignee: true,
   });
+
+  if (["true", "1"].includes(String(req.query.excludeClosedBugs || "").trim().toLowerCase())) {
+    addAndCondition(query, {
+      $or: [
+        {
+          type: {
+            $ne: ISSUE_TYPES.BUG,
+          },
+        },
+        {
+          status: {
+            $nin: COMPLETED_STATUS_QUERY_VALUES,
+          },
+        },
+      ],
+    });
+  }
+
   const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
 
   res.status(200).json(serializeIssues(issues));
@@ -1862,9 +1908,10 @@ const getBugBucket = asyncHandler(async (req, res) => {
     userTeamIds,
     filters: queueFilters,
   });
+  Object.assign(query, ACTIVE_ISSUE_QUERY);
   const requestFilters = summarizeBugQueryFilters(req);
   const [totalBugsInDatabase, matchingQueueCount] = await Promise.all([
-    Issue.countDocuments({ type: ISSUE_TYPES.BUG }),
+    Issue.countDocuments({ ...ACTIVE_ISSUE_QUERY, type: ISSUE_TYPES.BUG }),
     Issue.countDocuments(query),
   ]);
 
@@ -2737,9 +2784,14 @@ const createIssue = asyncHandler(async (req, res) => {
   const normalizedPriority = isBug
     ? normalizeBugPriority(priority, "")
     : priority;
+  const reporterName = req.user?.name || req.user?.email || "";
+  const forcedTesterOwner =
+    isBug && req.user.role === ROLE_TESTER ? req.user._id : null;
+  const forcedTesterOwnerName =
+    isBug && req.user.role === ROLE_TESTER ? reporterName : "";
   const bugDetails = isBug
     ? buildBugDetailsDraft(req.body, {}, {
-        testerOwner: req.user.role === ROLE_TESTER ? req.user._id : null,
+        testerOwner: forcedTesterOwner,
         developerLead: assignLater ? null : assigneeId || null,
         addToBucket: assignLater,
       })
@@ -2747,8 +2799,8 @@ const createIssue = asyncHandler(async (req, res) => {
   let bugAssignmentDeveloperUser = null;
 
   if (isBug) {
-    if (req.user.role === ROLE_TESTER) {
-      bugDetails.testerOwner = req.user._id;
+    if (forcedTesterOwner) {
+      bugDetails.testerOwner = forcedTesterOwner;
     }
 
     const bugDetailsError = validateBugDetails({
@@ -2828,6 +2880,8 @@ const createIssue = asyncHandler(async (req, res) => {
         ? bugAssignmentDeveloperUser?.name || bugAssignmentDeveloperUser?.email || ""
         : "",
     reporter: req.user._id,
+    reporterName,
+    testerOwnerName: forcedTesterOwnerName,
     projectId,
     teamId,
     epicId: epicResult.epic?._id || null,
@@ -2952,7 +3006,7 @@ const updateIssue = asyncHandler(async (req, res) => {
 
   const issue = await Issue.findById(req.params.id);
 
-  if (!issue) {
+  if (!issue || issue.isDeleted) {
     res.status(404);
     throw new Error("Issue not found");
   }
@@ -2986,6 +3040,8 @@ const updateIssue = asyncHandler(async (req, res) => {
   const hasProjectLeadershipAccess = canManageProjectPlanning(req.user, targetProject);
 
   if (!isAdmin(req.user)) {
+    const canTesterEditReportedBug = canTesterModifyReportedBug(issue, req.user);
+
     if (
       !hasProjectLeadershipAccess &&
       !hasDirectIssueAccess
@@ -3028,6 +3084,17 @@ const updateIssue = asyncHandler(async (req, res) => {
           "statusChangeComment",
           "comment",
         ]
+      : canTesterEditReportedBug
+        ? [
+            "title",
+            "description",
+            "priority",
+            "bugDetails",
+            "severity",
+            "stepsToReproduce",
+            "expectedResult",
+            "actualResult",
+          ]
       : [
           "status",
           "reopenReason",
@@ -3041,7 +3108,28 @@ const updateIssue = asyncHandler(async (req, res) => {
 
     if (!requestedFields.every((field) => allowedFields.includes(field))) {
       res.status(403);
-      throw new Error("Your role can only update issue status");
+      throw new Error(
+        canTesterEditReportedBug
+          ? "You can only edit reported bug details before developer pickup"
+          : "Your role can only update issue status"
+      );
+    }
+
+    if (canTesterEditReportedBug && isPlainObject(req.body.bugDetails)) {
+      req.body.bugDetails = {
+        ...(hasOwnField(req.body.bugDetails, "severity")
+          ? { severity: req.body.bugDetails.severity }
+          : {}),
+        ...(hasOwnField(req.body.bugDetails, "stepsToReproduce")
+          ? { stepsToReproduce: req.body.bugDetails.stepsToReproduce }
+          : {}),
+        ...(hasOwnField(req.body.bugDetails, "expectedResult")
+          ? { expectedResult: req.body.bugDetails.expectedResult }
+          : {}),
+        ...(hasOwnField(req.body.bugDetails, "actualResult")
+          ? { actualResult: req.body.bugDetails.actualResult }
+          : {}),
+      };
     }
   }
 
@@ -3754,7 +3842,7 @@ const deleteIssue = asyncHandler(async (req, res) => {
     .populate("reporter", "_id name email role")
     .populate("bugDetails.testerOwner", "_id name email role");
 
-  if (!issue) {
+  if (!issue || issue.isDeleted) {
     res.status(404);
     throw new Error("Issue not found");
   }
@@ -3777,8 +3865,7 @@ const deleteIssue = asyncHandler(async (req, res) => {
   const isUserTester = req.user.role === ROLE_TESTER;
   const isReporter = reporterId === userId;
   const isTesterOwner = testerOwnerId === userId;
-  const isTesterBugOwner =
-    isBug && isUserTester && (isReporter || isTesterOwner);
+  const isTesterBugOwner = canTesterModifyReportedBug(issue, req.user);
   const canDelete =
     isUserAdmin || (isBug && isUserManager) || isTesterBugOwner;
 
@@ -3800,46 +3887,68 @@ const deleteIssue = asyncHandler(async (req, res) => {
 
   if (!canDelete) {
     res.status(403);
-    throw new Error("You are not authorized to delete this bug");
+    throw new Error(
+      isBug && isUserTester
+        ? "You can only delete reported bugs before developer pickup"
+        : "You are not authorized to delete this bug"
+    );
   }
 
-  const attachments = await IssueAttachment.find({
-    issueId: issue._id,
-  })
-    .select("storagePath")
-    .lean();
+  const deletedAt = new Date();
+  const deleteMessage = `Bug deleted by ${req.user.name || req.user.email || "Unknown user"} on ${deletedAt.toISOString()}`;
 
-  await Promise.all([
-    Comment.deleteMany({ issueId: issue._id }),
-    IssueAttachment.deleteMany({ issueId: issue._id }),
-    IssueHistory.deleteMany({ issueId: issue._id }),
-    IssueWorklog.deleteMany({ issueId: issue._id }),
-    SprintNotification.deleteMany({ issueId: issue._id }),
-  ]);
-
-  await Promise.all(
-    attachments.map(async (attachment) => {
-      const fileName = path.basename(String(attachment.storagePath || ""));
-
-      if (!fileName) {
-        return;
-      }
-
-      try {
-        await fs.unlink(path.join(__dirname, "..", "uploads", "issue-attachments", fileName));
-      } catch (error) {
-        if (error.code !== "ENOENT") {
-          console.warn("[issues] unable to remove deleted issue attachment", {
-            issueId: String(issue._id),
-            fileName,
-            message: error.message,
-          });
-        }
-      }
+  issue.isDeleted = true;
+  issue.deletedAt = deletedAt;
+  issue.deletedBy = req.user._id;
+  issue.updatedAt = deletedAt;
+  issue.updatedBy = req.user._id;
+  issue.activityLogs = issue.activityLogs || [];
+  issue.activityLogs.push(
+    buildActivityLogEntry({
+      action: "BUG_DELETED",
+      from: issue.status,
+      to: "DELETED",
+      by: req.user,
+      time: deletedAt,
+      meta: {
+        bugId: issue.displayBugId || String(issue._id),
+        title: issue.title,
+        creatorId: reporterId,
+        creatorName: issue.reporter?.name || issue.reporterName || "",
+        message: deleteMessage,
+      },
     })
   );
-  
-  await issue.deleteOne();
+
+  await issue.save();
+
+  await recordIssueHistory({
+    issueId: issue._id,
+    projectId: issue.projectId,
+    actorId: req.user._id,
+    eventType: "BUG_DELETED",
+    field: "isDeleted",
+    fromValue: false,
+    toValue: true,
+    meta: {
+      bugId: issue.displayBugId || String(issue._id),
+      title: issue.title,
+      creatorId: reporterId,
+      creatorName: issue.reporter?.name || issue.reporterName || "",
+      message: deleteMessage,
+    },
+  });
+
+  await emitIssueWorkflowChange({
+    issue,
+    req,
+    eventName: "BugDeleted",
+    action: "BUG_DELETED",
+    meta: {
+      deletedAt,
+      deletedBy: userId,
+    },
+  });
 
   console.log("[issues] issue deleted successfully", {
     issueId: String(issue._id),
