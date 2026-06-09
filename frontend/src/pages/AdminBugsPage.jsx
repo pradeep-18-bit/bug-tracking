@@ -1391,7 +1391,7 @@ const AdminBugsPage = () => {
                 <div className="hidden md:block">
                   <div className="max-h-[430px] overflow-auto pr-1">
                     <div className="min-w-[900px] space-y-1.5 lg:min-w-0">
-                      <div className="grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]">
+                      <div className="grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(130px,0.65fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]">
                         <div className="flex justify-center">
                           <input
                             aria-label="Select all triage bugs"
@@ -1405,6 +1405,7 @@ const AdminBugsPage = () => {
                         </div>
                         <span>Bug Info</span>
                         <span>Module / Project</span>
+                        <span>Tester</span>
                         <span>Developer</span>
                         <span>Status / Priority</span>
                         <span>Date</span>
@@ -1413,6 +1414,8 @@ const AdminBugsPage = () => {
 
                       {triageBugs.slice(0, 60).map((bugIssue) => {
                         const details = resolveBugDetails(bugIssue);
+                        const reporter = getReporter(bugIssue);
+                        const reporterName = getUserLabel(reporter, "Unknown tester");
                         const developer = getBugDeveloper(bugIssue);
                         const developerName = getUserLabel(developer);
                         const status = normalizeBugStatusForIssue(bugIssue);
@@ -1424,7 +1427,7 @@ const AdminBugsPage = () => {
                           <article
                             key={bugIssue._id}
                             className={cn(
-                              "group relative grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 rounded-lg border border-l-4 border-slate-200 bg-white px-2 py-2 shadow-sm transition duration-150 hover:-translate-y-px hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-md lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]",
+                              "group relative grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 rounded-lg border border-l-4 border-slate-200 bg-white px-2 py-2 shadow-sm transition duration-150 hover:-translate-y-px hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-md lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(130px,0.65fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]",
                               severityAccentClassName(severity)
                             )}
                           >
@@ -1452,6 +1455,13 @@ const AdminBugsPage = () => {
                                 <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-600">{moduleTag}</span>
                               </div>
                               <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">{getIssueCategory(bugIssue)}</p>
+                            </div>
+
+                            <div className="min-w-0">
+                              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-[10px] text-white">{getInitials(reporterName)}</span>
+                                <span className="truncate">{reporterName}</span>
+                              </span>
                             </div>
 
                             <div className="min-w-0">
@@ -1543,7 +1553,8 @@ const AdminBugsPage = () => {
 
                         <div className="mt-2 grid gap-1.5 text-[11px] font-medium text-slate-600">
                           <span className="truncate">{details.moduleName || "Unmapped"} / {getIssueCategory(bugIssue)}</span>
-                          <span className="truncate">{developerName}</span>
+                          <span className="truncate">Tester: {getUserLabel(getReporter(bugIssue), "Unknown tester")}</span>
+                          <span className="truncate">Dev: {developerName}</span>
                           <span className="truncate">{formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}</span>
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">

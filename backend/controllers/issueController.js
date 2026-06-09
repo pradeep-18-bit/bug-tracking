@@ -416,7 +416,7 @@ const isBugReportedAndUnpicked = (issue) => {
   const status = getBugStatusForIssueStatus(issue.status);
 
   return (
-    [BUG_STATUS.REPORTED, BUG_STATUS.NEW, BUG_STATUS.OPEN].includes(status) &&
+    [BUG_STATUS.REPORTED, BUG_STATUS.NEW, BUG_STATUS.OPEN, BUG_STATUS.TRIAGED].includes(status) &&
     !getBugDeveloperAssignmentId(issue) &&
     !issue.startedAt
   );

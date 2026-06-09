@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { FolderKanban, Plus, Search, SlidersHorizontal } from "lucide-react";
 import {
   createIssue,
+  deleteIssue,
   fetchIssues,
   fetchProjects,
   updateIssue,
@@ -263,9 +264,24 @@ const TesterBugsPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
     onError: (error) => {
       showToast("error", error.response?.data?.message || "Unable to update bug status.");
+    },
+  });
+
+  const deleteIssueMutation = useMutation({
+    mutationFn: deleteIssue,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      showToast("success", "Bug deleted successfully.");
+      setSelectedIssue(null);
+    },
+    onError: (error) => {
+      showToast("error", error.response?.data?.message || "Unable to delete bug.");
     },
   });
 
@@ -313,6 +329,22 @@ const TesterBugsPage = () => {
 
     if (action === "reopen") {
       return handleStatusChange(issue, ISSUE_STATUS.REOPEN);
+    }
+
+    if (action === "edit") {
+      setSelectedIssue(issue);
+      return Promise.resolve();
+    }
+
+    if (action === "delete") {
+      const confirmed = window.confirm(
+        "Are you sure you want to delete this bug?\n\nThis action cannot be undone."
+      );
+
+      if (confirmed) {
+        return deleteIssueMutation.mutateAsync(issue._id);
+      }
+      return Promise.resolve();
     }
 
     setSelectedIssue(issue);
@@ -462,6 +494,7 @@ const TesterBugsPage = () => {
           <BugKanbanBoard
             actionMode="tester"
             columns={TESTER_BUG_COLUMNS}
+            currentUserId={testerId}
             issues={filteredIssues}
             onAction={handleBoardAction}
             onOpen={setSelectedIssue}
@@ -514,9 +547,16 @@ const TesterBugsPage = () => {
       </div>
 
       <IssueDetailsDialog
-        deletingId=""
+        deletingId={deleteIssueMutation.isPending ? deleteIssueMutation.variables : ""}
         issue={selectedIssue}
-        onDeleteIssue={async () => {}}
+        onDeleteIssue={async (id) => {
+          const confirmed = window.confirm(
+            "Are you sure you want to delete this bug?\n\nThis action cannot be undone."
+          );
+          if (confirmed) {
+            await deleteIssueMutation.mutateAsync(id);
+          }
+        }}
         onOpenChange={(open) => {
           if (!open) {
             setSelectedIssue(null);
@@ -526,9 +566,28 @@ const TesterBugsPage = () => {
         open={Boolean(selectedIssue)}
         projects={assignedProjects}
         updatingId={updateIssueMutation.isPending ? updateIssueMutation.variables?.id : ""}
-        canEditPriority={false}
+        canEditCoreDetails={
+          selectedIssue &&
+          normalizeBugStatusForIssue(selectedIssue) === ISSUE_STATUS.NEW &&
+          !selectedIssue.assignee &&
+          !resolveBugDetails(selectedIssue)?.developerLead &&
+          String(selectedIssue.reporter?._id || selectedIssue.reporter || "") === testerId
+        }
+        canEditPriority={
+          selectedIssue &&
+          normalizeBugStatusForIssue(selectedIssue) === ISSUE_STATUS.NEW &&
+          !selectedIssue.assignee &&
+          !resolveBugDetails(selectedIssue)?.developerLead &&
+          String(selectedIssue.reporter?._id || selectedIssue.reporter || "") === testerId
+        }
         canEditAssignee={false}
-        canDeleteIssue={false}
+        canDeleteIssue={
+          selectedIssue &&
+          normalizeBugStatusForIssue(selectedIssue) === ISSUE_STATUS.NEW &&
+          !selectedIssue.assignee &&
+          !resolveBugDetails(selectedIssue)?.developerLead &&
+          String(selectedIssue.reporter?._id || selectedIssue.reporter || "") === testerId
+        }
       />
       <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
     </div>

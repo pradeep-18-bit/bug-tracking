@@ -564,11 +564,9 @@ const IssueComposer = ({
                 addToBucket: Boolean(formData.bugDetails.addToBucket),
                 estimatedEffort: formData.bugDetails.estimatedEffort,
                 severity: formData.bugDetails.severity,
-                ...(!isTesterBugReport
-                  ? {
-                      testerOwnerId: formData.bugDetails.testerOwnerId || null,
-                    }
-                  : {}),
+                testerOwnerId: isTesterBugReport
+                  ? defaultAssigneeKey || null
+                  : formData.bugDetails.testerOwnerId || null,
                 developerLeadId: formData.bugDetails.addToBucket
                   ? null
                   : formData.bugDetails.developerLeadId || null,
