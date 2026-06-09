@@ -126,7 +126,15 @@ const getDashboardFilterQueryValue = (value) => {
 };
 
 const getNestedUser = (value) => (value && typeof value === "object" ? value : null);
-const getReporter = (issue) => getNestedUser(issue?.reporter);
+const getNamedFallbackUser = (name = "", fallback = null) =>
+  name ? { ...(fallback || {}), name } : fallback;
+const getReporter = (issue) =>
+  getNamedFallbackUser(issue?.reporterName, getNestedUser(issue?.reporter));
+const getTesterOwner = (issue) =>
+  getNamedFallbackUser(
+    issue?.testerOwnerName,
+    getNestedUser(resolveBugDetails(issue)?.testerOwner)
+  );
 const getBugDeveloper = (issue) =>
   getNestedUser(resolveBugDetails(issue)?.developerLead) || getNestedUser(issue?.assignee);
 

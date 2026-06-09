@@ -13,6 +13,8 @@ const BugKanbanColumn = ({
   column,
   issues = [],
   onAction,
+  canDeleteIssue,
+  canEditIssue,
   onOpen,
   updatingId = "",
 }) => {
@@ -61,6 +63,8 @@ const BugKanbanColumn = ({
               issue={issue}
               isUpdating={updatingId === issue._id}
               onAction={onAction}
+              canDeleteIssue={canDeleteIssue}
+              canEditIssue={canEditIssue}
               onOpen={onOpen}
             />
           ))

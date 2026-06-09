@@ -25,6 +25,8 @@ const BugKanbanBoard = ({
   columns = [],
   issues = [],
   onAction,
+  canDeleteIssue,
+  canEditIssue,
   onOpen,
   onStatusChange,
   updatingId = "",
@@ -134,6 +136,8 @@ const BugKanbanBoard = ({
               column={column}
               issues={column.items}
               onAction={onAction}
+              canDeleteIssue={canDeleteIssue}
+              canEditIssue={canEditIssue}
               onOpen={onOpen}
               updatingId={updatingId}
             />
@@ -149,6 +153,8 @@ const BugKanbanBoard = ({
             issue={activeIssue}
             isOverlay
             onAction={onAction}
+            canDeleteIssue={canDeleteIssue}
+            canEditIssue={canEditIssue}
             onOpen={onOpen}
           />
         ) : null}

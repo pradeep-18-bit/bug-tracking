@@ -21,7 +21,11 @@ const getProjectName = (issue) => issue?.projectId?.name || "Unknown project";
 const getAssigneeName = (issue) =>
   issue?.assignee?.name || resolveBugDetails(issue)?.developerLead?.name || "Unassigned";
 const getReporterName = (issue) =>
-  issue?.reporter?.name || resolveBugDetails(issue)?.testerOwner?.name || "Unknown reporter";
+  issue?.reporter?.name ||
+  issue?.reporterName ||
+  resolveBugDetails(issue)?.testerOwner?.name ||
+  issue?.testerOwnerName ||
+  "Unknown reporter";
 const getSeverity = (issue) => resolveBugDetails(issue)?.severity || "Not set";
 const getModuleName = (issue) => resolveBugDetails(issue)?.moduleName || "Unmapped module";
 

@@ -56,6 +56,16 @@ const serializeIssue = (issue) => {
     ...serializedIssue,
     status,
     bugLifecycleStatus: isBug ? getBugLifecycleStatus(status) : null,
+    reporterName:
+      serializedIssue.reporterName ||
+      serializedIssue.reporter?.name ||
+      serializedIssue.reporter?.email ||
+      "",
+    testerOwnerName:
+      serializedIssue.testerOwnerName ||
+      serializedIssue.bugDetails?.testerOwner?.name ||
+      serializedIssue.bugDetails?.testerOwner?.email ||
+      "",
     dependsOnIssueId: dependencyIssue,
     assigneeId: assigneeReference ? String(assigneeReference) : null,
     assignedDeveloperId: serializedIssue.assignedDeveloperId
