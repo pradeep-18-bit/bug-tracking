@@ -1384,14 +1384,15 @@ const OrganizationReportsDashboard = () => {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["analytics"] });
   const exportAnalytics = () =>
     exportCsv([
-      ["Workflow", "ID", "Title", "Project", "Team", "Owner", "Status", "Priority", "Severity", "Created", "Resolution ms"],
+      ["Workflow", "ID", "Title", "Project", "Team", "Tester", "Owner", "Status", "Priority", "Severity", "Created", "Resolution ms"],
       ...workflowIssues.map((issue) => [
         issue.type === ISSUE_TYPES.BUG ? "Bug" : "Task",
         issue.issueId,
         issue.title,
         issue.project?.name || "",
         issue.team?.name || "",
-        resolveUserLabel(issue.developerLead || issue.assignee || issue.reporter, ""),
+        resolveUserLabel(issue.reporter || issue.testerOwner, ""),
+        resolveUserLabel(issue.developerLead || issue.assignee, ""),
         issue.status,
         issue.priority,
         issue.severity || "",
@@ -1837,6 +1838,7 @@ const OrganizationReportsDashboard = () => {
                   <th className="px-3 py-3">ID</th>
                   <th className="px-3 py-3">Title</th>
                   <th className="px-3 py-3">Project</th>
+                  <th className="px-3 py-3">Tester</th>
                   <th className="px-3 py-3">Owner</th>
                   <th className="px-3 py-3">Status</th>
                   <th className="px-3 py-3">Priority</th>
@@ -1851,7 +1853,8 @@ const OrganizationReportsDashboard = () => {
                     <td className="px-3 py-3 font-mono text-xs font-semibold">{issue.issueId}</td>
                     <td className="max-w-[280px] truncate px-3 py-3 font-semibold text-slate-950">{issue.title}</td>
                     <td className="px-3 py-3">{issue.project?.name || "Unknown"}</td>
-                    <td className="px-3 py-3">{resolveUserLabel(issue.developerLead || issue.assignee || issue.reporter)}</td>
+                    <td className="px-3 py-3 font-medium text-slate-600">{resolveUserLabel(issue.reporter || issue.testerOwner)}</td>
+                    <td className="px-3 py-3 font-medium text-slate-600">{resolveUserLabel(issue.developerLead || issue.assignee)}</td>
                     <td className="px-3 py-3"><Badge variant={getIssueStatusVariant(issue.status)}>{issue.status}</Badge></td>
                     <td className="px-3 py-3"><Badge variant={getIssuePriorityVariant(issue.priority)}>{issue.priority}</Badge></td>
                     <td className="px-3 py-3">{formatDateTime(issue.createdAt)}</td>

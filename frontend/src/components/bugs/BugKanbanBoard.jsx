@@ -23,6 +23,7 @@ import { Card, CardContent } from "@/components/ui/card";
 const BugKanbanBoard = ({
   actionMode = "tester",
   columns = [],
+  currentUserId = "",
   issues = [],
   onAction,
   canDeleteIssue,
@@ -134,6 +135,7 @@ const BugKanbanBoard = ({
               actionMode={actionMode}
               activeIssueId={activeIssueId}
               column={column}
+              currentUserId={currentUserId}
               issues={column.items}
               onAction={onAction}
               canDeleteIssue={canDeleteIssue}
@@ -150,6 +152,7 @@ const BugKanbanBoard = ({
           <BugCard
             actionMode={actionMode}
             columnKey={activeColumnKey}
+            currentUserId={currentUserId}
             issue={activeIssue}
             isOverlay
             onAction={onAction}
