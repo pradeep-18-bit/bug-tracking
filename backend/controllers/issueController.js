@@ -109,8 +109,10 @@ const hasBugQaOwnership = (issue, userId) => {
     return false;
   }
 
+  const userIdStr = String(userId);
+
   return [issue.reporter, issue.bugDetails?.testerOwner].some(
-    (value) => value && String(value) === String(userId)
+    (value) => value && getUserIdString(value) === userIdStr
   );
 };
 
@@ -416,7 +418,7 @@ const isBugReportedAndUnpicked = (issue) => {
   const status = getBugStatusForIssueStatus(issue.status);
 
   return (
-    [BUG_STATUS.REPORTED, BUG_STATUS.NEW, BUG_STATUS.OPEN].includes(status) &&
+    [BUG_STATUS.REPORTED, BUG_STATUS.NEW, BUG_STATUS.OPEN, BUG_STATUS.TRIAGED].includes(status) &&
     !getBugDeveloperAssignmentId(issue) &&
     !issue.startedAt
   );
@@ -3838,9 +3840,7 @@ const deleteIssue = asyncHandler(async (req, res) => {
     throw new Error("Invalid issue id");
   }
 
-  const issue = await Issue.findById(req.params.id)
-    .populate("reporter", "_id name email role")
-    .populate("bugDetails.testerOwner", "_id name email role");
+  const issue = await Issue.findById(req.params.id);
 
   if (!issue || issue.isDeleted) {
     res.status(404);
@@ -3854,47 +3854,44 @@ const deleteIssue = asyncHandler(async (req, res) => {
     throw new Error("You do not have access to this project");
   }
 
-  const userId = String(req.user.id || req.user._id);
-  const reporterId = String(issue.reporter?._id || issue.reporter || "");
-  const testerOwnerId = String(
-    issue.bugDetails?.testerOwner?._id || issue.bugDetails?.testerOwner || ""
-  );
+  const userId = getUserIdString(req.user);
+  const reporterId = getUserIdString(issue.reporter);
   const isBug = isBugType(issue.type);
   const isUserAdmin = req.user.role === ROLE_ADMIN;
   const isUserManager = req.user.role === ROLE_MANAGER;
   const isUserTester = req.user.role === ROLE_TESTER;
-  const isReporter = reporterId === userId;
-  const isTesterOwner = testerOwnerId === userId;
-  const isTesterBugOwner = canTesterModifyReportedBug(issue, req.user);
+  const isTesterOwnerOfBug = hasBugQaOwnership(issue, userId);
+  const isReportedAndUnpicked = isBug && isBugReportedAndUnpicked(issue);
+
   const canDelete =
-    isUserAdmin || (isBug && isUserManager) || isTesterBugOwner;
+    isUserAdmin || (isBug && isUserManager) || (isUserTester && isTesterOwnerOfBug && isReportedAndUnpicked);
 
   console.log("DELETE BUG DEBUG", {
     issueId: String(issue._id),
     issueReporter: reporterId,
-    issueTesterOwner: testerOwnerId,
     loggedInUser: userId,
     role: req.user.role,
     isBug,
     isUserAdmin,
     isUserManager,
     isUserTester,
-    isReporter,
-    isTesterOwner,
-    isTesterBugOwner,
+    isTesterOwnerOfBug,
+    isReportedAndUnpicked,
     canDelete,
   });
 
   if (!canDelete) {
+    if (isUserTester && isTesterOwnerOfBug && !isReportedAndUnpicked) {
+      res.status(403);
+      throw new Error("Bug can no longer be deleted after assignment.");
+    }
+
     res.status(403);
-    throw new Error(
-      isBug && isUserTester
-        ? "You can only delete reported bugs before developer pickup"
-        : "You are not authorized to delete this bug"
-    );
+    throw new Error("You are not authorized to delete this bug");
   }
 
   const deletedAt = new Date();
+  const bugId = issue.displayBugId || String(issue._id);
   const deleteMessage = `Bug deleted by ${req.user.name || req.user.email || "Unknown user"} on ${deletedAt.toISOString()}`;
 
   issue.isDeleted = true;
@@ -3911,11 +3908,13 @@ const deleteIssue = asyncHandler(async (req, res) => {
       by: req.user,
       time: deletedAt,
       meta: {
-        bugId: issue.displayBugId || String(issue._id),
+        bugId,
         title: issue.title,
         creatorId: reporterId,
-        creatorName: issue.reporter?.name || issue.reporterName || "",
+        creatorName: issue.reporterName || "",
         message: deleteMessage,
+        deletedBy: req.user._id,
+        deletedAt,
       },
     })
   );
@@ -3931,11 +3930,13 @@ const deleteIssue = asyncHandler(async (req, res) => {
     fromValue: false,
     toValue: true,
     meta: {
-      bugId: issue.displayBugId || String(issue._id),
+      bugId,
       title: issue.title,
       creatorId: reporterId,
-      creatorName: issue.reporter?.name || issue.reporterName || "",
+      creatorName: issue.reporterName || "",
       message: deleteMessage,
+      deletedBy: req.user._id,
+      deletedAt,
     },
   });
 
@@ -3947,6 +3948,7 @@ const deleteIssue = asyncHandler(async (req, res) => {
     meta: {
       deletedAt,
       deletedBy: userId,
+      bugId,
     },
   });
 
@@ -3959,6 +3961,9 @@ const deleteIssue = asyncHandler(async (req, res) => {
     success: true,
     message: isBug ? "Bug deleted successfully" : "Issue deleted successfully",
     deletedId: issue._id,
+    bugId,
+    deletedAt,
+    deletedBy: userId,
   });
 });
 

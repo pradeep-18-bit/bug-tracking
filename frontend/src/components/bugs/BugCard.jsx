@@ -7,9 +7,11 @@ import {
   FolderKanban,
   GripVertical,
   LoaderCircle,
+  Pencil,
   Play,
   RotateCcw,
   Send,
+  Trash2,
   UserCircle2,
 } from "lucide-react";
 import { getIssueDisplayKey, getIssuePriorityVariant, resolveBugDetails } from "@/lib/issues";
@@ -52,6 +54,7 @@ const ActionButton = ({ action, disabled }) => {
 const BugCard = ({
   actionMode = "tester",
   columnKey = "",
+  currentUserId = "",
   issue,
   isOverlay = false,
   isUpdating = false,
@@ -63,6 +66,7 @@ const BugCard = ({
       <BugCardSurface
         actionMode={actionMode}
         columnKey={columnKey}
+        currentUserId={currentUserId}
         issue={issue}
         isOverlay
         isUpdating={isUpdating}
@@ -76,6 +80,7 @@ const BugCard = ({
     <DraggableBugCard
       actionMode={actionMode}
       columnKey={columnKey}
+      currentUserId={currentUserId}
       issue={issue}
       isUpdating={isUpdating}
       onAction={onAction}
@@ -84,7 +89,15 @@ const BugCard = ({
   );
 };
 
-const DraggableBugCard = ({ actionMode, columnKey, issue, isUpdating, onAction, onOpen }) => {
+const DraggableBugCard = ({
+  actionMode,
+  columnKey,
+  currentUserId,
+  issue,
+  isUpdating,
+  onAction,
+  onOpen,
+}) => {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: issue._id,
     data: { issue },
@@ -95,6 +108,7 @@ const DraggableBugCard = ({ actionMode, columnKey, issue, isUpdating, onAction, 
     <BugCardSurface
       actionMode={actionMode}
       columnKey={columnKey}
+      currentUserId={currentUserId}
       dragAttributes={attributes}
       dragListeners={listeners}
       issue={issue}
@@ -108,7 +122,7 @@ const DraggableBugCard = ({ actionMode, columnKey, issue, isUpdating, onAction, 
   );
 };
 
-const buildActions = ({ actionMode, columnKey, issue, onAction, onOpen }) => {
+const buildActions = ({ actionMode, columnKey, currentUserId, issue, onAction, onOpen }) => {
   const openAction = {
     label: "View Details",
     icon: Eye,
@@ -164,21 +178,44 @@ const buildActions = ({ actionMode, columnKey, issue, onAction, onOpen }) => {
     return actionsByColumn[columnKey] || [openAction];
   }
 
-  if (columnKey === "readyForQa") {
-    return [
-      {
-        label: "Close",
-        icon: Send,
-        variant: "default",
-        onClick: () => onAction?.("close", issue),
-      },
-      {
-        label: "Reopen",
-        icon: RotateCcw,
-        onClick: () => onAction?.("reopen", issue),
-      },
-      openAction,
-    ];
+  if (actionMode === "tester") {
+    if (columnKey === "reported") {
+      const isReporter = currentUserId && String(currentUserId) === String(issue.reporter?._id || issue.reporter || "");
+      const isUnassigned = !issue.assignee && !resolveBugDetails(issue)?.developerLead;
+
+      if (isReporter && isUnassigned) {
+        return [
+          {
+            label: "Edit",
+            icon: Pencil,
+            onClick: () => onAction?.("edit", issue),
+          },
+          {
+            label: "Delete",
+            icon: Trash2,
+            onClick: () => onAction?.("delete", issue),
+          },
+          openAction,
+        ];
+      }
+    }
+
+    if (columnKey === "readyForQa") {
+      return [
+        {
+          label: "Close",
+          icon: Send,
+          variant: "default",
+          onClick: () => onAction?.("close", issue),
+        },
+        {
+          label: "Reopen",
+          icon: RotateCcw,
+          onClick: () => onAction?.("reopen", issue),
+        },
+        openAction,
+      ];
+    }
   }
 
   return [openAction];
@@ -187,6 +224,7 @@ const buildActions = ({ actionMode, columnKey, issue, onAction, onOpen }) => {
 const BugCardSurface = ({
   actionMode,
   columnKey,
+  currentUserId,
   dragAttributes = {},
   dragListeners = {},
   issue,
@@ -199,7 +237,14 @@ const BugCardSurface = ({
   style,
 }) => {
   const details = resolveBugDetails(issue);
-  const actions = buildActions({ actionMode, columnKey, issue, onAction, onOpen });
+  const actions = buildActions({
+    actionMode,
+    columnKey,
+    currentUserId,
+    issue,
+    onAction,
+    onOpen,
+  });
 
   return (
     <article

@@ -11,6 +11,7 @@ const BugKanbanColumn = ({
   actionMode,
   activeIssueId = "",
   column,
+  currentUserId = "",
   issues = [],
   onAction,
   canDeleteIssue,
@@ -60,6 +61,7 @@ const BugKanbanColumn = ({
               key={issue._id}
               actionMode={actionMode}
               columnKey={column.key}
+              currentUserId={currentUserId}
               issue={issue}
               isUpdating={updatingId === issue._id}
               onAction={onAction}
