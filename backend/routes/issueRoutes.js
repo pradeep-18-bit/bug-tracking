@@ -6,6 +6,7 @@ const {
   getMyIssues,
   getBugBucket,
   getRecentIssueActivity,
+  getNotifications,
   createIssue,
   updateIssue,
   pickIssue,
@@ -32,6 +33,7 @@ router.get("/my", protect, getMyIssues);
 router.get("/reported/me", protect, getMyReportedBugs);
 router.get("/bucket", protect, getBugBucket);
 router.get("/activity", protect, getRecentIssueActivity);
+router.get("/notifications", protect, getNotifications);
 router.get("/stats", protect, getIssueStats);
 router.patch("/:id/planning", protect, updateIssuePlanning);
 router.post("/:id/sprint", protect, moveIssueToSprint);

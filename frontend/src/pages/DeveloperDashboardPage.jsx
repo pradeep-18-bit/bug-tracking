@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowUpDown,
   BarChart3,
+  Bell,
   Bug,
   CalendarClock,
   ChevronLeft,
@@ -28,9 +29,11 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   fetchIssueActivity,
   fetchIssueStats,
+  fetchNotifications,
   fetchBugBucket,
   fetchMyIssues,
   fetchProjects,
@@ -428,12 +431,86 @@ const activityText = (entry) => {
   return "updated";
 };
 
+const NotificationCard = ({ notifications = [], isLoading, onOpenNotification }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+
+  useEffect(() => {
+    if (isLoading || notifications.length <= 1 || isPaused) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % notifications.length);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [isLoading, notifications.length, isPaused]);
+
+  useEffect(() => {
+    if (currentIndex >= notifications.length && notifications.length > 0) {
+      setCurrentIndex(0);
+    }
+  }, [notifications.length, currentIndex]);
+
+  const currentNotification = notifications[currentIndex];
+
+  return (
+    <div
+      className="group flex h-16 min-w-[280px] flex-1 flex-col justify-center rounded-[22px] border border-blue-100/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.86),rgba(240,249,255,0.78),rgba(239,246,255,0.68))] px-4 py-2 shadow-[0_16px_34px_-26px_rgba(37,99,235,0.5)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_18px_38px_-24px_rgba(37,99,235,0.6)]"
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+    >
+      <div className="mb-0.5 flex items-center gap-2">
+        <Bell className="h-3 w-3 text-blue-600" />
+        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-blue-600/80">
+          Recent Notifications
+        </p>
+      </div>
+
+      <div className="relative h-7 overflow-hidden">
+        {isLoading ? (
+          <div className="flex h-full items-center gap-2">
+            <Skeleton className="h-3 w-3/4 rounded-full" />
+            <Skeleton className="h-2 w-8 rounded-full" />
+          </div>
+        ) : notifications.length > 0 && currentNotification ? (
+          <div className="relative h-full w-full">
+            <AnimatePresence mode="wait">
+              <motion.button
+                key={currentIndex}
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -20, opacity: 0 }}
+                transition={{ duration: 0.5, ease: "easeInOut" }}
+                className="absolute inset-0 flex items-center justify-between gap-3 text-left"
+                onClick={() => onOpenNotification(currentNotification)}
+              >
+                <p className="truncate text-xs font-semibold text-slate-900">
+                  {currentNotification.text}
+                </p>
+                <span className="shrink-0 text-[10px] font-medium text-slate-400">
+                  {formatDateTime(currentNotification.timestamp).split(",")[1]?.trim() || "Just now"}
+                </span>
+              </motion.button>
+            </AnimatePresence>
+          </div>
+        ) : (
+          <p className="flex h-full items-center text-xs font-medium text-slate-400">
+            No new notifications
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const SprintProgressWidget = ({ metrics, isLoading }) => {
   const percentage = metrics?.percentage || 0;
 
   return (
     <div
-      className="group ml-0 flex h-16 min-w-[240px] flex-1 flex-col justify-center rounded-[22px] border border-cyan-100/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.86),rgba(239,246,255,0.78),rgba(236,254,255,0.68))] px-4 py-2 shadow-[0_16px_34px_-26px_rgba(14,165,233,0.78)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-200 hover:shadow-[0_18px_38px_-24px_rgba(14,165,233,0.9)] sm:ml-auto sm:max-w-[340px]"
+      className="group flex h-16 min-w-[240px] flex-1 flex-col justify-center rounded-[22px] border border-cyan-100/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.86),rgba(239,246,255,0.78),rgba(236,254,255,0.68))] px-4 py-2 shadow-[0_16px_34px_-26px_rgba(14,165,233,0.78)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-200 hover:shadow-[0_18px_38px_-24px_rgba(14,165,233,0.9)] sm:ml-auto sm:max-w-[340px]"
       title="Sprint completion based on assigned tasks."
     >
       {isLoading ? (
@@ -1515,6 +1592,16 @@ const DeveloperDashboardPage = () => {
     enabled: Boolean(user?._id),
   });
 
+  const {
+    data: notifications = [],
+    isLoading: isNotificationsLoading,
+  } = useQuery({
+    queryKey: ["issues", "notifications", user?._id],
+    queryFn: fetchNotifications,
+    enabled: Boolean(user?._id),
+    refetchInterval: 30000, // Refresh notifications every 30s
+  });
+
   const allIssues = useMemo(() => (Array.isArray(issues) ? issues : []), [issues]);
   const bucketIssues = useMemo(
     () =>
@@ -1727,6 +1814,12 @@ const DeveloperDashboardPage = () => {
     }
   };
 
+  const handleOpenNotification = (notification) => {
+    if (notification.link) {
+      navigate(notification.link);
+    }
+  };
+
   if (error) {
     return (
       <Card>
@@ -1775,6 +1868,11 @@ const DeveloperDashboardPage = () => {
           <Flame className="h-4 w-4" />
           Priority Queue
         </Button>
+        <NotificationCard
+          notifications={notifications}
+          isLoading={isNotificationsLoading}
+          onOpenNotification={handleOpenNotification}
+        />
         <SprintProgressWidget metrics={sprintProgress} isLoading={isSprintProgressLoading} />
       </section>
 
