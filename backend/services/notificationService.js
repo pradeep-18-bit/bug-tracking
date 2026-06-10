@@ -1,7 +1,36 @@
 const Notification = require("../models/Notification");
 const User = require("../models/User");
 const TeamMember = require("../models/TeamMember");
+const ProjectTeam = require("../models/ProjectTeam");
 const { emitToUser } = require("../socket");
+const { ROLE_TESTER } = require("../utils/roles");
+
+/**
+ * Finds all testers attached to a project through its teams
+ */
+const getTestersForProject = async (projectId) => {
+  if (!projectId) return [];
+
+  // Find all teams attached to the project
+  const projectTeams = await ProjectTeam.find({ projectId }).select("teamId").lean();
+  const teamIds = projectTeams.map((pt) => pt.teamId);
+
+  if (!teamIds.length) return [];
+
+  // Find all members of those teams
+  const teamMembers = await TeamMember.find({ teamId: { $in: teamIds } }).select("userId").lean();
+  const userIds = [...new Set(teamMembers.map((tm) => String(tm.userId)))];
+
+  if (!userIds.length) return [];
+
+  // Find users among team members who have the Tester role
+  const testers = await User.find({
+    _id: { $in: userIds },
+    role: ROLE_TESTER,
+  }).select("_id").lean();
+
+  return testers.map((t) => t._id);
+};
 
 /**
  * Creates a notification for a specific user, saves to DB, and emits via Socket.IO
@@ -47,14 +76,28 @@ const notifyIssueEvent = async ({
   const issueKey = issue.displayBugId || issue.issueKey || "Item";
   const issueTitle = issue.title;
   const link = `/issues?search=${issueKey}`;
+  const isBug = issue.type === "Bug";
+
+  const currentAssigneeId = issue.assignee?._id || issue.assignee;
+  const testerOwnerId = issue.bugDetails?.testerOwner?._id || issue.bugDetails?.testerOwner;
 
   if (eventType === "assignment") {
-    // Notify new assignee
-    const currentAssigneeId = issue.assignee?._id || issue.assignee;
+    // Notify new assignee (Rule 1 & 5)
     if (currentAssigneeId && String(currentAssigneeId) !== String(actorId)) {
       await createNotification({
         recipientId: currentAssigneeId,
         text: `${issue.type} ${issueKey} assigned to you.`,
+        type: "assignment",
+        relatedId: issue._id,
+        link,
+      });
+    }
+
+    // Notify tester owner if reassigned or assigned (Rule 4)
+    if (isBug && testerOwnerId && String(testerOwnerId) !== String(actorId) && String(testerOwnerId) !== String(currentAssigneeId)) {
+      await createNotification({
+        recipientId: testerOwnerId,
+        text: `Bug ${issueKey} assigned to ${issue.assignee?.name || 'developer'}.`,
         type: "assignment",
         relatedId: issue._id,
         link,
@@ -74,14 +117,12 @@ const notifyIssueEvent = async ({
   }
 
   if (eventType === "status_change") {
-    // Notify assignee about status change if actor is someone else
-    const currentAssigneeId = issue.assignee?._id || issue.assignee;
-    if (currentAssigneeId && String(currentAssigneeId) !== String(actorId)) {
-      const statusLabel =
-        issue.type === "Bug"
-          ? (require("../utils/bugLifecycle").BUG_STATUS_LABELS[issue.status] || issue.status)
-          : issue.status;
+    const statusLabel = isBug
+      ? (require("../utils/bugLifecycle").BUG_STATUS_LABELS[issue.status] || issue.status)
+      : issue.status;
 
+    // Notify assignee about status change (Rule 4 if tester is assignee)
+    if (currentAssigneeId && String(currentAssigneeId) !== String(actorId)) {
       await createNotification({
         recipientId: currentAssigneeId,
         text: `${issue.type} "${issueTitle}" moved to ${statusLabel}.`,
@@ -90,19 +131,54 @@ const notifyIssueEvent = async ({
         link,
       });
     }
+
+    // Notify tester owner about status change (Rule 4)
+    if (isBug && testerOwnerId && String(testerOwnerId) !== String(actorId) && String(testerOwnerId) !== String(currentAssigneeId)) {
+      await createNotification({
+        recipientId: testerOwnerId,
+        text: `Bug "${issueTitle}" moved to ${statusLabel}.`,
+        type: "status_change",
+        relatedId: issue._id,
+        link,
+      });
+    }
+
+    // Rule 3: Notify all project testers if status is Ready for Testing/QA/Verification
+    const readyStatuses = ["READY_FOR_TESTING", "READY_FOR_QA", "READY_FOR_VERIFICATION"];
+    if (isBug && readyStatuses.includes(issue.status)) {
+      const projectTesters = await getTestersForProject(issue.projectId);
+      for (const tId of projectTesters) {
+        if (String(tId) === String(actorId)) continue;
+        if (String(tId) === String(currentAssigneeId)) continue;
+        if (String(tId) === String(testerOwnerId)) continue;
+
+        await createNotification({
+          recipientId: tId,
+          text: `Bug ${issueKey} is ${statusLabel.toLowerCase().replace(/_/g, ' ')}.`,
+          type: "status_change",
+          relatedId: issue._id,
+          link,
+        });
+      }
+    }
   }
 
   if (eventType === "team_queue") {
-    // Notify all developers in the team if it's an available bug
-    if (issue.teamId && issue.type === "Bug") {
+    if (issue.teamId && isBug) {
       const teamMembers = await TeamMember.find({ teamId: issue.teamId }).lean();
-      const developers = teamMembers.map((m) => m.userId);
+      const teamUserIds = teamMembers.map((m) => String(m.userId));
 
-      for (const devId of developers) {
-        if (String(devId) === String(actorId)) continue;
+      // Rule 2 & 7: Include all project testers
+      const projectTesters = await getTestersForProject(issue.projectId);
+      const projectTesterIds = projectTesters.map((id) => String(id));
+
+      const recipients = [...new Set([...teamUserIds, ...projectTesterIds])];
+
+      for (const recipientId of recipients) {
+        if (String(recipientId) === String(actorId)) continue;
 
         await createNotification({
-          recipientId: devId,
+          recipientId,
           text: `New bug ${issueKey} added to your team's queue.`,
           type: "team_queue",
           relatedId: issue._id,
@@ -121,10 +197,6 @@ const notifySprintEvent = async ({
   eventType, // 'started', 'ended', 'goal_updated'
   actorId,
 }) => {
-  if (!sprint.teamId) return;
-
-  const teamMembers = await TeamMember.find({ teamId: sprint.teamId }).lean();
-  const recipients = teamMembers.map(m => m.userId);
   const sprintName = sprint.name;
   const link = `/backlog?projectId=${sprint.projectId}`;
 
@@ -134,6 +206,17 @@ const notifySprintEvent = async ({
   else if (eventType === "goal_updated") text = `Goal for Sprint "${sprintName}" was updated.`;
 
   if (!text) return;
+
+  const teamMembers = sprint.teamId
+    ? await TeamMember.find({ teamId: sprint.teamId }).lean()
+    : [];
+  const teamUserIds = teamMembers.map(m => String(m.userId));
+
+  // Rule 6: Notify all testers attached to the project
+  const projectTesters = await getTestersForProject(sprint.projectId);
+  const projectTesterIds = projectTesters.map(id => String(id));
+
+  const recipients = [...new Set([...teamUserIds, ...projectTesterIds])];
 
   for (const recipientId of recipients) {
     if (String(recipientId) === String(actorId)) continue;
