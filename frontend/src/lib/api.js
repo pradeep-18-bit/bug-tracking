@@ -471,6 +471,11 @@ export const fetchIssueActivity = async (filters = {}) => {
   return [];
 };
 
+export const fetchNotifications = async () => {
+  const response = await api.get("/issues/notifications");
+  return response.data || [];
+};
+
 export const createIssue = async (payload) => {
   const normalizedPayload = normalizeIssuePayload(payload);
   logIssuePayload("Create issue", normalizedPayload);
