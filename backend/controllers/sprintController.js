@@ -4,6 +4,7 @@ const ProjectTeam = require("../models/ProjectTeam");
 const Sprint = require("../models/Sprint");
 const Team = require("../models/Team");
 const { handleSprintStarted } = require("../services/sprintNotificationService");
+const { notifySprintEvent } = require("../services/notificationService");
 const asyncHandler = require("../utils/asyncHandler");
 const {
   canManageProjectPlanning,
@@ -506,6 +507,14 @@ const updateSprint = asyncHandler(async (req, res) => {
   await sprint.save();
   await sprint.populate("teamId", "name description workspaceId");
 
+  if (req.body.goal && sprint.teamId) {
+    await notifySprintEvent({
+      sprint,
+      eventType: "goal_updated",
+      actorId: req.user._id,
+    });
+  }
+
   res.status(200).json(serializeSprint(sprint.toObject()));
 });
 
@@ -703,6 +712,14 @@ const startSprint = asyncHandler(async (req, res) => {
     });
   }
 
+    if (startedSprint.teamId) {
+      await notifySprintEvent({
+        sprint: startedSprint,
+        eventType: "started",
+        actorId: req.user._id,
+      });
+    }
+
   res.status(200).json(serializeSprint(startedSprint.toObject()));
 });
 
@@ -847,6 +864,14 @@ const completeSprint = asyncHandler(async (req, res) => {
 
   await sprint.save();
   await sprint.populate("teamId", "name description workspaceId");
+
+  if (sprint.teamId) {
+    await notifySprintEvent({
+      sprint,
+      eventType: "ended",
+      actorId: req.user._id,
+    });
+  }
 
   res.status(200).json({
     sprint: serializeSprint(sprint.toObject()),

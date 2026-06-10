@@ -306,6 +306,24 @@ const emitWorkspaceEvent = (workspaceId, eventName, payload = {}) => {
   return true;
 };
 
+const emitToUser = (userId, eventName, payload = {}) => {
+  if (!socketServer || !userId || !eventName) {
+    return false;
+  }
+
+  const userIdStr = String(userId);
+  let emitted = false;
+
+  socketServer.sockets.sockets.forEach((socket) => {
+    if (String(socket.user?._id || socket.user?.id) === userIdStr) {
+      socket.emit(eventName, payload);
+      emitted = true;
+    }
+  });
+
+  return emitted;
+};
+
 const emitBugWorkflowEvent = ({
   workspaceId,
   eventName = "BugUpdated",
@@ -334,6 +352,7 @@ const emitBugWorkflowEvent = ({
 module.exports = {
   emitBugWorkflowEvent,
   emitWorkspaceEvent,
+  emitToUser,
   getOnlineUsers,
   setupChatSocket,
 };

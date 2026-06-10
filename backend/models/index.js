@@ -13,6 +13,7 @@ const Sprint = require("./Sprint");
 const IssueAttachment = require("./IssueAttachment");
 const IssueWorklog = require("./IssueWorklog");
 const IssueHistory = require("./IssueHistory");
+const Notification = require("./Notification");
 const SprintNotification = require("./SprintNotification");
 const Conversation = require("./Conversation.model");
 const Message = require("./Message.model");
@@ -33,6 +34,7 @@ module.exports = {
   IssueAttachment,
   IssueWorklog,
   IssueHistory,
+  Notification,
   SprintNotification,
   Conversation,
   Message,

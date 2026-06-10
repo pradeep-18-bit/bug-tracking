@@ -18,6 +18,7 @@ const {
 } = require("../services/emailService");
 const { scheduleIssueStateNotifications } = require("../services/sprintNotificationService");
 const { emitBugWorkflowEvent } = require("../socket");
+const { notifyIssueEvent } = require("../services/notificationService");
 const asyncHandler = require("../utils/asyncHandler");
 const { recordIssueHistory } = require("../utils/issueHistory");
 const {
@@ -109,8 +110,10 @@ const hasBugQaOwnership = (issue, userId) => {
     return false;
   }
 
+  const userIdStr = String(userId);
+
   return [issue.reporter, issue.bugDetails?.testerOwner].some(
-    (value) => value && String(value) === String(userId)
+    (value) => value && getUserIdString(value) === userIdStr
   );
 };
 
@@ -416,7 +419,7 @@ const isBugReportedAndUnpicked = (issue) => {
   const status = getBugStatusForIssueStatus(issue.status);
 
   return (
-    [BUG_STATUS.REPORTED, BUG_STATUS.NEW, BUG_STATUS.OPEN].includes(status) &&
+    [BUG_STATUS.REPORTED, BUG_STATUS.NEW, BUG_STATUS.OPEN, BUG_STATUS.TRIAGED].includes(status) &&
     !getBugDeveloperAssignmentId(issue) &&
     !issue.startedAt
   );
@@ -869,7 +872,31 @@ const getBugStatusForIssueStatus = (status) => {
 };
 
 const getRequestedBugStatus = ({ payload = {}, currentStatus = BUG_STATUS.NEW }) => {
+  if (Boolean(payload.sendToTriage) || Boolean(payload.bugDetails?.sendToTriage)) {
+    return BUG_STATUS.NEEDS_TRIAGE;
+  }
+
+  if (Boolean(payload.addToBucket) || Boolean(payload.bugDetails?.addToBucket)) {
+    return BUG_STATUS.AVAILABLE_QUEUE;
+  }
+
   if (!hasOwnField(payload, "status")) {
+    const developerLeadId = getBugPayloadValue(payload, "developerLeadId", [
+      "developerLead",
+      "devLeadId",
+      "devLead",
+      "assigneeId",
+      "assignee",
+    ]);
+    const addToBucket = Boolean(
+      getBugPayloadValue(payload, "addToBucket", ["assignLater", "bucket"])
+    );
+    const sendToTriage = Boolean(payload.sendToTriage) || Boolean(payload.bugDetails?.sendToTriage);
+
+    if (developerLeadId && !addToBucket && !sendToTriage) {
+      return BUG_STATUS.ASSIGNED;
+    }
+
     return getBugStatusForIssueStatus(currentStatus);
   }
 
@@ -2595,11 +2622,15 @@ const createIssue = asyncHandler(async (req, res) => {
   const hasEpicInput = hasOwnField(req.body, "epicId");
   const hasSprintInput = hasOwnField(req.body, "sprintId");
   const canAssignPlanningFields = hasAdminAccess(req.user?.role);
-  const normalizedType = getCanonicalIssueType(type, ISSUE_TYPES.TASK);
+  const normalizedType =
+    req.user.role === ROLE_TESTER ? ISSUE_TYPES.BUG : getCanonicalIssueType(type, ISSUE_TYPES.TASK);
   const isBug = normalizedType === ISSUE_TYPES.BUG;
   const assignLater =
     isBug &&
     Boolean(getBugPayloadValue(req.body, "addToBucket", ["assignLater", "bucket"]));
+  const sendToTriage =
+    isBug && (Boolean(req.body.sendToTriage) || Boolean(req.body.bugDetails?.sendToTriage));
+
   const requestedStatus = isBug
     ? getRequestedBugStatus({
         payload: req.body,
@@ -2656,9 +2687,15 @@ const createIssue = asyncHandler(async (req, res) => {
     throw new Error("Only admins and managers can assign epic or sprint during creation");
   }
 
-  if (isBug && statusResult.value !== BUG_STATUS.NEW) {
+  if (
+    isBug &&
+    statusResult.value !== BUG_STATUS.NEW &&
+    statusResult.value !== BUG_STATUS.NEEDS_TRIAGE &&
+    statusResult.value !== BUG_STATUS.AVAILABLE_QUEUE &&
+    statusResult.value !== BUG_STATUS.ASSIGNED
+  ) {
     res.status(400);
-    throw new Error("Newly created bugs must start in the New state");
+    throw new Error("Newly created bugs must start in the New, Needs Triage, Available Queue, or Assigned state");
   }
 
   const project = await loadAccessibleProject(req.user, projectId);
@@ -2697,7 +2734,7 @@ const createIssue = asyncHandler(async (req, res) => {
     ),
   });
 
-  if (assigneeId && !assignLater) {
+  if (assigneeId && !assignLater && !sendToTriage) {
     const canTesterAssignBugDeveloper =
       req.user.role === ROLE_TESTER && isBug;
 
@@ -2792,7 +2829,7 @@ const createIssue = asyncHandler(async (req, res) => {
   const bugDetails = isBug
     ? buildBugDetailsDraft(req.body, {}, {
         testerOwner: forcedTesterOwner,
-        developerLead: assignLater ? null : assigneeId || null,
+        developerLead: (assignLater || sendToTriage) ? null : assigneeId || null,
         addToBucket: assignLater,
       })
     : {};
@@ -2986,6 +3023,26 @@ const createIssue = asyncHandler(async (req, res) => {
     eventName: "BugCreated",
     action: "BUG_CREATED",
   });
+
+  if (issue.status === BUG_STATUS.NEEDS_TRIAGE) {
+    await notifyIssueEvent({
+      issue,
+      eventType: "needs_triage",
+      actorId: req.user._id,
+    });
+  } else if (issue.status === BUG_STATUS.AVAILABLE_QUEUE || (issue.status === BUG_STATUS.NEW && !issue.assignee)) {
+    await notifyIssueEvent({
+      issue,
+      eventType: "team_queue",
+      actorId: req.user._id,
+    });
+  } else if (issue.assignee) {
+    await notifyIssueEvent({
+      issue,
+      eventType: "assignment",
+      actorId: req.user._id,
+    });
+  }
 
   res.status(201).json({
     ...serializeIssue(issue),
@@ -3824,6 +3881,23 @@ const updateIssue = asyncHandler(async (req, res) => {
         assignedDeveloperId: nextBugDeveloperId || null,
       },
     });
+
+    if (assignedChanged || reassigned) {
+      await notifyIssueEvent({
+        issue,
+        eventType: "assignment",
+        actorId: req.user._id,
+        oldAssigneeId: previousAssigneeId,
+      });
+    }
+
+    if (statusChanged && !assignedChanged) {
+      await notifyIssueEvent({
+        issue,
+        eventType: "status_change",
+        actorId: req.user._id,
+      });
+    }
   }
 
   res.status(200).json({
@@ -3838,9 +3912,7 @@ const deleteIssue = asyncHandler(async (req, res) => {
     throw new Error("Invalid issue id");
   }
 
-  const issue = await Issue.findById(req.params.id)
-    .populate("reporter", "_id name email role")
-    .populate("bugDetails.testerOwner", "_id name email role");
+  const issue = await Issue.findById(req.params.id);
 
   if (!issue || issue.isDeleted) {
     res.status(404);
@@ -3854,47 +3926,44 @@ const deleteIssue = asyncHandler(async (req, res) => {
     throw new Error("You do not have access to this project");
   }
 
-  const userId = String(req.user.id || req.user._id);
-  const reporterId = String(issue.reporter?._id || issue.reporter || "");
-  const testerOwnerId = String(
-    issue.bugDetails?.testerOwner?._id || issue.bugDetails?.testerOwner || ""
-  );
+  const userId = getUserIdString(req.user);
+  const reporterId = getUserIdString(issue.reporter);
   const isBug = isBugType(issue.type);
   const isUserAdmin = req.user.role === ROLE_ADMIN;
   const isUserManager = req.user.role === ROLE_MANAGER;
   const isUserTester = req.user.role === ROLE_TESTER;
-  const isReporter = reporterId === userId;
-  const isTesterOwner = testerOwnerId === userId;
-  const isTesterBugOwner = canTesterModifyReportedBug(issue, req.user);
+  const isTesterOwnerOfBug = hasBugQaOwnership(issue, userId);
+  const isReportedAndUnpicked = isBug && isBugReportedAndUnpicked(issue);
+
   const canDelete =
-    isUserAdmin || (isBug && isUserManager) || isTesterBugOwner;
+    isUserAdmin || (isBug && isUserManager) || (isUserTester && isTesterOwnerOfBug && isReportedAndUnpicked);
 
   console.log("DELETE BUG DEBUG", {
     issueId: String(issue._id),
     issueReporter: reporterId,
-    issueTesterOwner: testerOwnerId,
     loggedInUser: userId,
     role: req.user.role,
     isBug,
     isUserAdmin,
     isUserManager,
     isUserTester,
-    isReporter,
-    isTesterOwner,
-    isTesterBugOwner,
+    isTesterOwnerOfBug,
+    isReportedAndUnpicked,
     canDelete,
   });
 
   if (!canDelete) {
+    if (isUserTester && isTesterOwnerOfBug && !isReportedAndUnpicked) {
+      res.status(403);
+      throw new Error("Bug can no longer be deleted after assignment.");
+    }
+
     res.status(403);
-    throw new Error(
-      isBug && isUserTester
-        ? "You can only delete reported bugs before developer pickup"
-        : "You are not authorized to delete this bug"
-    );
+    throw new Error("You are not authorized to delete this bug");
   }
 
   const deletedAt = new Date();
+  const bugId = issue.displayBugId || String(issue._id);
   const deleteMessage = `Bug deleted by ${req.user.name || req.user.email || "Unknown user"} on ${deletedAt.toISOString()}`;
 
   issue.isDeleted = true;
@@ -3911,11 +3980,13 @@ const deleteIssue = asyncHandler(async (req, res) => {
       by: req.user,
       time: deletedAt,
       meta: {
-        bugId: issue.displayBugId || String(issue._id),
+        bugId,
         title: issue.title,
         creatorId: reporterId,
-        creatorName: issue.reporter?.name || issue.reporterName || "",
+        creatorName: issue.reporterName || "",
         message: deleteMessage,
+        deletedBy: req.user._id,
+        deletedAt,
       },
     })
   );
@@ -3931,11 +4002,13 @@ const deleteIssue = asyncHandler(async (req, res) => {
     fromValue: false,
     toValue: true,
     meta: {
-      bugId: issue.displayBugId || String(issue._id),
+      bugId,
       title: issue.title,
       creatorId: reporterId,
-      creatorName: issue.reporter?.name || issue.reporterName || "",
+      creatorName: issue.reporterName || "",
       message: deleteMessage,
+      deletedBy: req.user._id,
+      deletedAt,
     },
   });
 
@@ -3947,6 +4020,7 @@ const deleteIssue = asyncHandler(async (req, res) => {
     meta: {
       deletedAt,
       deletedBy: userId,
+      bugId,
     },
   });
 
@@ -3959,7 +4033,58 @@ const deleteIssue = asyncHandler(async (req, res) => {
     success: true,
     message: isBug ? "Bug deleted successfully" : "Issue deleted successfully",
     deletedId: issue._id,
+    bugId,
+    deletedAt,
+    deletedBy: userId,
   });
+});
+
+const getNotifications = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  const notifications = await Notification.find({ recipientId: userId })
+    .sort({ createdAt: -1 })
+    .limit(20)
+    .lean();
+
+  res.status(200).json(
+    notifications.map((n) => ({
+      ...n,
+      id: n._id.toString(),
+      timestamp: n.createdAt,
+    }))
+  );
+});
+
+const getUnreadNotificationCount = asyncHandler(async (req, res) => {
+  const count = await Notification.countDocuments({
+    recipientId: req.user._id,
+    isRead: false,
+  });
+  res.status(200).json({ count });
+});
+
+const markNotificationRead = asyncHandler(async (req, res) => {
+  const notification = await Notification.findOneAndUpdate(
+    { _id: req.params.id, recipientId: req.user._id },
+    { isRead: true },
+    { new: true }
+  );
+
+  if (!notification) {
+    res.status(404);
+    throw new Error("Notification not found");
+  }
+
+  res.status(200).json(notification);
+});
+
+const markAllNotificationsRead = asyncHandler(async (req, res) => {
+  await Notification.updateMany(
+    { recipientId: req.user._id, isRead: false },
+    { isRead: true }
+  );
+  res.status(200).json({ message: "All notifications marked as read" });
 });
 
 module.exports = {
@@ -3970,6 +4095,10 @@ module.exports = {
   getBugBucket,
   pickIssue,
   getRecentIssueActivity,
+  getNotifications,
+  getUnreadNotificationCount,
+  markNotificationRead,
+  markAllNotificationsRead,
   getReports,
   getProjectReports,
   getUserReports,

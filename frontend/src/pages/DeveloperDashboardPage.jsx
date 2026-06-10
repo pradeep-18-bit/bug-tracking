@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowUpDown,
   BarChart3,
+  Bell,
   Bug,
   CalendarClock,
   ChevronLeft,
@@ -28,9 +29,13 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   fetchIssueActivity,
   fetchIssueStats,
+  fetchNotifications,
+  fetchUnreadNotificationCount,
+  markNotificationAsRead,
   fetchBugBucket,
   fetchMyIssues,
   fetchProjects,
@@ -55,13 +60,16 @@ import {
   sortIssues,
 } from "@/lib/issues";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
+import { readStoredSession } from "@/lib/session";
 import { useAuth } from "@/hooks/use-auth";
 import {
   getDeveloperBugBucketQueryFilters,
   getDeveloperBugBucketQueryKey,
   removeIssueFromBucketCaches,
 } from "@/lib/bug-workflow-cache";
+import { getChatSocket } from "@/lib/socket";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
+import NotificationCard from "@/components/dashboard/NotificationCard";
 import EmptyState from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
 import {
@@ -428,12 +436,13 @@ const activityText = (entry) => {
   return "updated";
 };
 
+
 const SprintProgressWidget = ({ metrics, isLoading }) => {
   const percentage = metrics?.percentage || 0;
 
   return (
     <div
-      className="group ml-0 flex h-16 min-w-[240px] flex-1 flex-col justify-center rounded-[22px] border border-cyan-100/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.86),rgba(239,246,255,0.78),rgba(236,254,255,0.68))] px-4 py-2 shadow-[0_16px_34px_-26px_rgba(14,165,233,0.78)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-200 hover:shadow-[0_18px_38px_-24px_rgba(14,165,233,0.9)] sm:ml-auto sm:max-w-[340px]"
+      className="group flex h-16 min-w-[240px] flex-1 flex-col justify-center rounded-[22px] border border-cyan-100/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.86),rgba(239,246,255,0.78),rgba(236,254,255,0.68))] px-4 py-2 shadow-[0_16px_34px_-26px_rgba(14,165,233,0.78)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-200 hover:shadow-[0_18px_38px_-24px_rgba(14,165,233,0.9)] sm:ml-auto sm:max-w-[340px]"
       title="Sprint completion based on assigned tasks."
     >
       {isLoading ? (
@@ -1022,12 +1031,12 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
         ) : sortedIssues.length ? (
           <>
             <div className="overflow-hidden rounded-2xl border border-cyan-100/80 bg-white/88 shadow-sm">
-              <div className="hidden grid-cols-[108px_minmax(220px,1fr)_108px_104px_150px_172px] items-center gap-3 border-b border-cyan-100/80 bg-cyan-50/60 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-700 md:grid">
+              <div className="hidden grid-cols-[108px_minmax(220px,1fr)_150px_140px_108px_172px] items-center gap-3 border-b border-cyan-100/80 bg-cyan-50/60 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-700 md:grid">
                 <span>ID</span>
                 <span>Title</span>
+                <span>Module / Page</span>
+                <span>Bug Type</span>
                 <span>Severity</span>
-                <span>Priority</span>
-                <span>Reporter</span>
                 <span className="text-right">Action</span>
               </div>
               <div className="divide-y divide-cyan-100/70">
@@ -1036,11 +1045,14 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
                   const pickDisabled = pickingId === issue._id || !canPick;
                   const pickLabel = pickingId === issue._id ? "Picking" : canPick ? "Pick Bug" : "Not Eligible";
                   const severity = getBugSeverity(issue);
+                  const bugDetails = resolveBugDetails(issue);
+                  const moduleName = bugDetails?.moduleName || "General";
+                  const category = bugDetails?.category || "Bug";
 
                   return (
                     <article
                       key={issue._id}
-                      className="grid gap-2 px-3 py-2.5 transition hover:bg-cyan-50/50 md:grid-cols-[108px_minmax(220px,1fr)_108px_104px_150px_172px] md:items-center md:gap-3 md:py-1.5"
+                      className="grid gap-2 px-3 py-2.5 transition hover:bg-cyan-50/50 md:grid-cols-[108px_minmax(220px,1fr)_150px_140px_108px_172px] md:items-center md:gap-3 md:py-1.5"
                     >
                       <button
                         className="truncate text-left font-mono text-xs font-semibold text-slate-500"
@@ -1056,28 +1068,26 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
                         onClick={() => onOpenIssue(issue)}
                       >
                         <span className="block truncate text-sm font-semibold text-slate-950" title={issue.title}>
-                          {issue.title}
+                          {issue.title.length > 60 ? issue.title.substring(0, 57) + "..." : issue.title}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-slate-500 md:hidden">
-                          Reporter: {getReporterName(issue)}
+                          {moduleName} • {category}
                         </span>
                       </button>
+
+                      <span className="hidden truncate text-xs font-medium text-slate-600 md:block" title={moduleName}>
+                        {moduleName}
+                      </span>
+
+                      <span className="hidden truncate text-xs font-medium text-slate-600 md:block" title={category}>
+                        {category}
+                      </span>
 
                       <div>
                         <Pill className={getBadgeClass(severityStyleMap, severity)}>
                           {severity}
                         </Pill>
                       </div>
-
-                      <div>
-                        <Pill className={getBadgeClass(priorityStyleMap, issue.priority)}>
-                          {issue.priority || "Medium"}
-                        </Pill>
-                      </div>
-
-                      <span className="hidden truncate text-xs font-medium text-slate-600 md:block" title={getReporterName(issue)}>
-                        {getReporterName(issue)}
-                      </span>
 
                       <div className="flex gap-2 md:justify-end">
                         <Button
@@ -1514,6 +1524,50 @@ const DeveloperDashboardPage = () => {
     enabled: Boolean(user?._id),
   });
 
+  const {
+    data: notifications = [],
+    isLoading: isNotificationsLoading,
+  } = useQuery({
+    queryKey: ["issues", "notifications", user?._id],
+    queryFn: fetchNotifications,
+    enabled: Boolean(user?._id),
+  });
+
+  const {
+    data: unreadCount = 0,
+  } = useQuery({
+    queryKey: ["issues", "notifications", "unread-count", user?._id],
+    queryFn: fetchUnreadNotificationCount,
+    enabled: Boolean(user?._id),
+  });
+
+  useEffect(() => {
+    const session = readStoredSession();
+    const token = session?.token;
+    const socket = getChatSocket(token);
+
+    if (!socket || !user?._id) return;
+
+    if (!socket.connected) {
+      socket.connect();
+    }
+
+    const handleNewNotification = (notification) => {
+      queryClient.setQueryData(["issues", "notifications", user._id], (old = []) => {
+        return [notification, ...old].slice(0, 20);
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["issues", "notifications", "unread-count", user._id],
+      });
+    };
+
+    socket.on("notification_received", handleNewNotification);
+
+    return () => {
+      socket.off("notification_received", handleNewNotification);
+    };
+  }, [user?._id, queryClient]);
+
   const allIssues = useMemo(() => (Array.isArray(issues) ? issues : []), [issues]);
   const bucketIssues = useMemo(
     () =>
@@ -1726,6 +1780,26 @@ const DeveloperDashboardPage = () => {
     }
   };
 
+  const handleOpenNotification = async (notification) => {
+    if (!notification.isRead) {
+      try {
+        await markNotificationAsRead(notification.id);
+        queryClient.invalidateQueries({
+          queryKey: ["issues", "notifications", user?._id],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["issues", "notifications", "unread-count", user?._id],
+        });
+      } catch (error) {
+        console.error("Failed to mark notification as read:", error);
+      }
+    }
+
+    if (notification.link) {
+      navigate(notification.link);
+    }
+  };
+
   if (error) {
     return (
       <Card>
@@ -1774,6 +1848,12 @@ const DeveloperDashboardPage = () => {
           <Flame className="h-4 w-4" />
           Priority Queue
         </Button>
+        <NotificationCard
+          notifications={notifications}
+          unreadCount={unreadCount}
+          isLoading={isNotificationsLoading}
+          onOpenNotification={handleOpenNotification}
+        />
         <SprintProgressWidget metrics={sprintProgress} isLoading={isSprintProgressLoading} />
       </section>
 

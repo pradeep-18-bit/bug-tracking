@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { FolderKanban, Plus, Search, SlidersHorizontal } from "lucide-react";
 import {
   createIssue,
+  deleteIssue,
   fetchIssues,
   fetchProjects,
   updateIssue,
@@ -28,6 +29,7 @@ import { TESTER_BUG_COLUMNS } from "@/components/bugs/bugBoardConfig";
 import IssueComposer from "@/components/issues/IssueComposer";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import EmptyState from "@/components/shared/EmptyState";
+import ErrorBoundary from "@/components/shared/ErrorBoundary";
 import ToastNotice from "@/components/shared/ToastNotice";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -263,9 +265,24 @@ const TesterBugsPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
     onError: (error) => {
       showToast("error", error.response?.data?.message || "Unable to update bug status.");
+    },
+  });
+
+  const deleteIssueMutation = useMutation({
+    mutationFn: deleteIssue,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      showToast("success", "Bug deleted successfully.");
+      setSelectedIssue(null);
+    },
+    onError: (error) => {
+      showToast("error", error.response?.data?.message || "Unable to delete bug.");
     },
   });
 
@@ -313,6 +330,22 @@ const TesterBugsPage = () => {
 
     if (action === "reopen") {
       return handleStatusChange(issue, ISSUE_STATUS.REOPEN);
+    }
+
+    if (action === "edit") {
+      setSelectedIssue(issue);
+      return Promise.resolve();
+    }
+
+    if (action === "delete") {
+      const confirmed = window.confirm(
+        "Are you sure you want to delete this bug?\n\nThis action cannot be undone."
+      );
+
+      if (confirmed) {
+        return deleteIssueMutation.mutateAsync(issue._id);
+      }
+      return Promise.resolve();
     }
 
     setSelectedIssue(issue);
@@ -365,6 +398,7 @@ const TesterBugsPage = () => {
   }
 
   return (
+    <ErrorBoundary>
     <div className="mx-auto w-[98%] max-w-none space-y-4">
       <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
         <CardHeader className="border-b border-slate-200/80 bg-white/94 p-4 sm:p-5">
@@ -462,6 +496,7 @@ const TesterBugsPage = () => {
           <BugKanbanBoard
             actionMode="tester"
             columns={TESTER_BUG_COLUMNS}
+            currentUserId={testerId}
             issues={filteredIssues}
             onAction={handleBoardAction}
             onOpen={setSelectedIssue}
@@ -514,9 +549,16 @@ const TesterBugsPage = () => {
       </div>
 
       <IssueDetailsDialog
-        deletingId=""
+        deletingId={deleteIssueMutation.isPending ? deleteIssueMutation.variables : ""}
         issue={selectedIssue}
-        onDeleteIssue={async () => {}}
+        onDeleteIssue={async (id) => {
+          const confirmed = window.confirm(
+            "Are you sure you want to delete this bug?\n\nThis action cannot be undone."
+          );
+          if (confirmed) {
+            await deleteIssueMutation.mutateAsync(id);
+          }
+        }}
         onOpenChange={(open) => {
           if (!open) {
             setSelectedIssue(null);
@@ -526,12 +568,32 @@ const TesterBugsPage = () => {
         open={Boolean(selectedIssue)}
         projects={assignedProjects}
         updatingId={updateIssueMutation.isPending ? updateIssueMutation.variables?.id : ""}
-        canEditPriority={false}
+        canEditCoreDetails={
+          selectedIssue &&
+          normalizeBugStatusForIssue(selectedIssue) === ISSUE_STATUS.NEW &&
+          !selectedIssue.assignee &&
+          !resolveBugDetails(selectedIssue)?.developerLead &&
+          String(selectedIssue.reporter?._id || selectedIssue.reporter || "") === testerId
+        }
+        canEditPriority={
+          selectedIssue &&
+          normalizeBugStatusForIssue(selectedIssue) === ISSUE_STATUS.NEW &&
+          !selectedIssue.assignee &&
+          !resolveBugDetails(selectedIssue)?.developerLead &&
+          String(selectedIssue.reporter?._id || selectedIssue.reporter || "") === testerId
+        }
         canEditAssignee={false}
-        canDeleteIssue={false}
+        canDeleteIssue={
+          selectedIssue &&
+          normalizeBugStatusForIssue(selectedIssue) === ISSUE_STATUS.NEW &&
+          !selectedIssue.assignee &&
+          !resolveBugDetails(selectedIssue)?.developerLead &&
+          String(selectedIssue.reporter?._id || selectedIssue.reporter || "") === testerId
+        }
       />
       <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
     </div>
+    </ErrorBoundary>
   );
 };
 
