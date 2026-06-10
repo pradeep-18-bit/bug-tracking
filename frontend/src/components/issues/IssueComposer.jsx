@@ -115,6 +115,7 @@ const buildInitialState = ({
       affectedPlatform: "Web",
       suggestedTeam: "",
       addToBucket: isBug,
+      sendToTriage: false,
       estimatedEffort: "",
       severity: "",
       testerOwnerId: defaultAssigneeKey,
@@ -547,8 +548,10 @@ const IssueComposer = ({
         priority: formData.priority,
         projectId: formData.projectId,
         teamId: formData.teamId,
-        assigneeId: isTesterBugReport
+        assigneeId: (isTesterBugReport && !formData.bugDetails.developerLeadId)
           ? null
+          : isTesterBugReport
+          ? formData.bugDetails.developerLeadId
           : showAssigneeField
           ? formData.assigneeId || null
           : defaultAssigneeInTeam
@@ -562,12 +565,13 @@ const IssueComposer = ({
                 affectedPlatform: formData.bugDetails.affectedPlatform,
                 suggestedTeam: formData.bugDetails.suggestedTeam,
                 addToBucket: Boolean(formData.bugDetails.addToBucket),
+                sendToTriage: Boolean(formData.bugDetails.sendToTriage),
                 estimatedEffort: formData.bugDetails.estimatedEffort,
                 severity: formData.bugDetails.severity,
                 testerOwnerId: isTesterBugReport
                   ? defaultAssigneeKey || null
                   : formData.bugDetails.testerOwnerId || null,
-                developerLeadId: formData.bugDetails.addToBucket
+                developerLeadId: (formData.bugDetails.addToBucket || formData.bugDetails.sendToTriage)
                   ? null
                   : formData.bugDetails.developerLeadId || null,
                 stepsToReproduce: formData.bugDetails.stepsToReproduce.trim(),
@@ -738,7 +742,7 @@ const IssueComposer = ({
             </label>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className={cn("grid gap-4 sm:grid-cols-2", isTesterBugReport ? "xl:grid-cols-3" : "xl:grid-cols-4")}>
             <label className="space-y-2">
               <span className="text-sm font-medium text-gray-700">Module/Page</span>
               <Input
@@ -821,7 +825,7 @@ const IssueComposer = ({
             </label>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className={cn("grid gap-4 sm:grid-cols-2", isTesterBugReport ? "xl:grid-cols-3" : "xl:grid-cols-4")}>
             <label className="space-y-2">
               <span className="text-sm font-medium text-gray-700">Severity</span>
               <select
@@ -906,7 +910,7 @@ const IssueComposer = ({
             </label>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className={cn("grid gap-4 sm:grid-cols-2", isTesterBugReport ? "xl:grid-cols-3" : "xl:grid-cols-4")}>
             <label className="space-y-2">
               <span className="text-sm font-medium text-gray-700">
                 Suggested Developer
@@ -923,7 +927,7 @@ const IssueComposer = ({
                     },
                   }))
                 }
-                disabled={!formData.teamId || formData.bugDetails.addToBucket}
+                disabled={!formData.teamId || formData.bugDetails.addToBucket || formData.bugDetails.sendToTriage}
               >
                 <option value="">Unassigned</option>
                 {developerOptions.map((assignee) => (
@@ -945,6 +949,7 @@ const IssueComposer = ({
                     bugDetails: {
                       ...current.bugDetails,
                       addToBucket: event.target.checked,
+                      sendToTriage: event.target.checked ? false : current.bugDetails.sendToTriage,
                       developerLeadId: event.target.checked
                         ? ""
                         : current.bugDetails.developerLeadId,
@@ -957,25 +962,51 @@ const IssueComposer = ({
               </span>
             </label>
 
-            <label className="space-y-2">
-              <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                <ClipboardList className="h-4 w-4 text-blue-600" />
-                Type
+            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/84 px-4 py-3">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                checked={formData.bugDetails.sendToTriage}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    bugDetails: {
+                      ...current.bugDetails,
+                      sendToTriage: event.target.checked,
+                      addToBucket: event.target.checked ? false : current.bugDetails.addToBucket,
+                      developerLeadId: event.target.checked
+                        ? ""
+                        : current.bugDetails.developerLeadId,
+                    },
+                  }))
+                }
+              />
+              <span className="text-sm font-semibold text-slate-700">
+                Send to Triage Board
               </span>
-              <select
-                className="field-select"
-                name="type"
-                value={formData.type}
-                disabled={lockType || allowedTypes.length === 1}
-                onChange={handleChange}
-              >
-                {allowedTypes.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
             </label>
+
+            {!isTesterBugReport ? (
+              <label className="space-y-2">
+                <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <ClipboardList className="h-4 w-4 text-blue-600" />
+                  Type
+                </span>
+                <select
+                  className="field-select"
+                  name="type"
+                  value={formData.type}
+                  disabled={lockType || allowedTypes.length === 1}
+                  onChange={handleChange}
+                >
+                  {allowedTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </div>
 
           <div className="space-y-4">

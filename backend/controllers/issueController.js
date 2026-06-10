@@ -872,7 +872,31 @@ const getBugStatusForIssueStatus = (status) => {
 };
 
 const getRequestedBugStatus = ({ payload = {}, currentStatus = BUG_STATUS.NEW }) => {
+  if (Boolean(payload.sendToTriage) || Boolean(payload.bugDetails?.sendToTriage)) {
+    return BUG_STATUS.NEEDS_TRIAGE;
+  }
+
+  if (Boolean(payload.addToBucket) || Boolean(payload.bugDetails?.addToBucket)) {
+    return BUG_STATUS.AVAILABLE_QUEUE;
+  }
+
   if (!hasOwnField(payload, "status")) {
+    const developerLeadId = getBugPayloadValue(payload, "developerLeadId", [
+      "developerLead",
+      "devLeadId",
+      "devLead",
+      "assigneeId",
+      "assignee",
+    ]);
+    const addToBucket = Boolean(
+      getBugPayloadValue(payload, "addToBucket", ["assignLater", "bucket"])
+    );
+    const sendToTriage = Boolean(payload.sendToTriage) || Boolean(payload.bugDetails?.sendToTriage);
+
+    if (developerLeadId && !addToBucket && !sendToTriage) {
+      return BUG_STATUS.ASSIGNED;
+    }
+
     return getBugStatusForIssueStatus(currentStatus);
   }
 
@@ -2598,11 +2622,15 @@ const createIssue = asyncHandler(async (req, res) => {
   const hasEpicInput = hasOwnField(req.body, "epicId");
   const hasSprintInput = hasOwnField(req.body, "sprintId");
   const canAssignPlanningFields = hasAdminAccess(req.user?.role);
-  const normalizedType = getCanonicalIssueType(type, ISSUE_TYPES.TASK);
+  const normalizedType =
+    req.user.role === ROLE_TESTER ? ISSUE_TYPES.BUG : getCanonicalIssueType(type, ISSUE_TYPES.TASK);
   const isBug = normalizedType === ISSUE_TYPES.BUG;
   const assignLater =
     isBug &&
     Boolean(getBugPayloadValue(req.body, "addToBucket", ["assignLater", "bucket"]));
+  const sendToTriage =
+    isBug && (Boolean(req.body.sendToTriage) || Boolean(req.body.bugDetails?.sendToTriage));
+
   const requestedStatus = isBug
     ? getRequestedBugStatus({
         payload: req.body,
@@ -2659,9 +2687,15 @@ const createIssue = asyncHandler(async (req, res) => {
     throw new Error("Only admins and managers can assign epic or sprint during creation");
   }
 
-  if (isBug && statusResult.value !== BUG_STATUS.NEW) {
+  if (
+    isBug &&
+    statusResult.value !== BUG_STATUS.NEW &&
+    statusResult.value !== BUG_STATUS.NEEDS_TRIAGE &&
+    statusResult.value !== BUG_STATUS.AVAILABLE_QUEUE &&
+    statusResult.value !== BUG_STATUS.ASSIGNED
+  ) {
     res.status(400);
-    throw new Error("Newly created bugs must start in the New state");
+    throw new Error("Newly created bugs must start in the New, Needs Triage, Available Queue, or Assigned state");
   }
 
   const project = await loadAccessibleProject(req.user, projectId);
@@ -2700,7 +2734,7 @@ const createIssue = asyncHandler(async (req, res) => {
     ),
   });
 
-  if (assigneeId && !assignLater) {
+  if (assigneeId && !assignLater && !sendToTriage) {
     const canTesterAssignBugDeveloper =
       req.user.role === ROLE_TESTER && isBug;
 
@@ -2795,7 +2829,7 @@ const createIssue = asyncHandler(async (req, res) => {
   const bugDetails = isBug
     ? buildBugDetailsDraft(req.body, {}, {
         testerOwner: forcedTesterOwner,
-        developerLead: assignLater ? null : assigneeId || null,
+        developerLead: (assignLater || sendToTriage) ? null : assigneeId || null,
         addToBucket: assignLater,
       })
     : {};
@@ -2990,7 +3024,13 @@ const createIssue = asyncHandler(async (req, res) => {
     action: "BUG_CREATED",
   });
 
-  if (issue.status === BUG_STATUS.NEW && !issue.assignee) {
+  if (issue.status === BUG_STATUS.NEEDS_TRIAGE) {
+    await notifyIssueEvent({
+      issue,
+      eventType: "needs_triage",
+      actorId: req.user._id,
+    });
+  } else if (issue.status === BUG_STATUS.AVAILABLE_QUEUE || (issue.status === BUG_STATUS.NEW && !issue.assignee)) {
     await notifyIssueEvent({
       issue,
       eventType: "team_queue",

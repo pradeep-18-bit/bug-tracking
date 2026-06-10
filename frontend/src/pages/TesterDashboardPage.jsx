@@ -616,9 +616,10 @@ const TesterDashboardPage = () => {
   };
 
   const handleOpenNotification = async (notification) => {
+    const notificationId = notification.id || notification._id;
     if (!notification.isRead) {
       try {
-        await markNotificationAsRead(notification.id);
+        await markNotificationAsRead(notificationId);
         queryClient.invalidateQueries({
           queryKey: ["issues", "notifications", testerId],
         });
