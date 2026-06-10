@@ -476,6 +476,21 @@ export const fetchNotifications = async () => {
   return response.data || [];
 };
 
+export const fetchUnreadNotificationCount = async () => {
+  const response = await api.get("/issues/notifications/unread-count");
+  return response.data?.count || 0;
+};
+
+export const markNotificationAsRead = async (id) => {
+  const response = await api.patch(`/issues/notifications/${id}/read`);
+  return response.data;
+};
+
+export const markAllNotificationsAsRead = async () => {
+  const response = await api.post("/issues/notifications/read-all");
+  return response.data;
+};
+
 export const createIssue = async (payload) => {
   const normalizedPayload = normalizeIssuePayload(payload);
   logIssuePayload("Create issue", normalizedPayload);

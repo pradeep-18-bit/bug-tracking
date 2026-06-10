@@ -34,6 +34,8 @@ import {
   fetchIssueActivity,
   fetchIssueStats,
   fetchNotifications,
+  fetchUnreadNotificationCount,
+  markNotificationAsRead,
   fetchBugBucket,
   fetchMyIssues,
   fetchProjects,
@@ -58,12 +60,14 @@ import {
   sortIssues,
 } from "@/lib/issues";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
+import { readStoredSession } from "@/lib/session";
 import { useAuth } from "@/hooks/use-auth";
 import {
   getDeveloperBugBucketQueryFilters,
   getDeveloperBugBucketQueryKey,
   removeIssueFromBucketCaches,
 } from "@/lib/bug-workflow-cache";
+import { getChatSocket } from "@/lib/socket";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import EmptyState from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -431,7 +435,12 @@ const activityText = (entry) => {
   return "updated";
 };
 
-const NotificationCard = ({ notifications = [], isLoading, onOpenNotification }) => {
+const NotificationCard = ({
+  notifications = [],
+  unreadCount = 0,
+  isLoading,
+  onOpenNotification,
+}) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
 
@@ -461,11 +470,18 @@ const NotificationCard = ({ notifications = [], isLoading, onOpenNotification })
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
-      <div className="mb-0.5 flex items-center gap-2">
-        <Bell className="h-3 w-3 text-blue-600" />
-        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-blue-600/80">
-          Recent Notifications
-        </p>
+      <div className="mb-0.5 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Bell className="h-3 w-3 text-blue-600" />
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-blue-600/80">
+            Recent Notifications
+          </p>
+        </div>
+        {unreadCount > 0 && (
+          <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white shadow-sm">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
       </div>
 
       <div className="relative h-7 overflow-hidden">
@@ -1599,8 +1615,42 @@ const DeveloperDashboardPage = () => {
     queryKey: ["issues", "notifications", user?._id],
     queryFn: fetchNotifications,
     enabled: Boolean(user?._id),
-    refetchInterval: 30000, // Refresh notifications every 30s
   });
+
+  const {
+    data: unreadCount = 0,
+  } = useQuery({
+    queryKey: ["issues", "notifications", "unread-count", user?._id],
+    queryFn: fetchUnreadNotificationCount,
+    enabled: Boolean(user?._id),
+  });
+
+  useEffect(() => {
+    const session = readStoredSession();
+    const token = session?.token;
+    const socket = getChatSocket(token);
+
+    if (!socket || !user?._id) return;
+
+    if (!socket.connected) {
+      socket.connect();
+    }
+
+    const handleNewNotification = (notification) => {
+      queryClient.setQueryData(["issues", "notifications", user._id], (old = []) => {
+        return [notification, ...old].slice(0, 20);
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["issues", "notifications", "unread-count", user._id],
+      });
+    };
+
+    socket.on("notification_received", handleNewNotification);
+
+    return () => {
+      socket.off("notification_received", handleNewNotification);
+    };
+  }, [user?._id, queryClient]);
 
   const allIssues = useMemo(() => (Array.isArray(issues) ? issues : []), [issues]);
   const bucketIssues = useMemo(
@@ -1814,7 +1864,21 @@ const DeveloperDashboardPage = () => {
     }
   };
 
-  const handleOpenNotification = (notification) => {
+  const handleOpenNotification = async (notification) => {
+    if (!notification.isRead) {
+      try {
+        await markNotificationAsRead(notification.id);
+        queryClient.invalidateQueries({
+          queryKey: ["issues", "notifications", user?._id],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["issues", "notifications", "unread-count", user?._id],
+        });
+      } catch (error) {
+        console.error("Failed to mark notification as read:", error);
+      }
+    }
+
     if (notification.link) {
       navigate(notification.link);
     }
@@ -1870,6 +1934,7 @@ const DeveloperDashboardPage = () => {
         </Button>
         <NotificationCard
           notifications={notifications}
+          unreadCount={unreadCount}
           isLoading={isNotificationsLoading}
           onOpenNotification={handleOpenNotification}
         />
