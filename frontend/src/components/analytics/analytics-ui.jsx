@@ -4,10 +4,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const ANALYTICS_PANEL_CLASS =
-  "overflow-hidden rounded-[16px] border border-white/55 bg-white/60 shadow-[0_22px_55px_-32px_rgba(15,23,42,0.38)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/62 dark:text-slate-100";
+  "overflow-hidden rounded-[16px] border border-white/55 bg-white/60 shadow-sm backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/62 dark:text-slate-100";
 
 export const ANALYTICS_SUBPANEL_CLASS =
-  "rounded-[16px] border border-white/55 bg-white/54 shadow-[0_16px_36px_-26px_rgba(15,23,42,0.34)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_42px_-24px_rgba(15,23,42,0.38)] dark:border-white/10 dark:bg-slate-900/58";
+  "rounded-[16px] border border-white/55 bg-white/54 shadow-sm backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-white/10 dark:bg-slate-900/58";
 
 export const ANALYTICS_FIELD_CLASS =
   "h-11 rounded-2xl border-white/60 bg-white/78 text-slate-800 shadow-[0_16px_30px_-24px_rgba(15,23,42,0.3)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-100";
@@ -26,16 +26,12 @@ export const chartTooltipStyle = {
 };
 
 const toneClasses = {
-  blue: "border-white/10 bg-[linear-gradient(135deg,#1d4ed8_0%,#2563eb_44%,#38bdf8_100%)] text-white shadow-[0_22px_55px_-24px_rgba(37,99,235,0.72)]",
-  amber:
-    "border-white/10 bg-[linear-gradient(135deg,#f59e0b_0%,#f97316_50%,#fb7185_100%)] text-white shadow-[0_22px_55px_-24px_rgba(249,115,22,0.62)]",
-  emerald:
-    "border-white/10 bg-[linear-gradient(135deg,#059669_0%,#10b981_46%,#34d399_100%)] text-white shadow-[0_22px_55px_-24px_rgba(16,185,129,0.66)]",
-  rose:
-    "border-white/10 bg-[linear-gradient(135deg,#be123c_0%,#e11d48_46%,#fb7185_100%)] text-white shadow-[0_22px_55px_-24px_rgba(225,29,72,0.58)]",
-  violet:
-    "border-white/10 bg-[linear-gradient(135deg,#7c3aed_0%,#8b5cf6_46%,#d946ef_100%)] text-white shadow-[0_22px_55px_-24px_rgba(139,92,246,0.66)]",
-  cyan: "border-white/10 bg-[linear-gradient(135deg,#0891b2_0%,#06b6d4_44%,#3b82f6_100%)] text-white shadow-[0_22px_55px_-24px_rgba(6,182,212,0.66)]",
+  blue: "border-blue-100 bg-blue-50 text-blue-900 dark:bg-blue-950/30 dark:text-blue-100",
+  amber: "border-amber-100 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100",
+  emerald: "border-emerald-100 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100",
+  rose: "border-rose-100 bg-rose-50 text-rose-900 dark:bg-rose-950/30 dark:text-rose-100",
+  violet: "border-violet-100 bg-violet-50 text-violet-900 dark:bg-violet-950/30 dark:text-violet-100",
+  cyan: "border-cyan-100 bg-cyan-50 text-cyan-900 dark:bg-cyan-950/30 dark:text-cyan-100",
 };
 
 export const formatCompactNumber = (value) =>
@@ -89,6 +85,7 @@ export const AnalyticsPanel = ({ title, description, action, children, className
 
 export const AnalyticsKpiCard = ({
   className,
+  compact = false,
   helper,
   icon: Icon,
   onClick,
@@ -105,10 +102,34 @@ export const AnalyticsKpiCard = ({
         : Minus;
   const isInteractive = typeof onClick === "function";
 
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "flex items-center justify-between gap-4 rounded-xl border p-3 transition-all duration-200 hover:bg-white/50",
+          toneClasses[tone] || toneClasses.blue,
+          className
+        )}
+      >
+        <div className="min-w-0 text-left">
+          <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">{title}</p>
+          <p className="text-lg font-bold">{value}</p>
+        </div>
+        {Icon ? (
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/20 backdrop-blur-sm">
+            <Icon className="h-4 w-4" />
+          </span>
+        ) : null}
+      </button>
+    );
+  }
+
   return (
     <Card
       className={cn(
-        "group relative overflow-hidden rounded-[16px] border backdrop-blur-xl transition-all duration-200 hover:-translate-y-1",
+        "group relative overflow-hidden rounded-[16px] border backdrop-blur-xl transition-all duration-200 hover:-translate-y-1 shadow-sm",
         toneClasses[tone] || toneClasses.blue,
         isInteractive ? "cursor-pointer" : "",
         className
@@ -127,30 +148,29 @@ export const AnalyticsKpiCard = ({
       role={isInteractive ? "button" : undefined}
       tabIndex={isInteractive ? 0 : undefined}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(160deg,rgba(255,255,255,0.24),transparent_42%,rgba(255,255,255,0.1))]" />
       <CardContent className="relative p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-white/78">{title}</p>
-            <p className="mt-2 break-words text-3xl font-semibold text-white">
+            <p className="text-xs font-bold uppercase tracking-wider opacity-70">{title}</p>
+            <p className="mt-1 break-words text-2xl font-bold">
               {value}
             </p>
           </div>
           {Icon ? (
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] border border-white/18 bg-white/16 shadow-[0_10px_30px_-16px_rgba(15,23,42,0.65)] backdrop-blur-xl transition-all duration-200 group-hover:scale-[1.03]">
-              <Icon className="h-[18px] w-[18px]" />
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-white/20 shadow-sm backdrop-blur-xl transition-all duration-200 group-hover:scale-[1.03]">
+              <Icon className="h-4 w-4" />
             </span>
           ) : null}
         </div>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           {trend ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-white/14 px-3 py-1 text-[11px] font-semibold text-white/94 backdrop-blur-xl">
-              <TrendIcon className="h-3.5 w-3.5" />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold backdrop-blur-xl">
+              <TrendIcon className="h-3 w-3" />
               {trend.label}
             </span>
           ) : null}
           {helper ? (
-            <span className="text-[10px] font-semibold uppercase text-white/68">
+            <span className="text-[9px] font-bold uppercase tracking-tighter opacity-60">
               {helper}
             </span>
           ) : null}
