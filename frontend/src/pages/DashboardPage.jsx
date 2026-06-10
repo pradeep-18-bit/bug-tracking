@@ -146,22 +146,19 @@ const buildTrend = (current, previous, suffix = "vs last week") => {
   };
 };
 
-const QuickActionButton = ({ icon: Icon, title, helper, className, onClick }) => (
+const QuickActionButton = ({ icon: Icon, title, className, onClick }) => (
   <button
     type="button"
     onClick={onClick}
     className={cn(
-      "group flex min-h-[76px] w-full items-center gap-3 rounded-[16px] border px-4 py-3 text-left shadow-[0_16px_34px_-24px_rgba(15,23,42,0.34)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_24px_48px_-24px_rgba(15,23,42,0.38)]",
+      "group flex items-center justify-center gap-2 rounded-xl border border-white/50 bg-white/30 px-3 py-2 text-center shadow-sm backdrop-blur-md transition-all duration-200 hover:bg-white/60 hover:shadow-md",
       className
     )}
   >
-    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-white/26 text-current shadow-sm backdrop-blur transition-transform duration-200 group-hover:scale-105">
-      <Icon className="h-5 w-5" />
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/50 text-current shadow-sm transition-transform duration-200 group-hover:scale-110">
+      <Icon className="h-4 w-4" />
     </span>
-    <span className="min-w-0">
-      <span className="block text-sm font-semibold">{title}</span>
-      <span className="mt-1 block truncate text-xs opacity-75">{helper}</span>
-    </span>
+    <span className="text-xs font-bold tracking-tight">{title}</span>
   </button>
 );
 
@@ -171,30 +168,30 @@ const ProjectBugCard = ({ project, onOpen }) => (
     onClick={() => onOpen(project)}
     className={cn(
       ANALYTICS_SUBPANEL_CLASS,
-      "block w-full px-4 py-3 text-left hover:border-rose-200/80"
+      "block w-full px-3 py-2 text-left hover:border-blue-200/80"
     )}
   >
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+        <p className="truncate text-sm font-bold text-slate-950 dark:text-slate-100">
           {project.name}
         </p>
-        <p className="mt-1 text-xs text-slate-500">
-          Open: {project.open} | Closed: {project.closed} | Critical: {project.critical}
+        <p className="mt-0.5 text-[10px] font-medium text-slate-500 uppercase">
+          {project.open} Open &bull; {project.closed} Closed &bull; {project.critical} Crit
         </p>
       </div>
-      <Badge className="shrink-0 border-rose-200 bg-rose-50 text-rose-700">
+      <Badge className="shrink-0 h-5 px-1.5 text-[9px] font-bold border-blue-100 bg-blue-50 text-blue-700">
         {project.total} Bugs
       </Badge>
     </div>
-    <div className="mt-3 space-y-1.5">
-      <div className="flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-500">
-        <span>Resolution rate</span>
+    <div className="mt-2 space-y-1">
+      <div className="flex items-center justify-between gap-3 text-[9px] font-bold uppercase text-slate-400">
+        <span>Resolution</span>
         <span>{project.resolutionRate}%</span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-800">
+      <div className="h-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
         <div
-          className="h-full rounded-full bg-[linear-gradient(90deg,#fb7185,#f97316,#22c55e)] transition-all duration-500"
+          className="h-full rounded-full bg-blue-500 transition-all duration-500"
           style={{ width: `${Math.max(project.resolutionRate, project.total ? 5 : 0)}%` }}
         />
       </div>
@@ -217,7 +214,7 @@ const PriorityDistribution = ({ rows, total }) => (
                 {row.count}
               </span>
             </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
+            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
               <div
                 className={cn("h-full rounded-full transition-all duration-500", row.className)}
                 style={{ width: `${Math.max(row.percentage, row.count ? 6 : 0)}%` }}
@@ -236,13 +233,18 @@ const PriorityDistribution = ({ rows, total }) => (
   </AnalyticsPanel>
 );
 
-const RecentCriticalBugs = ({ bugs, onOpen }) => (
+const RecentCriticalBugs = ({ bugs, onOpen, onNavigate }) => (
   <AnalyticsPanel
     title="Recent Critical Bugs"
-    description="Latest high-risk bug records that need operational attention."
+    description="Latest high-risk bug records."
+    action={
+      <Button variant="ghost" size="sm" className="h-8 text-xs font-bold" onClick={onNavigate}>
+        View All Bugs
+      </Button>
+    }
   >
     {bugs.length ? (
-      <div className="space-y-3">
+      <div className="space-y-2">
         {bugs.map((bug) => {
           const status = normalizeBugStatusForIssue(bug);
 
@@ -251,29 +253,18 @@ const RecentCriticalBugs = ({ bugs, onOpen }) => (
               key={bug._id}
               type="button"
               onClick={() => onOpen(bug)}
-              className={cn(
-                ANALYTICS_SUBPANEL_CLASS,
-                "grid w-full gap-3 px-4 py-3 text-left lg:grid-cols-[110px_minmax(0,1fr)_120px_130px_110px] lg:items-center"
-              )}
+              className="flex w-full items-center gap-3 rounded-lg border border-slate-100 bg-white/50 px-3 py-2 text-left transition-colors hover:bg-slate-50"
             >
-              <span className="font-mono text-xs font-semibold text-slate-500">
+              <span className="font-mono text-[11px] font-bold text-slate-500 shrink-0 w-24">
                 {getIssueDisplayKey(bug)}
               </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
-                  {getBugProjectName(bug)}
-                </span>
-                <span className="mt-0.5 block truncate text-xs text-slate-500">
-                  {bug.title || "Untitled bug"}
-                </span>
+              <span className="truncate text-[12px] font-bold text-slate-900 flex-1">
+                {bug.title || "Untitled bug"}
               </span>
-              <Badge variant={getIssuePriorityVariant(bug.priority)}>
+              <Badge variant={getIssuePriorityVariant(bug.priority)} className="h-5 px-1.5 text-[9px] font-bold uppercase tracking-wider">
                 {bug.priority || "Medium"}
               </Badge>
-              <span className="truncate text-sm text-slate-600 dark:text-slate-300">
-                {getBugAssigneeName(bug)}
-              </span>
-              <Badge variant={getIssueStatusVariant(status)}>
+              <Badge variant={getIssueStatusVariant(status)} className="h-5 px-1.5 text-[9px] font-bold uppercase tracking-wider">
                 {getIssueStatusLabel(status)}
               </Badge>
             </button>
@@ -283,12 +274,85 @@ const RecentCriticalBugs = ({ bugs, onOpen }) => (
     ) : (
       <AnalyticsEmptyState
         icon={AlertTriangle}
-        title="No critical bugs right now"
-        description="Critical bug alerts appear here as soon as high-risk bugs are logged."
+        title="No critical bugs"
+        description="High-risk bugs will appear here."
       />
     )}
   </AnalyticsPanel>
 );
+
+const TriageBoardWidget = ({ bugs, onOpen, onNavigate }) => {
+  const triageBugs = useMemo(() => {
+    return bugs.filter(bug => {
+      const status = normalizeBugStatusForIssue(bug);
+      const developer = resolveBugDetails(bug)?.developerLead || bug?.assignee;
+      return [ISSUE_STATUS.NEW, ISSUE_STATUS.TRIAGED, ISSUE_STATUS.OPEN].includes(status) || !developer;
+    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [bugs]);
+
+  const metrics = useMemo(() => {
+    const incoming = bugs.filter(b => [ISSUE_STATUS.NEW, ISSUE_STATUS.OPEN].includes(normalizeBugStatusForIssue(b))).length;
+    const unassigned = bugs.filter(b => !(resolveBugDetails(b)?.developerLead || b?.assignee)).length;
+    const awaitingReview = bugs.filter(b => normalizeBugStatusForIssue(b) === ISSUE_STATUS.TRIAGED).length;
+    return { incoming, unassigned, awaitingReview };
+  }, [bugs]);
+
+  const displayBugs = triageBugs.slice(0, 7);
+
+  return (
+    <AnalyticsPanel
+      title="Triage Board"
+      description="Bugs requiring review and assignment."
+      action={
+        <Button variant="ghost" size="sm" className="h-8 text-xs font-bold" onClick={onNavigate}>
+          Open Triage Board
+        </Button>
+      }
+    >
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="rounded-xl bg-blue-50/50 p-2 text-center border border-blue-100/50">
+          <p className="text-[9px] font-bold uppercase tracking-wider text-blue-600">Incoming</p>
+          <p className="text-lg font-bold text-blue-900">{metrics.incoming}</p>
+        </div>
+        <div className="rounded-xl bg-amber-50/50 p-2 text-center border border-amber-100/50">
+          <p className="text-[9px] font-bold uppercase tracking-wider text-amber-600">Unassigned</p>
+          <p className="text-lg font-bold text-amber-900">{metrics.unassigned}</p>
+        </div>
+        <div className="rounded-xl bg-violet-50/50 p-2 text-center border border-violet-100/50">
+          <p className="text-[9px] font-bold uppercase tracking-wider text-violet-600">Review</p>
+          <p className="text-lg font-bold text-violet-900">{metrics.awaitingReview}</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {displayBugs.length ? displayBugs.map(bug => {
+          const severity = getBugSeverity(bug);
+          const severityVariant = severity === "Critical" || severity === "Blocker" ? "danger" : severity === "Major" ? "warning" : "secondary";
+
+          return (
+            <button
+              key={bug._id}
+              onClick={() => onOpen(bug)}
+              className="flex w-full items-center justify-between rounded-lg border border-slate-100 bg-white/50 px-3 py-2 text-left transition-colors hover:bg-slate-50"
+            >
+              <span className="font-mono text-[11px] font-bold text-slate-500">{getIssueDisplayKey(bug)}</span>
+              <Badge variant={severityVariant} className="h-5 px-1.5 text-[9px] font-bold uppercase tracking-wider">
+                {severity || "Medium"}
+              </Badge>
+            </button>
+          );
+        }) : (
+          <AnalyticsEmptyState
+            icon={CheckCircle2}
+            title="All triaged"
+            description="No bugs awaiting review."
+            className="min-h-[140px] py-4"
+          />
+        )}
+      </div>
+    </AnalyticsPanel>
+  );
+};
 
 const ActiveProjectCard = ({ project, onOpen }) => {
   const teams = project.teams || [];
@@ -296,57 +360,44 @@ const ActiveProjectCard = ({ project, onOpen }) => {
   return (
     <button
       type="button"
-      className="group block w-full rounded-2xl border border-white/50 bg-white/78 p-4 text-left shadow-sm backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200/80 hover:bg-white/90 hover:shadow-md dark:border-white/10 dark:bg-slate-900/58 dark:hover:bg-slate-900/78"
+      className="group block w-full rounded-xl border border-white/50 bg-white/40 p-3 text-left shadow-sm backdrop-blur-xl transition-all duration-200 hover:bg-white/60 dark:border-white/10 dark:bg-slate-900/40"
       onClick={() => onOpen(project)}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" />
-            <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+            <p className="truncate text-sm font-bold text-slate-950 dark:text-slate-100">
               {project.name}
             </p>
           </div>
-          <p className="mt-1 text-xs text-slate-500">
-            {project.teamCount || 0} assigned team{project.teamCount === 1 ? "" : "s"}
+          <p className="mt-0.5 text-[10px] font-medium text-slate-500 uppercase tracking-tight">
+            {project.teamCount || 0} Team{project.teamCount === 1 ? "" : "s"}
           </p>
         </div>
-        <span className="shrink-0 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
-          {project.completionRate}% complete
+        <span className="shrink-0 rounded-full border border-blue-100 bg-blue-50/50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+          {project.completionRate}%
         </span>
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2">
-        <div className="min-w-0 rounded-xl bg-slate-950/[0.03] px-3 py-2 dark:bg-white/[0.06]">
-          <p className="truncate text-[11px] font-medium text-slate-500">Issues</p>
-          <p className="mt-0.5 truncate text-base font-semibold text-slate-950 dark:text-slate-100">
+        <div className="min-w-0 rounded-lg bg-slate-50/50 px-2 py-1.5 border border-slate-100/50">
+          <p className="truncate text-[9px] font-bold text-slate-500 uppercase">Issues</p>
+          <p className="mt-0.5 truncate text-sm font-bold text-slate-900 dark:text-slate-100">
             {project.totalIssues}
           </p>
         </div>
-        <div className="min-w-0 rounded-xl bg-amber-50 px-3 py-2 dark:bg-amber-500/10">
-          <p className="truncate text-[11px] font-medium text-amber-700">Open</p>
-          <p className="mt-0.5 truncate text-base font-semibold text-amber-900 dark:text-amber-200">
+        <div className="min-w-0 rounded-lg bg-amber-50/50 px-2 py-1.5 border border-amber-100/50">
+          <p className="truncate text-[9px] font-bold text-amber-700 uppercase">Open</p>
+          <p className="mt-0.5 truncate text-sm font-bold text-amber-900 dark:text-amber-200">
             {project.openIssues}
           </p>
         </div>
-        <div className="min-w-0 rounded-xl bg-emerald-50 px-3 py-2 dark:bg-emerald-500/10">
-          <p className="truncate text-[11px] font-medium text-emerald-700">Closed</p>
-          <p className="mt-0.5 truncate text-base font-semibold text-emerald-900 dark:text-emerald-200">
+        <div className="min-w-0 rounded-lg bg-emerald-50/50 px-2 py-1.5 border border-emerald-100/50">
+          <p className="truncate text-[9px] font-bold text-emerald-700 uppercase">Closed</p>
+          <p className="mt-0.5 truncate text-sm font-bold text-emerald-900 dark:text-emerald-200">
             {project.closedIssues}
           </p>
-        </div>
-      </div>
-
-      <div className="mt-3 space-y-1.5">
-        <div className="flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-500">
-          <span>Resolution progress</span>
-          <span>{project.openIssues} open</span>
-        </div>
-        <div className="h-2 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-800">
-          <div
-            className="h-full rounded-full bg-[linear-gradient(90deg,#8b5cf6,#06b6d4)] transition-all duration-500"
-            style={{ width: `${Math.max(project.completionRate, 5)}%` }}
-          />
         </div>
       </div>
 
@@ -371,12 +422,12 @@ const ActiveProjectCard = ({ project, onOpen }) => {
 };
 
 const DashboardLoading = () => (
-  <div className="space-y-5">
-    <Skeleton className="h-[170px] rounded-[16px] bg-gradient-to-r from-slate-200/70 via-white/80 to-slate-200/70" />
+  <div className="space-y-6">
+    <Skeleton className="h-[120px] rounded-xl bg-slate-100/50" />
     <AnalyticsSkeletonGrid />
     <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-      <Skeleton className="h-[350px] rounded-[16px]" />
-      <Skeleton className="h-[350px] rounded-[16px]" />
+      <Skeleton className="h-[350px] rounded-xl" />
+      <Skeleton className="h-[350px] rounded-xl" />
     </div>
   </div>
 );
@@ -543,7 +594,7 @@ const DashboardPage = () => {
             new Date(right.updatedAt || right.createdAt || 0).getTime() -
             new Date(left.updatedAt || left.createdAt || 0).getTime()
         )
-        .slice(0, 6),
+        .slice(0, 7),
     [bugs]
   );
   const bugKpiCards = [
@@ -699,58 +750,64 @@ const DashboardPage = () => {
     );
   }
 
+  const mainKpiCards = kpiCards.filter((c) => c.key !== "closed" && c.key !== "rate");
+  const headerKpiCards = kpiCards.filter((c) => c.key === "closed" || c.key === "rate");
+
   return (
-    <div className="space-y-5">
-      <Card className="overflow-hidden rounded-[16px] border-white/60 bg-[linear-gradient(135deg,rgba(255,255,255,0.84),rgba(239,246,255,0.74),rgba(238,242,255,0.66))] shadow-[0_24px_70px_-36px_rgba(15,23,42,0.42)] backdrop-blur-2xl dark:border-white/10 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.88),rgba(30,41,59,0.76),rgba(15,23,42,0.82))]">
-        <CardContent className="relative p-4 sm:p-5">
-          <div className="relative grid gap-4 xl:grid-cols-[1fr_1.4fr] xl:items-center">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/65 bg-white/72 px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm backdrop-blur-xl">
-                <Sparkles className="h-3.5 w-3.5 text-blue-600" />
-                Operational Overview
+    <div className="space-y-6">
+      <Card className="overflow-hidden rounded-xl border-white/60 bg-white/40 shadow-sm backdrop-blur-2xl dark:border-white/10 dark:bg-slate-900/40">
+        <CardContent className="p-4">
+          <div className="flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-8">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50/50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-600">
+                  <Sparkles className="h-3 w-3" />
+                  Admin Overview
+                </div>
+                <h1 className="mt-1 text-xl font-bold tracking-tight text-slate-950 dark:text-slate-100">
+                  Command Center
+                </h1>
               </div>
-              <h1 className="mt-3 text-2xl font-semibold text-slate-950 dark:text-slate-100">
-                Admin Command Center
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-400">
-              
-              </p>
+
+              <div className="flex items-center gap-4">
+                {headerKpiCards.map((card) => (
+                  <div key={card.key} className="flex flex-col">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{card.title}</span>
+                    <span className="text-lg font-bold text-slate-900 dark:text-slate-100">{card.value}</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 xl:w-auto">
               <QuickActionButton
                 icon={Plus}
-                title="Create Project"
-                helper="Set up delivery space"
-                className="border-blue-200/70 bg-white/72 text-blue-900 hover:border-blue-300 hover:bg-blue-50"
+                title="Project"
+                className="border-blue-100 text-blue-700"
                 onClick={() => navigate("/projects")}
               />
               <QuickActionButton
                 icon={Zap}
-                title="Create Issue"
-                helper="Log work or bug"
-                className="border-amber-200/70 bg-amber-50/85 text-amber-900 hover:border-amber-300"
+                title="Issue"
+                className="border-amber-100 text-amber-700"
                 onClick={() => navigate("/issues?compose=1")}
               />
               <QuickActionButton
                 icon={Users2}
-                title="Projects & Teams"
-                helper="Manage ownership"
-                className="border-violet-200/70 bg-violet-50/80 text-violet-900 hover:border-violet-300"
+                title="Teams"
+                className="border-violet-100 text-violet-700"
                 onClick={() => navigate("/projects")}
               />
               <QuickActionButton
                 icon={BarChart3}
                 title="Reports"
-                helper="Open analytics center"
-                className="border-cyan-200/70 bg-cyan-50/80 text-cyan-900 hover:border-cyan-300"
+                className="border-cyan-100 text-cyan-700"
                 onClick={() => navigate("/reports")}
               />
               <QuickActionButton
                 icon={Activity}
-                title="Recent Activity"
-                helper="Jump to live feed"
-                className="border-emerald-200/70 bg-emerald-50/80 text-emerald-900 hover:border-emerald-300"
+                title="Activity"
+                className="border-emerald-100 text-emerald-700"
                 onClick={() =>
                   document
                     .getElementById("dashboard-activity")
@@ -762,8 +819,8 @@ const DashboardPage = () => {
         </CardContent>
       </Card>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        {kpiCards.map((card) => (
+      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+        {mainKpiCards.map((card) => (
           <AnalyticsKpiCard
             key={card.key}
             title={card.title}
@@ -778,20 +835,6 @@ const DashboardPage = () => {
       </section>
 
       <section className="space-y-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-100">
-              Bug Management Overview
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Live bug analytics, project risk, and critical bug navigation.
-            </p>
-          </div>
-          <Badge className="w-fit border-white/60 bg-white/72 text-slate-600">
-            {isBugsLoading ? "Syncing bugs" : `${bugMetrics.total} tracked bugs`}
-          </Badge>
-        </div>
-
         {bugsError ? (
           <Card className={ANALYTICS_PANEL_CLASS}>
             <CardContent className="p-6 text-sm text-rose-700">
@@ -802,35 +845,59 @@ const DashboardPage = () => {
           <AnalyticsSkeletonGrid />
         ) : (
           <>
-            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-              {bugKpiCards.map((card) => (
-                <AnalyticsKpiCard
-                  key={card.key}
-                  title={card.title}
-                  value={card.value}
-                  icon={card.icon}
-                  tone={card.tone}
-                  helper={card.helper}
-                  trend={card.trend}
-                  onClick={card.onClick}
-                />
-              ))}
-            </section>
+            <div className="grid gap-5 lg:grid-cols-2">
+              <RecentCriticalBugs
+                bugs={recentCriticalBugs}
+                onOpen={(bug) => navigateToBugs({ bug: bug._id })}
+                onNavigate={() => navigateToBugs({ filter: "critical" })}
+              />
+
+              <TriageBoardWidget
+                bugs={bugs}
+                onOpen={(bug) => navigateToBugs({ bug: bug._id })}
+                onNavigate={() => navigate("/admin/bugs")}
+              />
+            </div>
+
+            <div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
+                <h2 className="text-base font-bold text-slate-950 dark:text-slate-100 uppercase tracking-tight">
+                  Bug Management Overview
+                </h2>
+                <Badge className="w-fit border-slate-100 bg-slate-50 text-slate-600 text-[10px] font-bold">
+                  {bugMetrics.total} tracked bugs
+                </Badge>
+              </div>
+
+              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                {bugKpiCards.map((card) => (
+                  <AnalyticsKpiCard
+                    key={card.key}
+                    compact
+                    title={card.title}
+                    value={card.value}
+                    icon={card.icon}
+                    tone={card.tone}
+                    onClick={card.onClick}
+                  />
+                ))}
+              </section>
+            </div>
 
             <section className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
               <AnalyticsPanel
-                title="Project-wise Bug Overview"
-                description="Projects ranked by live bug volume with resolution progress."
+                title="Project Bug Status"
+                description="Live bug volume and resolution progress."
                 action={
                   bugProjectRows.length ? (
-                    <Badge className="border-white/60 bg-white/72 text-slate-600">
+                    <Badge className="border-slate-100 bg-slate-50 text-slate-600 text-[10px] font-bold">
                       {bugProjectRows.length} projects
                     </Badge>
                   ) : null
                 }
               >
                 {bugProjectRows.length ? (
-                  <div className="dashboard-scrollbar dashboard-scroll-fade max-h-[430px] space-y-3 overflow-y-auto pr-2">
+                  <div className="dashboard-scrollbar dashboard-scroll-fade max-h-[380px] space-y-3 overflow-y-auto pr-2">
                     {bugProjectRows.map((project) => (
                       <ProjectBugCard
                         key={project.projectId}
@@ -854,25 +921,20 @@ const DashboardPage = () => {
                   <AnalyticsEmptyState
                     icon={FolderKanban}
                     title="No project bug data yet"
-                    description="Project bug insights appear once bugs are linked to projects."
+                    description="Project bug insights appear once bugs are linked."
                   />
                 )}
               </AnalyticsPanel>
 
               <PriorityDistribution rows={priorityRows} total={bugMetrics.total} />
             </section>
-
-            <RecentCriticalBugs
-              bugs={recentCriticalBugs}
-              onOpen={(bug) => navigateToBugs({ bug: bug._id })}
-            />
           </>
         )}
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
         <AnalyticsPanel
-          title="Issue Status Overview"
+          title="Issue Status"
           description="Distribution of active and resolved workload from live issue data."
           action={
             <Badge className="border-white/60 bg-white/72 text-slate-600">
@@ -894,7 +956,7 @@ const DashboardPage = () => {
                     onClick={() => navigateToIssues({ status: row.key })}
                     className={cn(
                       ANALYTICS_SUBPANEL_CLASS,
-                      "grid w-full gap-3 px-4 py-3 text-left md:grid-cols-[180px_minmax(0,1fr)_90px] md:items-center"
+                      "grid w-full gap-3 px-3 py-2 text-left md:grid-cols-[180px_minmax(0,1fr)_90px] md:items-center"
                     )}
                   >
                     <div className="flex min-w-0 items-center gap-3">
@@ -911,7 +973,7 @@ const DashboardPage = () => {
                         <p className="text-xs text-slate-500">{row.percentage}% of scope</p>
                       </div>
                     </div>
-                    <div className="h-2.5 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-800">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                       <div
                         className={cn(
                           "h-full rounded-full transition-all duration-500",
@@ -940,7 +1002,7 @@ const DashboardPage = () => {
         </AnalyticsPanel>
 
         <AnalyticsPanel
-          title="Most Active Projects"
+          title="Active Projects"
           description="All active projects sorted by issue volume, open workload, and assigned teams."
           action={
             activeProjects.length ? (
@@ -1000,7 +1062,7 @@ const DashboardPage = () => {
                     onClick={() => navigateToIssues({ search: item.issueId })}
                     className={cn(
                       ANALYTICS_SUBPANEL_CLASS,
-                      "flex w-full items-start gap-3 px-4 py-3 text-left"
+                      "flex w-full items-start gap-3 px-3 py-2 text-left"
                     )}
                   >
                     <span
@@ -1047,38 +1109,38 @@ const DashboardPage = () => {
 
         <AnalyticsPanel
           title="Active Workload"
-          description="Team and delivery pressure signals from current issue volume."
+          description="Team delivery pressure signals."
         >
-          <div className="space-y-4">
+          <div className="space-y-3">
             {highestWorkloadTeam ? (
-              <div className={cn(ANALYTICS_SUBPANEL_CLASS, "p-4")}>
+              <div className={cn(ANALYTICS_SUBPANEL_CLASS, "p-3")}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-950 dark:text-slate-100">
+                    <p className="text-sm font-bold text-slate-950 dark:text-slate-100">
                       {highestWorkloadTeam.name}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Highest current workload
+                    <p className="mt-0.5 text-[10px] font-medium text-slate-500 uppercase">
+                      Top Workload
                     </p>
                   </div>
-                  <Badge className="border-cyan-200 bg-cyan-50 text-cyan-700">
-                    {highestWorkloadTeam.productivity}% productivity
+                  <Badge className="h-5 px-1.5 text-[9px] font-bold border-cyan-100 bg-cyan-50 text-cyan-700">
+                    {highestWorkloadTeam.productivity}% Eff
                   </Badge>
                 </div>
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  <div className="rounded-[14px] bg-slate-950/[0.03] px-3 py-2">
-                    <p className="text-xs text-slate-500">Total</p>
-                    <p className="text-lg font-semibold">{highestWorkloadTeam.totalIssues}</p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 border border-slate-100/50 text-center">
+                    <p className="text-[9px] font-bold text-slate-400 uppercase">Total</p>
+                    <p className="text-sm font-bold">{highestWorkloadTeam.totalIssues}</p>
                   </div>
-                  <div className="rounded-[14px] bg-amber-50 px-3 py-2">
-                    <p className="text-xs text-amber-700">Pending</p>
-                    <p className="text-lg font-semibold text-amber-900">
+                  <div className="rounded-lg bg-amber-50 px-2 py-1.5 border border-amber-100/50 text-center">
+                    <p className="text-[9px] font-bold text-amber-600 uppercase">Open</p>
+                    <p className="text-sm font-bold text-amber-900">
                       {highestWorkloadTeam.pendingWorkload}
                     </p>
                   </div>
-                  <div className="rounded-[14px] bg-emerald-50 px-3 py-2">
-                    <p className="text-xs text-emerald-700">Closed</p>
-                    <p className="text-lg font-semibold text-emerald-900">
+                  <div className="rounded-lg bg-emerald-50 px-2 py-1.5 border border-emerald-100/50 text-center">
+                    <p className="text-[9px] font-bold text-emerald-600 uppercase">Done</p>
+                    <p className="text-sm font-bold text-emerald-900">
                       {highestWorkloadTeam.closedIssues}
                     </p>
                   </div>
@@ -1094,7 +1156,7 @@ const DashboardPage = () => {
                     type="button"
                     className={cn(
                       ANALYTICS_SUBPANEL_CLASS,
-                      "flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                      "flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
                     )}
                     onClick={() => navigateToIssues({ teamId: team.teamId })}
                   >
