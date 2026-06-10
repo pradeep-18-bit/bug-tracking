@@ -1442,7 +1442,12 @@ const AdminBugsPage = () => {
                             </div>
 
                             <button className="min-w-0 text-left" type="button" onClick={() => setSelectedBug(bugIssue)}>
-                              <span className="block font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">{getIssueDisplayKey(bugIssue)}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">{getIssueDisplayKey(bugIssue)}</span>
+                                {status === ISSUE_STATUS.NEW || status === "NEEDS_TRIAGE" ? (
+                                  <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-blue-700">Source: Tester Review Required</span>
+                                ) : null}
+                              </div>
                               <span className="mt-0.5 block truncate text-[13px] font-bold leading-5 text-slate-950">{bugIssue.title}</span>
                               <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-500">
                                 {getProjectName(bugIssue, projects)} &bull; {details.moduleName || "Unmapped module"}

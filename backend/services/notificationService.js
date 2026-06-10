@@ -3,7 +3,7 @@ const User = require("../models/User");
 const TeamMember = require("../models/TeamMember");
 const ProjectTeam = require("../models/ProjectTeam");
 const { emitToUser } = require("../socket");
-const { ROLE_TESTER } = require("../utils/roles");
+const { ROLE_TESTER, ROLE_ADMIN } = require("../utils/roles");
 
 /**
  * Finds all testers attached to a project through its teams
@@ -116,6 +116,21 @@ const notifyIssueEvent = async ({
     }
   }
 
+  if (eventType === "needs_triage") {
+    // Notify all Admins about bugs needing triage
+    const admins = await User.find({ role: ROLE_ADMIN }).select("_id").lean();
+    for (const admin of admins) {
+      if (String(admin._id) === String(actorId)) continue;
+      await createNotification({
+        recipientId: admin._id,
+        text: `New bug ${issueKey} requires triage.`,
+        type: "triage_required",
+        relatedId: issue._id,
+        link: `/admin/bugs?bug=${issue._id}`,
+      });
+    }
+  }
+
   if (eventType === "status_change") {
     const statusLabel = isBug
       ? (require("../utils/bugLifecycle").BUG_STATUS_LABELS[issue.status] || issue.status)
@@ -143,9 +158,13 @@ const notifyIssueEvent = async ({
       });
     }
 
+    // Rule 2: Notify if bug enters the queue (Rule 2 + Rule 7)
+    const queueStatuses = ["AVAILABLE_QUEUE", "NEEDS_TRIAGE"];
+    const isEnteringQueue = queueStatuses.includes(issue.status);
+
     // Rule 3: Notify all project testers if status is Ready for Testing/QA/Verification
     const readyStatuses = ["READY_FOR_TESTING", "READY_FOR_QA", "READY_FOR_VERIFICATION"];
-    if (isBug && readyStatuses.includes(issue.status)) {
+    if (isBug && (readyStatuses.includes(issue.status) || isEnteringQueue)) {
       const projectTesters = await getTestersForProject(issue.projectId);
       for (const tId of projectTesters) {
         if (String(tId) === String(actorId)) continue;
