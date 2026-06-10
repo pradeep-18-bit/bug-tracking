@@ -18,6 +18,7 @@ const {
 } = require("../services/emailService");
 const { scheduleIssueStateNotifications } = require("../services/sprintNotificationService");
 const { emitBugWorkflowEvent } = require("../socket");
+const { notifyIssueEvent } = require("../services/notificationService");
 const asyncHandler = require("../utils/asyncHandler");
 const { recordIssueHistory } = require("../utils/issueHistory");
 const {
@@ -2989,6 +2990,20 @@ const createIssue = asyncHandler(async (req, res) => {
     action: "BUG_CREATED",
   });
 
+  if (issue.status === BUG_STATUS.NEW && !issue.assignee) {
+    await notifyIssueEvent({
+      issue,
+      eventType: "team_queue",
+      actorId: req.user._id,
+    });
+  } else if (issue.assignee) {
+    await notifyIssueEvent({
+      issue,
+      eventType: "assignment",
+      actorId: req.user._id,
+    });
+  }
+
   res.status(201).json({
     ...serializeIssue(issue),
     ...(emailNotification ? { emailNotification } : {}),
@@ -3826,6 +3841,23 @@ const updateIssue = asyncHandler(async (req, res) => {
         assignedDeveloperId: nextBugDeveloperId || null,
       },
     });
+
+    if (assignedChanged || reassigned) {
+      await notifyIssueEvent({
+        issue,
+        eventType: "assignment",
+        actorId: req.user._id,
+        oldAssigneeId: previousAssigneeId,
+      });
+    }
+
+    if (statusChanged && !assignedChanged) {
+      await notifyIssueEvent({
+        issue,
+        eventType: "status_change",
+        actorId: req.user._id,
+      });
+    }
   }
 
   res.status(200).json({
@@ -3969,136 +4001,50 @@ const deleteIssue = asyncHandler(async (req, res) => {
 
 const getNotifications = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
 
-  // 1. Get my issues to track status changes on them
-  const myIssues = await Issue.find({
-    ...ACTIVE_ISSUE_QUERY,
-    $or: [
-      { assignee: userId },
-      { reporter: userId },
-      { "bugDetails.testerOwner": userId },
-      { "bugDetails.developerLead": userId },
-    ],
-  })
-    .select("_id")
-    .lean();
-  const myIssueIds = myIssues.map((i) => i._id);
-
-  // 2. Fetch relevant IssueHistory
-  const history = await IssueHistory.find({
-    $or: [
-      // Assignments to me
-      {
-        field: {
-          $in: ["assignee", "bugDetails.developerLead", "assignedDeveloperId"],
-        },
-        toValue: userId,
-      },
-      // Status changes on my issues
-      {
-        issueId: { $in: myIssueIds },
-        field: "status",
-        actorId: { $ne: userId },
-      },
-      // New high priority bugs in the bucket
-      {
-        eventType: "ISSUE_CREATED",
-        "meta.type": ISSUE_TYPES.BUG,
-        "meta.priority": { $in: ["High", "Critical"] },
-      },
-    ],
-  })
+  const notifications = await Notification.find({ recipientId: userId })
     .sort({ createdAt: -1 })
     .limit(20)
-    .populate("issueId", "title displayBugId type")
-    .populate("actorId", "name")
     .lean();
 
-  // 3. Upcoming Sprints (starting in next 48h)
-  const now = new Date();
-  const fortyEightHoursLater = new Date(now.getTime() + 48 * 60 * 60 * 1000);
-  const upcomingSprints = await Sprint.find({
-    workspaceId,
-    state: "PLANNED",
-    startDate: { $gt: now, $lte: fortyEightHoursLater },
-  }).lean();
+  res.status(200).json(
+    notifications.map((n) => ({
+      ...n,
+      id: n._id.toString(),
+      timestamp: n.createdAt,
+    }))
+  );
+});
 
-  // 4. Upcoming Deadlines (assigned issues due in next 48h)
-  const upcomingDeadlines = await Issue.find({
-    ...ACTIVE_ISSUE_QUERY,
-    assignee: userId,
-    dueAt: { $gt: now, $lte: fortyEightHoursLater },
-    status: { $nin: COMPLETED_STATUS_QUERY_VALUES },
-  }).lean();
-
-  // 5. Merge and Format
-  const notifications = [];
-
-  history.forEach((h) => {
-    let text = "";
-    const issueKey = h.issueId?.displayBugId || "Item";
-    const issueTitle = h.issueId?.title || "";
-
-    if (
-      h.field === "assignee" ||
-      h.field === "bugDetails.developerLead" ||
-      h.field === "assignedDeveloperId"
-    ) {
-      text = `${h.issueId?.type || "Issue"} ${issueKey} assigned to you.`;
-    } else if (h.field === "status") {
-      const statusLabel = statusLabelMap[h.toValue] || h.toValue;
-      text = `${h.issueId?.type || "Issue"} "${issueTitle}" moved to ${statusLabel}.`;
-    } else if (h.eventType === "ISSUE_CREATED") {
-      text = `New high-priority bug ${issueKey} added to queue.`;
-    }
-
-    if (text) {
-      notifications.push({
-        id: h._id.toString(),
-        text,
-        type: "history",
-        relatedId: h.issueId?._id?.toString(),
-        timestamp: h.createdAt,
-        link: `/issues?search=${issueKey}`,
-      });
-    }
+const getUnreadNotificationCount = asyncHandler(async (req, res) => {
+  const count = await Notification.countDocuments({
+    recipientId: req.user._id,
+    isRead: false,
   });
+  res.status(200).json({ count });
+});
 
-  upcomingSprints.forEach((s) => {
-    const diffHours = Math.ceil(
-      (new Date(s.startDate) - now) / (1000 * 60 * 60)
-    );
-    const timeText = diffHours <= 24 ? "tomorrow" : "in 2 days";
-    notifications.push({
-      id: `sprint-${s._id}`,
-      text: `Sprint "${s.name}" starts ${timeText}.`,
-      type: "sprint",
-      relatedId: s._id.toString(),
-      timestamp: now,
-      link: `/backlog?projectId=${s.projectId}`,
-    });
-  });
+const markNotificationRead = asyncHandler(async (req, res) => {
+  const notification = await Notification.findOneAndUpdate(
+    { _id: req.params.id, recipientId: req.user._id },
+    { isRead: true },
+    { new: true }
+  );
 
-  upcomingDeadlines.forEach((i) => {
-    const diffHours = Math.ceil((new Date(i.dueAt) - now) / (1000 * 60 * 60));
-    const timeText = diffHours <= 24 ? "24 hours" : "2 days";
-    const issueKey = i.displayBugId || "Item";
-    notifications.push({
-      id: `deadline-${i._id}`,
-      text: `${i.type || "Task"} ${issueKey} due in ${timeText}.`,
-      type: "deadline",
-      relatedId: i._id.toString(),
-      timestamp: now,
-      link: `/issues?search=${issueKey}`,
-    });
-  });
+  if (!notification) {
+    res.status(404);
+    throw new Error("Notification not found");
+  }
 
-  const sortedNotifications = notifications
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-    .slice(0, 10);
+  res.status(200).json(notification);
+});
 
-  res.status(200).json(sortedNotifications);
+const markAllNotificationsRead = asyncHandler(async (req, res) => {
+  await Notification.updateMany(
+    { recipientId: req.user._id, isRead: false },
+    { isRead: true }
+  );
+  res.status(200).json({ message: "All notifications marked as read" });
 });
 
 module.exports = {
@@ -4110,6 +4056,9 @@ module.exports = {
   pickIssue,
   getRecentIssueActivity,
   getNotifications,
+  getUnreadNotificationCount,
+  markNotificationRead,
+  markAllNotificationsRead,
   getReports,
   getProjectReports,
   getUserReports,

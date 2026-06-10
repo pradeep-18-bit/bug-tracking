@@ -7,6 +7,9 @@ const {
   getBugBucket,
   getRecentIssueActivity,
   getNotifications,
+  getUnreadNotificationCount,
+  markNotificationRead,
+  markAllNotificationsRead,
   createIssue,
   updateIssue,
   pickIssue,
@@ -34,6 +37,9 @@ router.get("/reported/me", protect, getMyReportedBugs);
 router.get("/bucket", protect, getBugBucket);
 router.get("/activity", protect, getRecentIssueActivity);
 router.get("/notifications", protect, getNotifications);
+router.get("/notifications/unread-count", protect, getUnreadNotificationCount);
+router.patch("/notifications/:id/read", protect, markNotificationRead);
+router.post("/notifications/read-all", protect, markAllNotificationsRead);
 router.get("/stats", protect, getIssueStats);
 router.patch("/:id/planning", protect, updateIssuePlanning);
 router.post("/:id/sprint", protect, moveIssueToSprint);
