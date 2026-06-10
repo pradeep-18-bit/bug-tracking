@@ -907,25 +907,26 @@ const AdminBugsPage = () => {
 
     for (const bugIssue of selectedBugs) {
       const currentStatus = normalizeBugStatusForIssue(bugIssue);
+      const payload = {};
 
-      await updateIssueMutation.mutateAsync({
-        id: bugIssue._id,
-        payload: {
-          ...(bulkPriority ? { priority: bulkPriority } : {}),
-          ...(bulkDeveloperId
-            ? {
-                assigneeId: bulkDeveloperId,
-                bugDetails: {
-                  ...resolveBugDetails(bugIssue),
-                  developerLeadId: bulkDeveloperId,
-                },
-                status: ISSUE_STATUS.ASSIGNED,
-              }
-            : currentStatus === ISSUE_STATUS.NEW
-              ? { status: ISSUE_STATUS.TRIAGED }
-              : {}),
-        },
-      });
+      if (bulkPriority) {
+        payload.priority = bulkPriority;
+      }
+
+      if (bulkDeveloperId) {
+        payload.assigneeId = bulkDeveloperId;
+        payload.assignedDeveloperId = bulkDeveloperId;
+        payload.status = ISSUE_STATUS.ASSIGNED;
+      } else if (currentStatus === ISSUE_STATUS.NEW) {
+        payload.status = ISSUE_STATUS.TRIAGED;
+      }
+
+      if (Object.keys(payload).length > 0) {
+        await updateIssueMutation.mutateAsync({
+          id: bugIssue._id,
+          payload,
+        });
+      }
     }
 
     setSelectedTriageIds([]);
@@ -1048,11 +1049,7 @@ const AdminBugsPage = () => {
       id: bugIssue._id,
       payload: {
         assigneeId: developerId,
-        bugDetails: {
-          ...resolveBugDetails(bugIssue),
-          developerLeadId: developerId,
-          addToBucket: false,
-        },
+        assignedDeveloperId: developerId,
         status: ISSUE_STATUS.ASSIGNED,
       },
     });
@@ -1089,12 +1086,9 @@ const AdminBugsPage = () => {
       id: bugIssue._id,
       payload: {
         status: "AVAILABLE_QUEUE",
-        bugDetails: {
-          ...resolveBugDetails(bugIssue),
-          addToBucket: true,
-          developerLeadId: null,
-        },
-        assigneeId: null,
+        addToBucket: true,
+        assignedDeveloperId: "",
+        assigneeId: "",
       },
     });
   };
