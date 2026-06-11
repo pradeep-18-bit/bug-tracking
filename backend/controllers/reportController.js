@@ -55,13 +55,17 @@ const IN_PROGRESS_STATUSES = [
 const CRITICAL_VALUES = ["Critical", "Blocker"];
 
 const getDeveloperDashboardAnalytics = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
+  const userId = new mongoose.Types.ObjectId(req.user._id);
 
   // Filters
   const { projectId, sprintId, dateFrom, dateTo, priority, severity } = req.query;
   const match = {
+    isDeleted: { $ne: true },
     $or: [
       { assignee: userId },
+      { developerId: userId },
+      { assignedTo: userId },
+      { ownerId: userId },
       { "bugDetails.developerLead": userId }
     ]
   };
@@ -88,93 +92,222 @@ const getDeveloperDashboardAnalytics = asyncHandler(async (req, res) => {
     }
   }
 
-  // Optimized aggregation for summary and metrics
-  const issues = await Issue.find(match).lean();
-
-  const taskIssues = issues.filter(i => i.type !== ISSUE_TYPES.BUG);
-  const bugIssues = issues.filter(i => i.type === ISSUE_TYPES.BUG);
+  // Optimized data fetching using aggregation with $facet
+  const [analyticsResult] = await Issue.aggregate([
+    { $match: match },
+    {
+      $facet: {
+        summary: [
+          {
+            $group: {
+              _id: null,
+              assignedWork: { $sum: 1 },
+              openWork: { $sum: { $cond: [{ $in: ["$status", OPEN_STATUSES] }, 1, 0] } },
+              completed: { $sum: { $cond: [{ $in: ["$status", CLOSED_STATUSES] }, 1, 0] } },
+              readyForQa: {
+                $sum: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $eq: ["$type", ISSUE_TYPES.BUG] },
+                        { $in: ["$status", [BUG_STATUS.READY_FOR_QA, BUG_STATUS.FIXED]] }
+                      ]
+                    },
+                    1, 0
+                  ]
+                }
+              },
+              criticalBugs: {
+                $sum: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $eq: ["$type", ISSUE_TYPES.BUG] },
+                        {
+                          $or: [
+                            { $in: ["$bugDetails.severity", CRITICAL_VALUES] },
+                            { $in: ["$priority", CRITICAL_VALUES] }
+                          ]
+                        }
+                      ]
+                    },
+                    1, 0
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        taskMetrics: [
+          { $match: { type: { $ne: ISSUE_TYPES.BUG } } },
+          {
+            $group: {
+              _id: null,
+              assigned: { $sum: 1 },
+              open: { $sum: { $cond: [{ $in: ["$status", [...TODO_STATUSES, ...IN_PROGRESS_STATUSES]] }, 1, 0] } },
+              completed: { $sum: { $cond: [{ $eq: ["$status", ISSUE_STATUS.DONE] }, 1, 0] } },
+              overdue: {
+                $sum: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $ne: ["$dueAt", null] },
+                        { $lt: ["$dueAt", new Date()] },
+                        { $ne: ["$status", ISSUE_STATUS.DONE] }
+                      ]
+                    },
+                    1, 0
+                  ]
+                }
+              },
+              storyPointsCompleted: { $sum: { $cond: [{ $eq: ["$status", ISSUE_STATUS.DONE] }, { $ifNull: ["$storyPoints", 0] }, 0] } },
+              sprintIds: { $addToSet: "$sprintId" }
+            }
+          }
+        ],
+        bugMetrics: [
+          { $match: { type: ISSUE_TYPES.BUG } },
+          {
+            $group: {
+              _id: null,
+              assigned: { $sum: 1 },
+              inProgress: { $sum: { $cond: [{ $eq: ["$status", BUG_STATUS.IN_PROGRESS] }, 1, 0] } },
+              readyForQa: { $sum: { $cond: [{ $in: ["$status", [BUG_STATUS.READY_FOR_QA, BUG_STATUS.FIXED]] }, 1, 0] } },
+              reopened: { $sum: { $cond: [{ $eq: ["$status", BUG_STATUS.REOPEN] }, 1, 0] } },
+              closed: { $sum: { $cond: [{ $in: ["$status", [BUG_STATUS.CLOSED, BUG_STATUS.DONE]] }, 1, 0] } },
+              critical: { $sum: { $cond: [{ $in: ["$bugDetails.severity", CRITICAL_VALUES] }, 1, 0] } },
+              totalReopenedCount: { $sum: { $cond: [{ $gt: ["$reopenedCount", 0] }, 1, 0] } },
+              totalClosedEver: { $sum: { $cond: [{ $ne: ["$closedAt", null] }, 1, 0] } },
+              closedWithoutReopen: {
+                $sum: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $in: ["$status", [BUG_STATUS.CLOSED, BUG_STATUS.DONE]] },
+                        { $eq: [{ $ifNull: ["$reopenedCount", 0] }, 0] }
+                      ]
+                    },
+                    1, 0
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        severityBreakdown: [
+          { $match: { type: ISSUE_TYPES.BUG } },
+          {
+            $group: {
+              _id: "$bugDetails.severity",
+              value: { $sum: 1 }
+            }
+          },
+          { $project: { name: "$_id", value: 1, _id: 0 } }
+        ],
+        workDistribution: [
+          {
+            $group: {
+              _id: { $cond: [{ $eq: ["$type", ISSUE_TYPES.BUG] }, "Bugs", "Tasks"] },
+              value: { $sum: 1 }
+            }
+          },
+          { $project: { name: "$_id", value: 1, _id: 0 } }
+        ],
+        moduleStats: [
+          {
+            $group: {
+              _id: { $ifNull: ["$bugDetails.moduleName", "General"] },
+              tasks: { $sum: { $cond: [{ $ne: ["$type", ISSUE_TYPES.BUG] }, 1, 0] } },
+              bugs: { $sum: { $cond: [{ $eq: ["$type", ISSUE_TYPES.BUG] }, 1, 0] } },
+              completed: {
+                $sum: {
+                  $cond: [
+                    {
+                      $or: [
+                        { $and: [{ $ne: ["$type", ISSUE_TYPES.BUG] }, { $eq: ["$status", ISSUE_STATUS.DONE] }] },
+                        { $and: [{ $eq: ["$type", ISSUE_TYPES.BUG] }, { $in: ["$status", CLOSED_STATUSES] }] }
+                      ]
+                    },
+                    1, 0
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        rawIssues: [
+          { $project: { _id: 1, type: 1, status: 1, createdAt: 1, startedAt: 1, closedAt: 1, reopenedCount: 1 } }
+        ]
+      }
+    }
+  ]);
 
   const summary = {
-    assignedWork: issues.length,
-    openWork: issues.filter(i => OPEN_STATUSES.includes(i.status)).length,
-    completed: issues.filter(i => CLOSED_STATUSES.includes(i.status)).length,
-    readyForQa: bugIssues.filter(i => i.status === BUG_STATUS.READY_FOR_QA || i.status === BUG_STATUS.FIXED).length,
-    criticalBugs: bugIssues.filter(i => CRITICAL_VALUES.includes(i.bugDetails?.severity) || CRITICAL_VALUES.includes(i.priority)).length,
+    assignedWork: Number(analyticsResult.summary[0]?.assignedWork || 0),
+    openWork: Number(analyticsResult.summary[0]?.openWork || 0),
+    completed: Number(analyticsResult.summary[0]?.completed || 0),
+    readyForQa: Number(analyticsResult.summary[0]?.readyForQa || 0),
+    criticalBugs: Number(analyticsResult.summary[0]?.criticalBugs || 0),
+    productivity: 0
   };
   summary.productivity = summary.assignedWork ? Math.round((summary.completed / summary.assignedWork) * 100) : 0;
 
-  const completedTasks = taskIssues.filter(i => i.status === ISSUE_STATUS.DONE);
+  const taskMetricsRaw = analyticsResult.taskMetrics[0] || {};
   const taskMetrics = {
-    assigned: taskIssues.length,
-    open: taskIssues.filter(i => TODO_STATUSES.includes(i.status) || IN_PROGRESS_STATUSES.includes(i.status)).length,
-    completed: completedTasks.length,
-    overdue: taskIssues.filter(i => i.dueAt && new Date(i.dueAt) < new Date() && i.status !== ISSUE_STATUS.DONE).length,
-    storyPointsCompleted: completedTasks.reduce((sum, i) => sum + (i.storyPoints || 0), 0),
-    sprintParticipation: [...new Set(taskIssues.map(i => i.sprintId).filter(Boolean))].length,
+    assigned: Number(taskMetricsRaw.assigned || 0),
+    open: Number(taskMetricsRaw.open || 0),
+    completed: Number(taskMetricsRaw.completed || 0),
+    overdue: Number(taskMetricsRaw.overdue || 0),
+    storyPointsCompleted: Number(taskMetricsRaw.storyPointsCompleted || 0),
+    completionRate: 0,
+    sprintParticipation: Array.isArray(taskMetricsRaw.sprintIds) ? taskMetricsRaw.sprintIds.filter(Boolean).length : 0
   };
   taskMetrics.completionRate = taskMetrics.assigned ? Math.round((taskMetrics.completed / taskMetrics.assigned) * 100) : 0;
 
-  const taskLeadDurations = completedTasks
-    .map(i => i.closedAt && i.createdAt ? new Date(i.closedAt) - new Date(i.createdAt) : null)
-    .filter(d => d !== null && d >= 0);
-  taskMetrics.avgLeadTime = taskLeadDurations.length
-    ? Math.round(taskLeadDurations.reduce((a, b) => a + b, 0) / taskLeadDurations.length)
-    : 0;
-
-  const taskCycleDurations = completedTasks
-    .map(i => i.closedAt && i.startedAt ? new Date(i.closedAt) - new Date(i.startedAt) : null)
-    .filter(d => d !== null && d >= 0);
-  taskMetrics.avgCycleTime = taskCycleDurations.length
-    ? Math.round(taskCycleDurations.reduce((a, b) => a + b, 0) / taskCycleDurations.length)
-    : 0;
-
-  const closedBugs = bugIssues.filter(i => i.status === BUG_STATUS.CLOSED || i.status === BUG_STATUS.DONE);
+  const bugMetricsRaw = analyticsResult.bugMetrics[0] || {};
   const bugMetrics = {
-    assigned: bugIssues.length,
-    inProgress: bugIssues.filter(i => i.status === BUG_STATUS.IN_PROGRESS).length,
-    readyForQa: bugIssues.filter(i => i.status === BUG_STATUS.READY_FOR_QA || i.status === BUG_STATUS.FIXED).length,
-    reopened: bugIssues.filter(i => i.status === BUG_STATUS.REOPEN).length,
-    closed: closedBugs.length,
-    critical: bugIssues.filter(i => CRITICAL_VALUES.includes(i.bugDetails?.severity)).length,
+    assigned: Number(bugMetricsRaw.assigned || 0),
+    inProgress: Number(bugMetricsRaw.inProgress || 0),
+    readyForQa: Number(bugMetricsRaw.readyForQa || 0),
+    reopened: Number(bugMetricsRaw.reopened || 0),
+    closed: Number(bugMetricsRaw.closed || 0),
+    critical: Number(bugMetricsRaw.critical || 0),
+    reopenRate: 0,
+    fixSuccessRate: 0
   };
 
-  const totalClosedEver = bugIssues.filter(i => i.closedAt).length || closedBugs.length;
-  bugMetrics.reopenRate = totalClosedEver ? Math.round((bugIssues.filter(i => (i.reopenedCount || 0) > 0).length / totalClosedEver) * 100) : 0;
+  const totalReopenedCount = Number(bugMetricsRaw.totalReopenedCount || 0);
+  const totalClosedEver = Number(bugMetricsRaw.totalClosedEver || 0);
+  const closedWithoutReopen = Number(bugMetricsRaw.closedWithoutReopen || 0);
 
-  const closedWithoutReopen = bugIssues.filter(i => (i.status === BUG_STATUS.CLOSED || i.status === BUG_STATUS.DONE) && (i.reopenedCount || 0) === 0).length;
-  bugMetrics.fixSuccessRate = closedBugs.length ? Math.round((closedWithoutReopen / closedBugs.length) * 100) : 0;
+  bugMetrics.reopenRate = totalClosedEver || bugMetrics.closed ? Math.round((totalReopenedCount / (totalClosedEver || bugMetrics.closed)) * 100) : 0;
+  bugMetrics.fixSuccessRate = bugMetrics.closed ? Math.round((closedWithoutReopen / bugMetrics.closed) * 100) : 0;
 
-  const bugLeadDurations = closedBugs
-    .map(i => i.closedAt && i.createdAt ? new Date(i.closedAt) - new Date(i.createdAt) : null)
-    .filter(d => d !== null && d >= 0);
-  bugMetrics.avgLeadTime = bugLeadDurations.length
-    ? Math.round(bugLeadDurations.reduce((a, b) => a + b, 0) / bugLeadDurations.length)
-    : 0;
+  // Lead and Cycle Time Calculations
+  const calculateAvgTime = (issues, useStartedAt = false) => {
+    const durations = issues
+      .filter(i => i.closedAt && (useStartedAt ? i.startedAt : i.createdAt))
+      .map(i => new Date(i.closedAt) - new Date(useStartedAt ? i.startedAt : i.createdAt))
+      .filter(d => d >= 0);
+    return durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+  };
 
-  const bugCycleDurations = closedBugs
-    .map(i => i.closedAt && i.startedAt ? new Date(i.closedAt) - new Date(i.startedAt) : null)
-    .filter(d => d !== null && d >= 0);
-  bugMetrics.avgCycleTime = bugCycleDurations.length
-    ? Math.round(bugCycleDurations.reduce((a, b) => a + b, 0) / bugCycleDurations.length)
-    : 0;
+  const rawTasks = (analyticsResult.rawIssues || []).filter(i => i.type !== ISSUE_TYPES.BUG);
+  const rawBugs = (analyticsResult.rawIssues || []).filter(i => i.type === ISSUE_TYPES.BUG);
 
-  // Use Lead Time as a fallback for Avg Resolution Time if needed
+  taskMetrics.avgLeadTime = calculateAvgTime(rawTasks);
+  taskMetrics.avgCycleTime = calculateAvgTime(rawTasks, true);
+  bugMetrics.avgLeadTime = calculateAvgTime(rawBugs);
+  bugMetrics.avgCycleTime = calculateAvgTime(rawBugs, true);
   bugMetrics.avgResolutionTime = bugMetrics.avgLeadTime;
 
   // Severity Breakdown
-  bugMetrics.severityBreakdown = {
-    Critical: bugIssues.filter(i => i.bugDetails?.severity === "Critical" || i.bugDetails?.severity === "Blocker").length,
-    Major: bugIssues.filter(i => i.bugDetails?.severity === "Major").length,
-    Minor: bugIssues.filter(i => i.bugDetails?.severity === "Minor").length,
-    Low: bugIssues.filter(i => i.bugDetails?.severity === "Low").length,
-  };
-
-  // Type Breakdown
-  bugMetrics.typeBreakdown = bugIssues.reduce((acc, i) => {
-    const type = i.bugDetails?.category || "Other";
-    acc[type] = (acc[type] || 0) + 1;
-    return acc;
-  }, {});
+  const severityMap = { "Critical": 0, "Major": 0, "Minor": 0, "Low": 0 };
+  (analyticsResult.severityBreakdown || []).forEach(item => {
+    if (item.name === "Blocker" || item.name === "Critical") severityMap["Critical"] += Number(item.value);
+    else if (item.name in severityMap) severityMap[item.name] += Number(item.value);
+  });
+  const severityDistribution = Object.entries(severityMap).map(([name, value]) => ({ name, value: Number(value) }));
 
   // Velocity - last 6 sprints
   const sprints = await Sprint.find({
@@ -182,29 +315,49 @@ const getDeveloperDashboardAnalytics = asyncHandler(async (req, res) => {
     state: "COMPLETED"
   }).sort({ endDate: -1 }).limit(6).lean();
 
-  const sprintVelocity = await Promise.all(sprints.map(async (sprint) => {
-    const sprintIssues = await Issue.find({
-      sprintId: sprint._id,
-      $or: [{ assignee: userId }, { "bugDetails.developerLead": userId }],
-      status: { $in: CLOSED_STATUSES }
-    }).countDocuments();
-    return {
-      name: sprint.name,
-      completed: sprintIssues
-    };
-  }));
+  const sprintIds = sprints.map(s => s._id);
 
-  // Work Distribution
+  const sprintData = await Issue.aggregate([
+    {
+      $match: {
+        sprintId: { $in: sprintIds },
+        $or: [
+          { assignee: userId },
+          { developerId: userId },
+          { assignedTo: userId },
+          { ownerId: userId },
+          { "bugDetails.developerLead": userId }
+        ],
+        status: { $in: CLOSED_STATUSES },
+        isDeleted: { $ne: true }
+      }
+    },
+    {
+      $group: {
+        _id: { sprintId: "$sprintId", type: "$type" },
+        count: { $sum: 1 }
+      }
+    }
+  ]);
+
+  const sprintTrend = sprints.map(s => {
+    const tasks = Number(sprintData.find(d => d._id.sprintId.equals(s._id) && d._id.type !== ISSUE_TYPES.BUG)?.count || 0);
+    const bugs = Number(sprintData.find(d => d._id.sprintId.equals(s._id) && d._id.type === ISSUE_TYPES.BUG)?.count || 0);
+    return {
+      sprint: s.name,
+      name: s.name,
+      tasks,
+      bugs,
+      completed: Number(tasks + bugs)
+    };
+  }).reverse();
+
   const charts = {
-    workDistribution: [
-      { name: "Tasks", value: taskIssues.length },
-      { name: "Bugs", value: bugIssues.length },
-    ],
-    severityDistribution: Object.entries(bugMetrics.severityBreakdown).map(([name, value]) => ({ name, value })),
-    sprintTrend: sprintVelocity.reverse(),
+    workDistribution: (analyticsResult.workDistribution || []).map(d => ({ name: d.name, value: Number(d.value) })),
+    severityDistribution,
+    sprintTrend,
   };
 
-  // Recent Activity
   const recentHistory = await IssueHistory.find({
     actorId: userId,
   }).sort({ createdAt: -1 }).limit(15).populate("issueId", "title type displayBugId").lean();
@@ -218,21 +371,13 @@ const getDeveloperDashboardAnalytics = asyncHandler(async (req, res) => {
     createdAt: h.createdAt
   }));
 
-  // Module Stats
-  const moduleMap = issues.reduce((acc, i) => {
-    const module = i.bugDetails?.moduleName || "General";
-    if (!acc[module]) acc[module] = { name: module, tasks: 0, bugs: 0, completed: 0 };
-    if (i.type === ISSUE_TYPES.BUG) {
-      acc[module].bugs += 1;
-      if (CLOSED_STATUSES.includes(i.status)) acc[module].completed += 1;
-    } else {
-      acc[module].tasks += 1;
-      if (i.status === ISSUE_STATUS.DONE) acc[module].completed += 1;
-    }
-    return acc;
-  }, {});
+  const moduleStats = analyticsResult.moduleStats.map(m => ({
+    name: m._id,
+    tasks: Number(m.tasks),
+    bugs: Number(m.bugs),
+    completed: Number(m.completed)
+  }));
 
-  // Performance trends
   const now = new Date();
   const lastSprintStart = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
   const prevSprintStart = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
@@ -258,20 +403,50 @@ const getDeveloperDashboardAnalytics = asyncHandler(async (req, res) => {
   }
 
   const productivityScore = {
-    current: summary.productivity,
-    trend: trend,
-    velocity: summary.completed,
+    current: Number(summary.productivity),
+    trend: Number(trend),
+    velocity: Number(summary.completed),
   };
 
-  res.status(200).json({
-    summary,
-    taskMetrics,
-    bugMetrics,
+  const analytics = {
+    summary: {
+      assignedWork: Number(summary.assignedWork),
+      openWork: Number(summary.openWork),
+      completed: Number(summary.completed),
+      readyForQa: Number(summary.readyForQa),
+      criticalBugs: Number(summary.criticalBugs),
+      productivity: Number(summary.productivity)
+    },
+    taskMetrics: {
+      ...taskMetrics,
+      assigned: Number(taskMetrics.assigned),
+      open: Number(taskMetrics.open),
+      completed: Number(taskMetrics.completed),
+      overdue: Number(taskMetrics.overdue),
+      storyPointsCompleted: Number(taskMetrics.storyPointsCompleted),
+      completionRate: Number(taskMetrics.completionRate),
+      sprintParticipation: Number(taskMetrics.sprintParticipation)
+    },
+    bugMetrics: {
+      ...bugMetrics,
+      assigned: Number(bugMetrics.assigned),
+      inProgress: Number(bugMetrics.inProgress),
+      readyForQa: Number(bugMetrics.readyForQa),
+      reopened: Number(bugMetrics.reopened),
+      closed: Number(bugMetrics.closed),
+      critical: Number(bugMetrics.critical),
+      reopenRate: Number(bugMetrics.reopenRate),
+      fixSuccessRate: Number(bugMetrics.fixSuccessRate)
+    },
     productivityScore,
     charts,
     recentActivity,
-    moduleStats: Object.values(moduleMap),
-  });
+    moduleStats,
+  };
+
+  console.log("Analytics Response", JSON.stringify(analytics, null, 2));
+
+  res.status(200).json(analytics);
 });
 
 module.exports = {
