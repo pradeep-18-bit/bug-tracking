@@ -4,6 +4,7 @@ const TeamMember = require("../models/TeamMember");
 const ProjectTeam = require("../models/ProjectTeam");
 const { emitToUser } = require("../socket");
 const { ROLE_TESTER, ROLE_ADMIN } = require("../utils/roles");
+const { BUG_STATUS } = require("../utils/bugLifecycle");
 
 /**
  * Finds all testers attached to a project through its teams
@@ -159,11 +160,15 @@ const notifyIssueEvent = async ({
     }
 
     // Rule 2: Notify if bug enters the queue (Rule 2 + Rule 7)
-    const queueStatuses = ["AVAILABLE_QUEUE", "NEEDS_TRIAGE"];
+    const queueStatuses = [BUG_STATUS.AVAILABLE_QUEUE, BUG_STATUS.NEEDS_TRIAGE];
     const isEnteringQueue = queueStatuses.includes(issue.status);
 
     // Rule 3: Notify all project testers if status is Ready for Testing/QA/Verification
-    const readyStatuses = ["READY_FOR_TESTING", "READY_FOR_QA", "READY_FOR_VERIFICATION"];
+    const readyStatuses = [
+      BUG_STATUS.READY_FOR_TESTING,
+      BUG_STATUS.READY_FOR_QA,
+      BUG_STATUS.READY_FOR_VERIFICATION,
+    ];
     if (isBug && (readyStatuses.includes(issue.status) || isEnteringQueue)) {
       const projectTesters = await getTestersForProject(issue.projectId);
       for (const tId of projectTesters) {

@@ -788,7 +788,7 @@ const AdminBugsPage = () => {
         const developer = getBugDeveloper(bugIssue);
 
         return (
-          [ISSUE_STATUS.NEW, ISSUE_STATUS.TRIAGED, ISSUE_STATUS.OPEN].includes(status) ||
+          [ISSUE_STATUS.NEW, ISSUE_STATUS.NEEDS_TRIAGE, ISSUE_STATUS.TRIAGED, ISSUE_STATUS.OPEN].includes(status) ||
           !resolveUserId(developer)
         );
       }),
@@ -1085,7 +1085,7 @@ const AdminBugsPage = () => {
     updateIssueMutation.mutate({
       id: bugIssue._id,
       payload: {
-        status: "AVAILABLE_QUEUE",
+        status: ISSUE_STATUS.AVAILABLE_QUEUE,
         addToBucket: true,
         assignedDeveloperId: "",
         assigneeId: "",
@@ -1485,7 +1485,7 @@ const AdminBugsPage = () => {
                             <button className="min-w-0 text-left" type="button" onClick={() => setSelectedBug(bugIssue)}>
                               <div className="flex items-center gap-2">
                                 <span className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">{getIssueDisplayKey(bugIssue)}</span>
-                                {status === ISSUE_STATUS.NEW || status === "NEEDS_TRIAGE" ? (
+                                {status === ISSUE_STATUS.NEW || status === ISSUE_STATUS.NEEDS_TRIAGE ? (
                                   <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-blue-700">Source: Tester Review Required</span>
                                 ) : null}
                               </div>

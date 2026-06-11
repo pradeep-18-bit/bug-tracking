@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { isBugIssue, isIssueClosed } from "@/lib/issues";
+import { ISSUE_STATUS, isBugIssue, isIssueClosed } from "@/lib/issues";
 import { getChatSocket } from "@/lib/socket";
 
 const BUG_EVENTS = [
@@ -16,7 +16,13 @@ const BUG_EVENTS = [
   "CommentAdded",
 ];
 
-const AVAILABLE_BUCKET_STATUSES = new Set(["NEW", "TRIAGED", "OPEN", "REOPEN"]);
+const AVAILABLE_BUCKET_STATUSES = new Set([
+  ISSUE_STATUS.NEW,
+  ISSUE_STATUS.TRIAGED,
+  ISSUE_STATUS.AVAILABLE_QUEUE,
+  ISSUE_STATUS.OPEN,
+  ISSUE_STATUS.REOPEN,
+]);
 const DEVELOPER_WORKFLOW_QUERY_MARKERS = new Set([
   "available",
   "developer-dashboard",

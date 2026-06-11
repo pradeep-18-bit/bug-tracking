@@ -247,6 +247,7 @@ const TesterBugsPage = () => {
     mutationFn: createIssue,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: ["bugs"] });
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
@@ -264,6 +265,7 @@ const TesterBugsPage = () => {
     mutationFn: updateIssue,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: ["bugs"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
       queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
