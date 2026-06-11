@@ -215,7 +215,7 @@ const BUG_LIFECYCLE_STATUS_VALUES = Object.freeze(Object.values(BUG_LIFECYCLE_ST
 const getBugLifecycleStatus = (value, fallback = BUG_LIFECYCLE_STATUS.REPORTED) => {
   const normalizedValue = normalizeToken(value, fallback);
 
-  if (["REPORTED", "NEW", "OPEN", "TRIAGED", "TODO"].includes(normalizedValue)) {
+  if (["REPORTED", "NEW", "OPEN", "TRIAGED", "TODO", "NEEDS_TRIAGE", "AVAILABLE_QUEUE"].includes(normalizedValue)) {
     return BUG_LIFECYCLE_STATUS.REPORTED;
   }
 

@@ -2063,6 +2063,12 @@ const pickIssue = asyncHandler(async (req, res) => {
   }
 
   const previousStatus = getBugStatusForIssueStatus(existingIssue.status);
+
+  console.log("Picking bug", {
+    id: existingIssue._id,
+    userId: req.user._id,
+  });
+
   const pickedIssue = await Issue.findOneAndUpdate(
     {
       _id: existingIssue._id,
@@ -2106,6 +2112,14 @@ const pickIssue = asyncHandler(async (req, res) => {
   }
 
   await populateIssueDocument(pickedIssue);
+
+  console.log("Bug picked and saved", {
+    bugId: pickedIssue.displayBugId || pickedIssue._id,
+    status: pickedIssue.status,
+    bugDetails: pickedIssue.bugDetails,
+    assignedTo: pickedIssue.assignee,
+  });
+
   await Promise.all([
     recordIssueHistory({
       issueId: pickedIssue._id,
@@ -2907,6 +2921,8 @@ const createIssue = asyncHandler(async (req, res) => {
     project,
   });
 
+  console.log("Creating bug", req.body);
+
   const issue = await Issue.create({
     title,
     description,
@@ -2949,6 +2965,16 @@ const createIssue = asyncHandler(async (req, res) => {
   });
 
   await populateIssueDocument(issue);
+
+  console.log("Bug saved", {
+    bugId: issue.displayBugId || issue._id,
+    status: issue.status,
+    workflowState: "N/A",
+    bucket: issue.bugDetails?.addToBucket,
+    teamId: issue.teamId,
+    assignedTo: issue.assignee,
+  });
+
   await recordIssueHistory({
     issueId: issue._id,
     projectId: issue.projectId,
@@ -3407,22 +3433,6 @@ const updateIssue = asyncHandler(async (req, res) => {
     }
   }
 
-  console.log("[issues] update validation context", {
-    issueId: String(issue._id),
-    existingTeam: issue.teamId ? String(issue.teamId) : null,
-    existingAssignee: issue.assignee ? String(issue.assignee) : null,
-    incomingTeam: hasOwnField(req.body, "teamId") ? req.body.teamId : undefined,
-    incomingAssignee: hasAssigneeInput(req.body) ? resolveAssigneeInput(req.body) : undefined,
-    incomingStatus: req.body.status,
-    hasAssigneeChange,
-    hasTeamChange,
-    isTeamChanged,
-    isAssigneeChanged,
-    hasProjectChange,
-    nextAssigneeId: nextAssigneeId ? String(nextAssigneeId) : null,
-    nextTeamId: nextTeamId ? String(nextTeamId) : null,
-  });
-
   if (isTeamChanged || hasProjectChange) {
     const teamResult = await ensureIssueTeamForProject({
       projectId: targetProject?._id || issue.projectId,
@@ -3467,6 +3477,8 @@ const updateIssue = asyncHandler(async (req, res) => {
   // 2. Team is being CHANGED and there is an assignee
   // Do NOT validate if only status/other fields are changing and assignee stays the same
   const shouldValidateAssigneeTeamMembership = nextAssigneeId && (isAssigneeChanged || isTeamChanged || hasProjectChange);
+
+  console.log("Updating bug", { id: req.params.id, updates: req.body });
 
   if (shouldValidateAssigneeTeamMembership) {
     console.log("[issues] validating assignee team membership", {
@@ -3761,6 +3773,16 @@ const updateIssue = asyncHandler(async (req, res) => {
 
   await issue.save();
   await populateIssueDocument(issue);
+
+  console.log("Bug saved", {
+    bugId: issue.displayBugId || issue._id,
+    status: issue.status,
+    workflowState: "N/A",
+    bucket: issue.bugDetails?.addToBucket,
+    teamId: issue.teamId,
+    assignedTo: issue.assignee,
+  });
+
   const statusChangeEntry = changeEntries.find(
     (entry) =>
       entry.field === "status" &&
