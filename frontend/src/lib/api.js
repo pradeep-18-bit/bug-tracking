@@ -610,6 +610,13 @@ export const fetchTeamReports = async (filters = {}) => {
   return response.data;
 };
 
+export const fetchDeveloperDashboardAnalytics = async (filters = {}) => {
+  const response = await api.get("/reports/developer/dashboard", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
 export const fetchSprintReports = async (filters = {}) => {
   const response = await api.get("/reports/sprints", {
     params: buildParams(filters),

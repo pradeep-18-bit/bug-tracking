@@ -9,11 +9,15 @@ const {
   getSprintReportById,
   getSprintReports,
 } = require("../controllers/sprintReportController");
+const {
+  getDeveloperDashboardAnalytics,
+} = require("../controllers/reportController");
 const { protect } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
 router.get("/", protect, getReports);
+router.get("/developer/dashboard", protect, getDeveloperDashboardAnalytics);
 router.get("/projects", protect, getProjectReports);
 router.get("/users", protect, getUserReports);
 router.get("/team", protect, getTeamReports);
