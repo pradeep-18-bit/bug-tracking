@@ -964,30 +964,7 @@ const DeveloperReportsDashboard = ({ user }) => {
 
       {/* Row 4: Sprint Trend */}
       <AnalyticsPanel title="Sprint Trend" description="Completed items over last 6 sprints">
-<<<<<<< HEAD
-        <div className="h-[320px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={sprintTrendData}>
-              <defs>
-                <linearGradient id="colorTasks" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                </linearGradient>
-                <linearGradient id="colorBugs" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
-                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="sprint" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
-              <Tooltip contentStyle={chartTooltipStyle} />
-              <Area type="monotone" dataKey="tasks" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorTasks)" isAnimationActive={false} />
-              <Area type="monotone" dataKey="bugs" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorBugs)" isAnimationActive={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-=======
+
         <ChartFrame height={320}>
           {sprintTrendData.length ? (
             <ResponsiveContainer width="100%" height={320}>
@@ -1012,7 +989,7 @@ const DeveloperReportsDashboard = ({ user }) => {
             </ResponsiveContainer>
           ) : <AnalyticsEmptyState className="min-h-[320px]" icon={AreaChartIcon} title="No trend data" description="Sprint performance trends will appear here." />}
         </ChartFrame>
->>>>>>> ca51b348b81d2db526328e4ec3b9d6b282611117
+
       </AnalyticsPanel>
 
       <div className="grid gap-6 lg:grid-cols-2">
