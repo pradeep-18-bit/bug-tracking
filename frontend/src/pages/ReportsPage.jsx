@@ -687,6 +687,12 @@ const DeveloperReportsDashboard = ({ user }) => {
 
   const { summary, taskMetrics, bugMetrics, productivityScore, charts, recentActivity, moduleStats } = data;
 
+  if (import.meta.env.DEV) {
+    console.log("Work Distribution:", charts.workDistribution);
+    console.log("Severity Distribution:", charts.severityDistribution);
+    console.log("Sprint Trend:", charts.sprintTrend);
+  }
+
   const getWorkloadHealth = (assigned) => {
     if (assigned > 15) return { label: "Overloaded", tone: "bg-rose-500" };
     if (assigned > 10) return { label: "High", tone: "bg-orange-500" };
@@ -821,8 +827,8 @@ const DeveloperReportsDashboard = ({ user }) => {
       {/* Row 3: Donut Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
         <AnalyticsPanel title="Work Distribution">
-          <div className="h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[320px] w-full">
+            <ResponsiveContainer width="100%" height={320}>
               <PieChart>
                 <Pie
                   data={charts.workDistribution}
@@ -830,6 +836,7 @@ const DeveloperReportsDashboard = ({ user }) => {
                   outerRadius={80}
                   paddingAngle={5}
                   dataKey="value"
+                  nameKey="name"
                 >
                   <Cell fill="#3b82f6" />
                   <Cell fill="#ef4444" />
@@ -851,8 +858,8 @@ const DeveloperReportsDashboard = ({ user }) => {
         </AnalyticsPanel>
 
         <AnalyticsPanel title="Bug Severity Distribution">
-          <div className="h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[320px] w-full">
+            <ResponsiveContainer width="100%" height={320}>
               <PieChart>
                 <Pie
                   data={charts.severityDistribution}
@@ -860,6 +867,7 @@ const DeveloperReportsDashboard = ({ user }) => {
                   outerRadius={80}
                   paddingAngle={5}
                   dataKey="value"
+                  nameKey="name"
                 >
                   {charts.severityDistribution.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={
@@ -890,20 +898,25 @@ const DeveloperReportsDashboard = ({ user }) => {
 
       {/* Row 4: Sprint Trend */}
       <AnalyticsPanel title="Sprint Trend" description="Completed items over last 6 sprints">
-        <div className="h-[300px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="h-[320px] w-full">
+          <ResponsiveContainer width="100%" height={320}>
             <AreaChart data={charts.sprintTrend}>
               <defs>
-                <linearGradient id="colorCompleted" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="colorTasks" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
                   <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                 </linearGradient>
+                <linearGradient id="colorBugs" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
+                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} dy={10} />
+              <XAxis dataKey="sprint" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
               <Tooltip contentStyle={chartTooltipStyle} />
-              <Area type="monotone" dataKey="completed" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorCompleted)" />
+              <Area type="monotone" dataKey="tasks" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorTasks)" />
+              <Area type="monotone" dataKey="bugs" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorBugs)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
