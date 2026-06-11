@@ -41,6 +41,7 @@ import {
   normalizeBugStatusForIssue,
   resolveBugDetails,
   resolveIssueProjectId,
+  resolveIssueTeamId,
 } from "@/lib/issues";
 import {
   findProjectById,
@@ -54,6 +55,7 @@ import { cn, formatDateTime, getInitials } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import EmptyState from "@/components/shared/EmptyState";
+import ToastNotice from "@/components/shared/ToastNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -485,6 +487,7 @@ const AdminBugsPage = () => {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamString = searchParams.toString();
+  const [toast, setToast] = useState(null);
   const initialStatusQuery = normalizeStatusQueryValue(searchParams.get("status"));
   const initialDashboardFilter = getDashboardFilterQueryValue(
     searchParams.get("filter") || searchParams.get("status")
@@ -598,6 +601,18 @@ const AdminBugsPage = () => {
 
   const bugs = useMemo(() => (Array.isArray(bugsData) ? bugsData : []), [bugsData]);
   const actionMenuId = actionMenu?.issueId || "";
+
+  useEffect(() => {
+    if (!toast?.id) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [toast?.id]);
 
   useEffect(() => {
     if (!projects.length) {
@@ -848,13 +863,28 @@ const AdminBugsPage = () => {
   const updateIssueMutation = useMutation({
     mutationFn: updateIssue,
     onSuccess: async (updatedIssue) => {
-      setSelectedBug(updatedIssue);
+      if (selectedBug?._id === updatedIssue._id) {
+        setSelectedBug(updatedIssue);
+      }
+      setToast({
+        id: `update-success-${Date.now()}`,
+        type: "success",
+        message: "Bug updated successfully.",
+      });
+      setActionMenu(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["bugs"] }),
         queryClient.invalidateQueries({ queryKey: ["issues"] }),
         queryClient.invalidateQueries({ queryKey: ["reports"] }),
         queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
+    },
+    onError: (err) => {
+      setToast({
+        id: `update-error-${Date.now()}`,
+        type: "error",
+        message: err.response?.data?.message || "Failed to update bug.",
+      });
     },
   });
 
@@ -877,25 +907,26 @@ const AdminBugsPage = () => {
 
     for (const bugIssue of selectedBugs) {
       const currentStatus = normalizeBugStatusForIssue(bugIssue);
+      const payload = {};
 
-      await updateIssueMutation.mutateAsync({
-        id: bugIssue._id,
-        payload: {
-          ...(bulkPriority ? { priority: bulkPriority } : {}),
-          ...(bulkDeveloperId
-            ? {
-                assigneeId: bulkDeveloperId,
-                bugDetails: {
-                  ...resolveBugDetails(bugIssue),
-                  developerLeadId: bulkDeveloperId,
-                },
-                status: ISSUE_STATUS.ASSIGNED,
-              }
-            : currentStatus === ISSUE_STATUS.NEW
-              ? { status: ISSUE_STATUS.TRIAGED }
-              : {}),
-        },
-      });
+      if (bulkPriority) {
+        payload.priority = bulkPriority;
+      }
+
+      if (bulkDeveloperId) {
+        payload.assigneeId = bulkDeveloperId;
+        payload.assignedDeveloperId = bulkDeveloperId;
+        payload.status = ISSUE_STATUS.ASSIGNED;
+      } else if (currentStatus === ISSUE_STATUS.NEW) {
+        payload.status = ISSUE_STATUS.TRIAGED;
+      }
+
+      if (Object.keys(payload).length > 0) {
+        await updateIssueMutation.mutateAsync({
+          id: bugIssue._id,
+          payload,
+        });
+      }
     }
 
     setSelectedTriageIds([]);
@@ -1018,17 +1049,14 @@ const AdminBugsPage = () => {
       id: bugIssue._id,
       payload: {
         assigneeId: developerId,
-        bugDetails: {
-          ...resolveBugDetails(bugIssue),
-          developerLeadId: developerId,
-        },
+        assignedDeveloperId: developerId,
         status: ISSUE_STATUS.ASSIGNED,
       },
     });
   };
 
   const handleQuickPriority = (bugIssue, priority) => {
-    if (!priority || priority === bugIssue.priority) {
+    if (!priority) {
       return;
     }
 
@@ -1041,7 +1069,7 @@ const AdminBugsPage = () => {
   };
 
   const handleQuickStatus = (bugIssue, status) => {
-    if (!status || status === normalizeBugStatusForIssue(bugIssue)) {
+    if (!status) {
       return;
     }
 
@@ -1054,16 +1082,13 @@ const AdminBugsPage = () => {
   };
 
   const handleMoveToTriageBucket = (bugIssue) => {
-    const currentStatus = normalizeBugStatusForIssue(bugIssue);
-
-    if (currentStatus === ISSUE_STATUS.TRIAGED) {
-      return;
-    }
-
     updateIssueMutation.mutate({
       id: bugIssue._id,
       payload: {
-        status: ISSUE_STATUS.TRIAGED,
+        status: "AVAILABLE_QUEUE",
+        addToBucket: true,
+        assignedDeveloperId: "",
+        assigneeId: "",
       },
     });
   };
@@ -1137,6 +1162,13 @@ const AdminBugsPage = () => {
       return null;
     }
 
+    const bugProjectId = resolveIssueProjectId(bugIssue);
+    const bugTeamId = resolveIssueTeamId(bugIssue);
+    const bugProject = findProjectById(projects, bugProjectId);
+    const teamDevelopers = getProjectTeamMembers(bugProject, bugTeamId).filter(
+      (member) => member.role === "Developer"
+    );
+
     return createPortal(
       <div
         data-triage-action-menu
@@ -1159,11 +1191,20 @@ const AdminBugsPage = () => {
               }}
             >
               <option value="">Select developer</option>
-              {developers.map((developerOption) => (
-                <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>
-                  {getUserLabel(developerOption)}
+              {teamDevelopers.length > 0 ? (
+                teamDevelopers.map((developerOption) => (
+                  <option
+                    key={resolveUserId(developerOption)}
+                    value={resolveUserId(developerOption)}
+                  >
+                    {getUserLabel(developerOption)}
+                  </option>
+                ))
+              ) : (
+                <option value="" disabled>
+                  No developers available in this team
                 </option>
-              ))}
+              )}
             </ActionSelect>
           </div>
 
@@ -1898,6 +1939,8 @@ const AdminBugsPage = () => {
         canEditAssignee
         canDeleteIssue={false}
       />
+
+      <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 };

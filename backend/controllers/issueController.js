@@ -325,7 +325,7 @@ const hasOwnField = (payload, field) =>
 const cleanPayload = (payload = {}) => {
   const cleaned = { ...payload };
   Object.keys(cleaned).forEach((key) => {
-    if (cleaned[key] === null || cleaned[key] === undefined || cleaned[key] === "") {
+    if (cleaned[key] === undefined || cleaned[key] === "Unassigned") {
       delete cleaned[key];
     }
   });
@@ -749,7 +749,7 @@ const getBugPayloadValue = (payload = {}, field, aliases = []) => {
 };
 
 const resolveObjectIdValue = (value) => {
-  if (!value) {
+  if (!value || value === "Unassigned") {
     return null;
   }
 
@@ -828,6 +828,8 @@ const buildBugDetailsDraft = (payload = {}, existingDetails = {}, defaults = {})
 
   const testerOwnerInput = getBugPayloadValue(payload, "testerOwnerId", [
     "testerOwner",
+    "qaId",
+    "testerId",
     "qaOwnerId",
     "qaOwner",
   ]);
@@ -838,6 +840,7 @@ const buildBugDetailsDraft = (payload = {}, existingDetails = {}, defaults = {})
 
   const developerLeadInput = getBugPayloadValue(payload, "developerLeadId", [
     "developerLead",
+    "assignedDeveloperId",
     "devLeadId",
     "devLead",
   ]);
@@ -1105,7 +1108,7 @@ const ensureAssigneeBelongsToTeam = async ({
   teamId,
   workspaceId,
 }) => {
-  if (!assigneeId) {
+  if (!assigneeId || assigneeId === "" || assigneeId === "Unassigned") {
     return {
       assignee: null,
     };
@@ -1197,7 +1200,7 @@ const ensureBugOwnerBelongsToTeam = async ({
 };
 
 const ensureBugOwnerInWorkspace = async ({ userId, workspaceId, label }) => {
-  if (!userId) {
+  if (!userId || userId === "" || userId === "Unassigned") {
     return {
       user: null,
     };
@@ -1207,7 +1210,7 @@ const ensureBugOwnerInWorkspace = async ({ userId, workspaceId, label }) => {
     return {
       error: {
         status: 400,
-        message: `Invalid ${label} id`,
+        message: `Invalid ${label} ID`,
       },
     };
   }
@@ -3494,11 +3497,14 @@ const updateIssue = asyncHandler(async (req, res) => {
   if (nextIsBug && nextBugDetails) {
     const hasTesterOwnerChange = hasBugPayloadField(req.body, "testerOwnerId", [
       "testerOwner",
+      "qaId",
+      "testerId",
       "qaOwnerId",
       "qaOwner",
     ]);
     const hasDeveloperLeadChange = hasBugPayloadField(req.body, "developerLeadId", [
       "developerLead",
+      "assignedDeveloperId",
       "devLeadId",
       "devLead",
     ]);
@@ -3510,7 +3516,7 @@ const updateIssue = asyncHandler(async (req, res) => {
       const testerOwnerResult = await ensureBugOwnerInWorkspace({
         userId: nextBugDetails.testerOwner,
         workspaceId,
-        label: "QA owner",
+        label: "QA",
       });
 
       if (testerOwnerResult.error) {
@@ -3524,7 +3530,7 @@ const updateIssue = asyncHandler(async (req, res) => {
         userId: nextBugDetails.developerLead,
         teamId: nextTeamId,
         workspaceId,
-        label: "developer lead",
+        label: "Developer",
       });
 
       if (developerLeadResult.error) {
