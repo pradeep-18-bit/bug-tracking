@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
+  deleteManagedUser,
   fetchManagedUsers,
   inviteUser,
+  updateManagedUser,
   updateUserRole,
 } from "@/lib/api";
 import {
@@ -413,6 +415,78 @@ const UserSettingsPage = () => {
     },
   });
 
+  const mergeUpdatedUser = (updatedUser) => (existingUsers = []) =>
+    Array.isArray(existingUsers)
+      ? existingUsers.map((user) =>
+          user._id === updatedUser._id ? { ...user, ...updatedUser } : user
+        )
+      : existingUsers;
+
+  const removeDeletedUser = (deletedUserId) => (existingUsers = []) =>
+    Array.isArray(existingUsers)
+      ? existingUsers.filter((user) => user._id !== deletedUserId)
+      : existingUsers;
+
+  const invalidateUserCaches = () => {
+    queryClient.invalidateQueries({ queryKey: ["managed-users"] });
+    queryClient.invalidateQueries({ queryKey: ["users"] });
+    queryClient.invalidateQueries({ queryKey: ["eligible-senders"] });
+    queryClient.invalidateQueries({ queryKey: ["workspace-sender"] });
+    queryClient.invalidateQueries({ queryKey: ["email-config"] });
+  };
+
+  const userUpdateMutation = useMutation({
+    mutationFn: updateManagedUser,
+    onSuccess: (data) => {
+      const updatedUser = data.user;
+
+      queryClient.setQueryData(["managed-users"], mergeUpdatedUser(updatedUser));
+      queryClient.setQueryData(["users"], mergeUpdatedUser(updatedUser));
+      invalidateUserCaches();
+
+      if (authUser?._id === updatedUser._id) {
+        setAuthSession({
+          token,
+          user: {
+            ...authUser,
+            ...updatedUser,
+          },
+        });
+      }
+
+      showToast(
+        "success",
+        [data.message || "User updated successfully.", data.warning]
+          .filter(Boolean)
+          .join(" ")
+      );
+    },
+    onError: (mutationError) => {
+      showToast(
+        "error",
+        mutationError.response?.data?.message ||
+          "Unable to update this user right now."
+      );
+    },
+  });
+
+  const userDeleteMutation = useMutation({
+    mutationFn: deleteManagedUser,
+    onSuccess: (data, deletedUserId) => {
+      queryClient.setQueryData(["managed-users"], removeDeletedUser(deletedUserId));
+      queryClient.setQueryData(["users"], removeDeletedUser(deletedUserId));
+      invalidateUserCaches();
+      showToast("success", data.message || "User deleted successfully.");
+    },
+    onError: (mutationError) => {
+      showToast(
+        "error",
+        mutationError.response?.data?.message ||
+          "Unable to delete this user right now."
+      );
+    },
+  });
+
   const isRoleUpdateDisabled =
     roleUpdateMutation.isPending ||
     !selectedUser ||
@@ -764,8 +838,11 @@ const UserSettingsPage = () => {
       return (
         <UsersSettings
           activeFilter={activeUserFilter}
+          currentUserId={authUser?._id || ""}
+          deleteMutation={userDeleteMutation}
           isLoading={isLoading}
           onActiveFilterChange={setActiveUserFilter}
+          updateMutation={userUpdateMutation}
           users={users}
         />
       );

@@ -1,8 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   CheckCircle2,
+  Edit2,
   MailPlus,
+  Search,
   ShieldCheck,
+  Trash2,
   UserCircle2,
   Users2,
   X,
@@ -12,7 +15,17 @@ import SettingsPanel from "@/components/settings/SettingsPanel";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WORKSPACE_ROLE_OPTIONS } from "@/lib/roles";
 import { cn, formatDate, getInitials } from "@/lib/utils";
 
 const USER_FILTER_KEY_ALL = "all";
@@ -39,10 +52,25 @@ const summaryIconMap = {
 
 const UsersSettings = ({
   activeFilter,
+  currentUserId = "",
+  deleteMutation,
   isLoading,
   onActiveFilterChange,
+  updateMutation,
   users = [],
 }) => {
+  const [searchDraft, setSearchDraft] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [editingUser, setEditingUser] = useState(null);
+  const [deletingUser, setDeletingUser] = useState(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    email: "",
+    employeeId: "",
+    designation: "",
+    role: "Developer",
+  });
+
   const sortedUsers = useMemo(
     () => [...users].sort((left, right) => (left.name || "").localeCompare(right.name || "")),
     [users]
@@ -97,12 +125,29 @@ const UsersSettings = ({
   );
 
   const visibleUsers = useMemo(() => {
-    if (!activeFilter || activeFilter === USER_FILTER_KEY_ALL) {
-      return sortedUsers;
+    const roleFilteredUsers =
+      !activeFilter || activeFilter === USER_FILTER_KEY_ALL
+        ? sortedUsers
+        : sortedUsers.filter((user) => user.role === activeFilter);
+
+    const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+
+    if (!normalizedSearchTerm) {
+      return roleFilteredUsers;
     }
 
-    return sortedUsers.filter((user) => user.role === activeFilter);
-  }, [activeFilter, sortedUsers]);
+    return roleFilteredUsers.filter((user) =>
+      [
+        user.name,
+        user.email,
+        user.role,
+        user.employeeId,
+        user.designation,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedSearchTerm))
+    );
+  }, [activeFilter, searchTerm, sortedUsers]);
 
   const activeCard =
     summaryCards.find((card) => card.key === activeFilter) || summaryCards[0];
@@ -110,6 +155,75 @@ const UsersSettings = ({
     !activeFilter || activeFilter === USER_FILTER_KEY_ALL
       ? "Workspace Users"
       : activeCard.label;
+
+  const handleSearchSubmit = (event) => {
+    event.preventDefault();
+    setSearchTerm(searchDraft.trim());
+  };
+
+  const clearSearch = () => {
+    setSearchDraft("");
+    setSearchTerm("");
+  };
+
+  const openEditDialog = (user) => {
+    setEditingUser(user);
+    setEditForm({
+      name: user.name || "",
+      email: user.email || "",
+      employeeId: user.employeeId || "",
+      designation: user.designation || "",
+      role: user.role || "Developer",
+    });
+  };
+
+  const handleEditFieldChange = (field, value) => {
+    setEditForm((currentForm) => ({
+      ...currentForm,
+      [field]: value,
+    }));
+  };
+
+  const handleEditSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!editingUser?._id || !updateMutation) {
+      return;
+    }
+
+    try {
+      await updateMutation.mutateAsync({
+        id: editingUser._id,
+        payload: {
+          ...editForm,
+          name: editForm.name.trim(),
+          email: editForm.email.trim(),
+          employeeId: editForm.employeeId.trim(),
+          designation: editForm.designation.trim(),
+        },
+      });
+      setEditingUser(null);
+    } catch (error) {
+      return error;
+    }
+
+    return undefined;
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingUser?._id || !deleteMutation) {
+      return;
+    }
+
+    try {
+      await deleteMutation.mutateAsync(deletingUser._id);
+      setDeletingUser(null);
+    } catch (error) {
+      return error;
+    }
+
+    return undefined;
+  };
 
   return (
     <SettingsPanel
@@ -191,11 +305,34 @@ const UsersSettings = ({
                   {visibleUsers.length} user{visibleUsers.length === 1 ? "" : "s"} found
                 </p>
               </div>
-              <Badge variant="outline">
-                {activeFilter && activeFilter !== USER_FILTER_KEY_ALL
-                  ? `${activeCard.label} only`
-                  : "All roles"}
-              </Badge>
+              <div className="flex flex-col gap-3 sm:items-end">
+                <Badge variant="outline">
+                  {activeFilter && activeFilter !== USER_FILTER_KEY_ALL
+                    ? `${activeCard.label} only`
+                    : "All roles"}
+                </Badge>
+                <form
+                  className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row"
+                  onSubmit={handleSearchSubmit}
+                >
+                  <Input
+                    className="h-10 rounded-xl sm:w-72"
+                    placeholder="Search users"
+                    value={searchDraft}
+                    onChange={(event) => setSearchDraft(event.target.value)}
+                  />
+                  <Button type="submit" size="sm">
+                    <Search className="h-4 w-4" />
+                    Search
+                  </Button>
+                  {searchTerm ? (
+                    <Button type="button" size="sm" variant="outline" onClick={clearSearch}>
+                      <X className="h-4 w-4" />
+                      Clear
+                    </Button>
+                  ) : null}
+                </form>
+              </div>
             </div>
 
             {visibleUsers.length ? (
@@ -227,6 +364,29 @@ const UsersSettings = ({
                       <span className="text-xs text-slate-500">
                         Added {formatDate(user.createdAt)}
                       </span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-9 w-9 rounded-xl"
+                          aria-label={`Edit ${user.name}`}
+                          onClick={() => openEditDialog(user)}
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-9 w-9 rounded-xl text-rose-600 hover:text-rose-700"
+                          aria-label={`Delete ${user.name}`}
+                          disabled={String(user._id) === String(currentUserId)}
+                          onClick={() => setDeletingUser(user)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -235,12 +395,133 @@ const UsersSettings = ({
               <div className="p-8">
                 <EmptyState
                   title={`No ${activeCard?.label?.toLowerCase() || "users"} found`}
-                  description="Invite or import teammates to populate this category."
+                  description={
+                    searchTerm
+                      ? "Try another search term or clear the current search."
+                      : "Invite or import teammates to populate this category."
+                  }
                   icon={<Users2 className="h-5 w-5" />}
                 />
               </div>
             )}
           </div>
+
+          <Dialog open={Boolean(editingUser)} onOpenChange={(open) => !open && setEditingUser(null)}>
+            <DialogContent className="max-w-xl rounded-[24px]">
+              <DialogHeader>
+                <DialogTitle>Edit user</DialogTitle>
+                <DialogDescription>
+                  Update this workspace member's profile and role.
+                </DialogDescription>
+              </DialogHeader>
+              <form className="space-y-4" onSubmit={handleEditSubmit}>
+                <label className="space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Name
+                  </span>
+                  <Input
+                    value={editForm.name}
+                    onChange={(event) => handleEditFieldChange("name", event.target.value)}
+                    required
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Email
+                  </span>
+                  <Input
+                    type="email"
+                    value={editForm.email}
+                    onChange={(event) => handleEditFieldChange("email", event.target.value)}
+                    required
+                  />
+                </label>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Employee ID
+                    </span>
+                    <Input
+                      value={editForm.employeeId}
+                      onChange={(event) =>
+                        handleEditFieldChange("employeeId", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Designation
+                    </span>
+                    <Input
+                      value={editForm.designation}
+                      onChange={(event) =>
+                        handleEditFieldChange("designation", event.target.value)
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Role
+                  </span>
+                  <select
+                    className="field-select"
+                    value={editForm.role}
+                    onChange={(event) => handleEditFieldChange("role", event.target.value)}
+                  >
+                    {WORKSPACE_ROLE_OPTIONS.map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setEditingUser(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={updateMutation?.isPending}>
+                    {updateMutation?.isPending ? "Saving..." : "Save Changes"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={Boolean(deletingUser)}
+            onOpenChange={(open) => !open && setDeletingUser(null)}
+          >
+            <DialogContent className="max-w-md rounded-[24px]">
+              <DialogHeader>
+                <DialogTitle>Delete user</DialogTitle>
+                <DialogDescription>
+                  This removes {deletingUser?.name || "this user"} from the workspace.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setDeletingUser(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={deleteMutation?.isPending}
+                  onClick={handleDeleteConfirm}
+                >
+                  {deleteMutation?.isPending ? "Deleting..." : "Delete User"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
     </SettingsPanel>

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { WORKSPACE_ROLE_OPTIONS } from "@/lib/roles";
 
-const CredentialsPreview = ({ entries = [], helperText, title }) => {
+const InviteDeliveryPreview = ({ entries = [], helperText, title }) => {
   if (!entries.length) {
     return null;
   }
@@ -26,9 +26,9 @@ const CredentialsPreview = ({ entries = [], helperText, title }) => {
                 <p className="text-sm font-semibold text-slate-950">{entry.email}</p>
                 <p className="mt-1 text-xs text-slate-500">{entry.role}</p>
               </div>
-              <code className="rounded-[10px] bg-slate-900 px-2.5 py-1.5 text-xs text-white">
-                {entry.temporaryPassword}
-              </code>
+              <span className="rounded-[10px] bg-emerald-100 px-2.5 py-1.5 text-xs font-semibold text-emerald-700">
+                Email sent
+              </span>
             </div>
           </div>
         ))}
@@ -102,10 +102,10 @@ const InviteUserSettings = ({
         </div>
       ) : null}
 
-      <CredentialsPreview
-        title="Temporary credential"
+      <InviteDeliveryPreview
+        title="Invitation sent"
         entries={recentInvite ? [recentInvite] : []}
-        helperText="Share this password securely with the invited user so they can sign in and reset it later."
+        helperText="A temporary password was created and sent to the invited user's email address."
       />
     </div>
   </SettingsPanel>
