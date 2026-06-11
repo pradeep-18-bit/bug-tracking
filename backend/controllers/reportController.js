@@ -242,6 +242,8 @@ const getDeveloperDashboardAnalytics = asyncHandler(async (req, res) => {
     }
   ]);
 
+  console.log("Developer Dashboard Aggregation Result:", JSON.stringify(analyticsResult, null, 2));
+
   const summary = {
     assignedWork: Number(analyticsResult.summary[0]?.assignedWork || 0),
     openWork: Number(analyticsResult.summary[0]?.openWork || 0),
