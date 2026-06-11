@@ -9,6 +9,7 @@ const Sprint = require("../models/Sprint");
 const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const User = require("../models/User");
+const Notification = require("../models/Notification");
 const IssueAttachment = require("../models/IssueAttachment");
 const {
   TESTER_SMTP_REQUIRED_MESSAGE,
@@ -4046,51 +4047,124 @@ const deleteIssue = asyncHandler(async (req, res) => {
 });
 
 const getNotifications = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
+  const userId = req.user?._id || req.user?.id;
 
-  const notifications = await Notification.find({ recipientId: userId })
-    .sort({ createdAt: -1 })
-    .limit(20)
-    .lean();
+  if (!userId) {
+    res.status(401);
+    throw new Error("User not authenticated or ID missing");
+  }
 
-  res.status(200).json(
-    notifications.map((n) => ({
-      ...n,
-      id: n._id.toString(),
-      timestamp: n.createdAt,
-    }))
-  );
+  try {
+    const notifications = await Notification.find({ recipientId: userId })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+
+    res.status(200).json(
+      (notifications || []).map((n) => ({
+        ...n,
+        id: n._id?.toString() || "",
+        timestamp: n.createdAt,
+      }))
+    );
+  } catch (error) {
+    console.error("[getNotifications] Error:", {
+      message: error.message,
+      stack: error.stack,
+      userId,
+    });
+    res.status(500);
+    throw new Error("Failed to fetch notifications");
+  }
 });
 
 const getUnreadNotificationCount = asyncHandler(async (req, res) => {
-  const count = await Notification.countDocuments({
-    recipientId: req.user._id,
-    isRead: false,
-  });
-  res.status(200).json({ count });
+  const userId = req.user?._id || req.user?.id;
+
+  if (!userId) {
+    res.status(401);
+    throw new Error("User not authenticated or ID missing");
+  }
+
+  try {
+    const count = await Notification.countDocuments({
+      recipientId: userId,
+      isRead: false,
+    });
+    res.status(200).json({ count });
+  } catch (error) {
+    console.error("[getUnreadNotificationCount] Error:", {
+      message: error.message,
+      stack: error.stack,
+      userId,
+    });
+    res.status(500);
+    throw new Error("Failed to fetch unread notification count");
+  }
 });
 
 const markNotificationRead = asyncHandler(async (req, res) => {
-  const notification = await Notification.findOneAndUpdate(
-    { _id: req.params.id, recipientId: req.user._id },
-    { isRead: true },
-    { new: true }
-  );
+  const userId = req.user?._id || req.user?.id;
+  const notificationId = req.params.id;
 
-  if (!notification) {
-    res.status(404);
-    throw new Error("Notification not found");
+  if (!userId) {
+    res.status(401);
+    throw new Error("User not authenticated or ID missing");
   }
 
-  res.status(200).json(notification);
+  if (!mongoose.isValidObjectId(notificationId)) {
+    res.status(400);
+    throw new Error("Invalid notification ID");
+  }
+
+  try {
+    const notification = await Notification.findOneAndUpdate(
+      { _id: notificationId, recipientId: userId },
+      { isRead: true },
+      { new: true }
+    );
+
+    if (!notification) {
+      res.status(404);
+      throw new Error("Notification not found");
+    }
+
+    res.status(200).json(notification);
+  } catch (error) {
+    if (res.statusCode === 200) res.status(500);
+    console.error("[markNotificationRead] Error:", {
+      message: error.message,
+      stack: error.stack,
+      notificationId,
+      userId,
+    });
+    throw error;
+  }
 });
 
 const markAllNotificationsRead = asyncHandler(async (req, res) => {
-  await Notification.updateMany(
-    { recipientId: req.user._id, isRead: false },
-    { isRead: true }
-  );
-  res.status(200).json({ message: "All notifications marked as read" });
+  const userId = req.user?._id || req.user?.id;
+
+  if (!userId) {
+    res.status(401);
+    throw new Error("User not authenticated or ID missing");
+  }
+
+  try {
+    await Notification.updateMany(
+      { recipientId: userId, isRead: false },
+      { isRead: true }
+    );
+    res.status(200).json({ message: "All notifications marked as read" });
+  } catch (error) {
+    console.error("[markAllNotificationsRead] Error:", {
+      message: error.message,
+      stack: error.stack,
+      userId,
+    });
+    res.status(500);
+    throw new Error("Failed to mark all notifications as read");
+  }
 });
 
 module.exports = {
