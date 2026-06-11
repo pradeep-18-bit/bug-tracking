@@ -162,8 +162,9 @@ const buildRows = (rows = [], keyAccessor, labelAccessor) => {
   rows.forEach((row) => {
     const key = keyAccessor(row) || "unassigned";
     const label = labelAccessor(row) || "Unassigned";
-    const bucket = buckets.get(key) || { key, label, count: 0 };
+    const bucket = buckets.get(key) || { key, label, count: 0, name: label, value: 0 };
     bucket.count += 1;
+    bucket.value += 1;
     buckets.set(key, bucket);
   });
 
@@ -437,10 +438,14 @@ const TesterReportsDashboard = ({ user }) => {
   const qaEfficiency = Math.round((qaAccuracy + percent(completedQaTasks, testingTasks.length) + percent(bugsVerified, bugIssues.length)) / 3);
   const severityRows = BUG_SEVERITY_GROUPS.map((group) => ({
     ...group,
+    name: group.key,
+    value: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
     count: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
   }));
   const priorityRows = BUG_PRIORITY_GROUPS.map((group) => ({
     ...group,
+    name: group.label,
+    value: bugIssues.filter((issue) => issue.priority === group.source).length,
     count: bugIssues.filter((issue) => issue.priority === group.source).length,
   }));
   const timelineRows = bugTrend.slice(-30).map((row) => ({
@@ -449,6 +454,14 @@ const TesterReportsDashboard = ({ user }) => {
     verified: toNumber(row.resolved || row.closed),
     reopened: toNumber(row.reopened),
   }));
+
+  if (import.meta.env.DEV) {
+    console.log("Tester Bug Analytics Data:", bugAnalytics.results.overview?.data);
+    console.log("Tester Bug Trend Data:", bugAnalytics.results.trends?.data);
+    console.log("Tester Severity Rows:", severityRows);
+    console.log("Tester Priority Rows:", priorityRows);
+    console.log("Tester Timeline Rows:", timelineRows);
+  }
   const error = projectsError || bugAnalytics.error || taskAnalytics.error;
   const isLoading = isProjectsLoading || bugAnalytics.isLoading || taskAnalytics.isLoading;
 
@@ -527,7 +540,7 @@ const TesterReportsDashboard = ({ user }) => {
                 {bugIssues.length ? (
                   <ResponsiveContainer width="100%" height={200}>
                     <PieChart>
-                      <Pie data={severityRows} dataKey="count" nameKey="key" innerRadius={54} outerRadius={84} paddingAngle={3}>
+                      <Pie data={severityRows} dataKey="value" nameKey="name" innerRadius={54} outerRadius={84} paddingAngle={3} isAnimationActive={false}>
                         {severityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
                       </Pie>
                       <Tooltip contentStyle={chartTooltipStyle} />
@@ -539,33 +552,37 @@ const TesterReportsDashboard = ({ user }) => {
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Priority" title="My Bugs by Priority" />
               <ChartFrame height={230}>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={priorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
-                    <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
-                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <YAxis type="category" dataKey="label" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                    <Bar dataKey="count" radius={[0, 8, 8, 0]}>
-                      {priorityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                {bugIssues.length ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={priorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
+                      <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
+                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="name" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={chartTooltipStyle} />
+                      <Bar dataKey="value" radius={[0, 8, 8, 0]} isAnimationActive={false}>
+                        {priorityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Gauge} title="No priority data" description="Priority analytics appear after you report bugs." />}
               </ChartFrame>
             </div>
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3 lg:col-span-2">
               <SectionTitle kicker="Timeline" title="My Verification Timeline" />
               <ChartFrame height={300}>
-                <ResponsiveContainer width="100%" height={250}>
-                  <AreaChart data={timelineRows}>
-                    <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                    <Area type="monotone" dataKey="reported" stroke="#ef4444" fill="#fecdd3" fillOpacity={0.72} />
-                    <Area type="monotone" dataKey="verified" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} />
-                    <Line type="monotone" dataKey="reopened" stroke="#f97316" strokeWidth={2} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
+                {timelineRows.length ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <AreaChart data={timelineRows}>
+                      <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                      <Tooltip contentStyle={chartTooltipStyle} />
+                      <Area type="monotone" dataKey="reported" stroke="#ef4444" fill="#fecdd3" fillOpacity={0.72} isAnimationActive={false} />
+                      <Area type="monotone" dataKey="verified" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} isAnimationActive={false} />
+                      <Line type="monotone" dataKey="reopened" stroke="#f97316" strokeWidth={2} dot={false} isAnimationActive={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : <AnalyticsEmptyState className="min-h-[250px]" icon={TrendingUp} title="No timeline data" description="Verification trends appear over time." />}
               </ChartFrame>
             </div>
           </div>
@@ -726,10 +743,10 @@ const DeveloperReportsDashboard = ({ user }) => {
   const { summary, taskMetrics, bugMetrics, productivityScore, charts, recentActivity, moduleStats } = data;
 
   if (import.meta.env.DEV) {
-    console.log("Analytics API Response:", data);
-    console.log("Work Distribution:", workDistributionData);
-    console.log("Severity Distribution:", severityDistributionData);
-    console.log("Sprint Trend:", sprintTrendData);
+    console.log("Developer Analytics API Response:", data);
+    console.log("Work Distribution Data:", workDistributionData);
+    console.log("Severity Distribution Data:", severityDistributionData);
+    console.log("Sprint Trend Data:", sprintTrendData);
   }
 
   const getWorkloadHealth = (assigned) => {
@@ -866,27 +883,29 @@ const DeveloperReportsDashboard = ({ user }) => {
       {/* Row 3: Donut Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
         <AnalyticsPanel title="Work Distribution">
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={workDistributionData}
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  isAnimationActive={false}
-                >
-                  <Cell fill="#3b82f6" />
-                  <Cell fill="#ef4444" />
-                </Pie>
-                <Tooltip contentStyle={chartTooltipStyle} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+          <ChartFrame height={300}>
+            {workDistributionData.length ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={workDistributionData}
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    isAnimationActive={false}
+                  >
+                    <Cell fill="#3b82f6" />
+                    <Cell fill="#ef4444" />
+                  </Pie>
+                  <Tooltip contentStyle={chartTooltipStyle} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : <AnalyticsEmptyState className="min-h-[300px]" icon={PieChartIcon} title="No distribution data" description="Work distribution will appear here." />}
+          </ChartFrame>
           <div className="mt-4 flex justify-center gap-6 text-sm">
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 rounded-full bg-blue-500" />
@@ -900,32 +919,34 @@ const DeveloperReportsDashboard = ({ user }) => {
         </AnalyticsPanel>
 
         <AnalyticsPanel title="Bug Severity Distribution">
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={severityDistributionData}
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  isAnimationActive={false}
-                >
-                  {severityDistributionData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={
-                      entry.name === "Critical" ? "#ef4444" :
-                      entry.name === "Major" ? "#f97316" :
-                      entry.name === "Minor" ? "#f59e0b" : "#10b981"
-                    } />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={chartTooltipStyle} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+          <ChartFrame height={300}>
+            {severityDistributionData.length ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={severityDistributionData}
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    isAnimationActive={false}
+                  >
+                    {severityDistributionData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={
+                        entry.name === "Critical" ? "#ef4444" :
+                        entry.name === "Major" ? "#f97316" :
+                        entry.name === "Minor" ? "#f59e0b" : "#10b981"
+                      } />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={chartTooltipStyle} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : <AnalyticsEmptyState className="min-h-[300px]" icon={Bug} title="No severity data" description="Bug severity distribution will appear here." />}
+          </ChartFrame>
           <div className="mt-4 flex flex-wrap justify-center gap-4 text-xs">
             {severityDistributionData.map((entry) => (
               <div key={entry.name} className="flex items-center gap-1.5">
@@ -943,6 +964,7 @@ const DeveloperReportsDashboard = ({ user }) => {
 
       {/* Row 4: Sprint Trend */}
       <AnalyticsPanel title="Sprint Trend" description="Completed items over last 6 sprints">
+<<<<<<< HEAD
         <div className="h-[320px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={sprintTrendData}>
@@ -965,6 +987,32 @@ const DeveloperReportsDashboard = ({ user }) => {
             </AreaChart>
           </ResponsiveContainer>
         </div>
+=======
+        <ChartFrame height={320}>
+          {sprintTrendData.length ? (
+            <ResponsiveContainer width="100%" height={320}>
+              <AreaChart data={sprintTrendData}>
+                <defs>
+                  <linearGradient id="colorTasks" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorBugs" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="sprint" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
+                <Tooltip contentStyle={chartTooltipStyle} />
+                <Area type="monotone" dataKey="tasks" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorTasks)" isAnimationActive={false} />
+                <Area type="monotone" dataKey="bugs" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorBugs)" isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : <AnalyticsEmptyState className="min-h-[320px]" icon={AreaChartIcon} title="No trend data" description="Sprint performance trends will appear here." />}
+        </ChartFrame>
+>>>>>>> ca51b348b81d2db526328e4ec3b9d6b282611117
       </AnalyticsPanel>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -1229,12 +1277,16 @@ const OrganizationReportsDashboard = () => {
   const taskStatusRows = buildRows(taskIssues, (issue) => issue.status, (issue) => getIssueStatusLabel(issue.status));
   const bugSeverityRows = BUG_SEVERITY_GROUPS.map((group) => ({
     ...group,
+    name: group.key,
+    value: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
     count: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
   }));
   const taskAssigneeRows = buildRows(taskIssues, (issue) => issue.assignee?._id, (issue) => resolveUserLabel(issue.assignee));
   const bugDeveloperRows = buildRows(bugIssues, (issue) => issue.developerLead?._id || issue.assignee?._id, (issue) => resolveUserLabel(issue.developerLead || issue.assignee));
   const bugPriorityRows = BUG_PRIORITY_GROUPS.map((group) => ({
     ...group,
+    name: group.label,
+    value: bugIssues.filter((issue) => issue.priority === group.source).length,
     count: bugIssues.filter((issue) => issue.priority === group.source).length,
   }));
   const taskTypeRows = buildRows(taskIssues, (issue) => issue.type, (issue) => issue.type);
@@ -1283,6 +1335,13 @@ const OrganizationReportsDashboard = () => {
       })),
     [bugTrend]
   );
+
+  if (import.meta.env.DEV) {
+    console.log("Organization Task Analytics Overview:", taskAnalytics.results.overview?.data);
+    console.log("Organization Bug Analytics Overview:", bugAnalytics.results.overview?.data);
+    console.log("Organization Trend Rows:", trendRows);
+    console.log("Organization Bug Timeline Rows:", bugTimelineRows);
+  }
   const reopenHeatmapRows = useMemo(
     () =>
       bugTrend.slice(-35).map((row) => ({
@@ -1621,9 +1680,9 @@ const OrganizationReportsDashboard = () => {
               <SectionTitle kicker="Task Metrics" title="Task Status Distribution" />
               <ChartFrame height={350}>
                 {taskStatusRows.length ? (
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={350}>
                     <PieChart>
-                      <Pie data={taskStatusRows} dataKey="count" nameKey="label" innerRadius={58} outerRadius={90}>
+                      <Pie data={taskStatusRows} dataKey="value" nameKey="name" innerRadius={58} outerRadius={90} isAnimationActive={false}>
                         {taskStatusRows.map((row, index) => <Cell key={row.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
                       </Pie>
                       <Tooltip contentStyle={chartTooltipStyle} />
@@ -1635,16 +1694,18 @@ const OrganizationReportsDashboard = () => {
             <div>
               <SectionTitle kicker="Sprint Burndown" title="Created vs Resolved Trend" />
               <ChartFrame height={350}>
-                <ResponsiveContainer width="100%" height={300}>
-                  <AreaChart data={trendRows}>
-                    <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                    <Area type="monotone" dataKey="tasks" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.75} />
-                    <Area type="monotone" dataKey="resolved" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} />
-                  </AreaChart>
-                </ResponsiveContainer>
+                {trendRows.length ? (
+                  <ResponsiveContainer width="100%" height={350}>
+                    <AreaChart data={trendRows}>
+                      <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                      <Tooltip contentStyle={chartTooltipStyle} />
+                      <Area type="monotone" dataKey="tasks" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.75} isAnimationActive={false} />
+                      <Area type="monotone" dataKey="resolved" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} isAnimationActive={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : <AnalyticsEmptyState icon={TrendingUp} title="No trend data" description="Task resolution trends will appear here." />}
               </ChartFrame>
             </div>
             <div>
@@ -1685,9 +1746,9 @@ const OrganizationReportsDashboard = () => {
               <SectionTitle kicker="Severity" title="Bugs By Severity" />
               <ChartFrame height={230}>
                 {bugMetrics.total ? (
-                  <ResponsiveContainer width="100%" height={200}>
+                  <ResponsiveContainer width="100%" height={230}>
                     <PieChart>
-                      <Pie data={bugSeverityRows} dataKey="count" nameKey="key" innerRadius={54} outerRadius={84} paddingAngle={3}>
+                      <Pie data={bugSeverityRows} dataKey="value" nameKey="name" innerRadius={54} outerRadius={84} paddingAngle={3} isAnimationActive={false}>
                         {bugSeverityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
                       </Pie>
                       <Tooltip contentStyle={chartTooltipStyle} />
@@ -1700,13 +1761,13 @@ const OrganizationReportsDashboard = () => {
               <SectionTitle kicker="Priority" title="Bugs By Priority" />
               <ChartFrame height={230}>
                 {bugMetrics.total ? (
-                  <ResponsiveContainer width="100%" height={200}>
+                  <ResponsiveContainer width="100%" height={230}>
                     <BarChart data={bugPriorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
                       <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
                       <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                      <YAxis type="category" dataKey="label" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="name" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
                       <Tooltip contentStyle={chartTooltipStyle} />
-                      <Bar dataKey="count" radius={[0, 8, 8, 0]}>
+                      <Bar dataKey="value" radius={[0, 8, 8, 0]} isAnimationActive={false}>
                         {bugPriorityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
                       </Bar>
                     </BarChart>
@@ -1748,16 +1809,16 @@ const OrganizationReportsDashboard = () => {
         <AnalyticsPanel title="Bug Resolution Timeline" description="Created vs fixed bugs, throughput, reopen spikes, and QA verification flow.">
           <ChartFrame height={430}>
             {bugTimelineRows.length ? (
-              <ResponsiveContainer width="100%" height={380}>
+              <ResponsiveContainer width="100%" height={430}>
                 <AreaChart data={bugTimelineRows}>
                   <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={chartTooltipStyle} />
-                  <Area type="monotone" dataKey="created" name="Created" stroke="#ef4444" fill="#fecdd3" fillOpacity={0.72} />
-                  <Area type="monotone" dataKey="fixed" name="Fixed" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} />
-                  <Line type="monotone" dataKey="reopened" name="Reopen spikes" stroke="#f97316" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="pending" name="Pending QA flow" stroke="#2563eb" strokeWidth={2} dot={false} />
+                  <Area type="monotone" dataKey="created" name="Created" stroke="#ef4444" fill="#fecdd3" fillOpacity={0.72} isAnimationActive={false} />
+                  <Area type="monotone" dataKey="fixed" name="Fixed" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="reopened" name="Reopen spikes" stroke="#f97316" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="pending" name="Pending QA flow" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
                 </AreaChart>
               </ResponsiveContainer>
             ) : <AnalyticsEmptyState icon={AreaChartIcon} title="No bug timeline" description="Created, fixed, and reopened bug trends appear after bug activity." />}

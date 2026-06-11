@@ -972,6 +972,9 @@ const getOverviewPayload = async (match, user) => {
       },
     },
   ]);
+
+  console.log("Analytics Overview Aggregation Result:", JSON.stringify(facetResult, null, 2));
+
   const issues = await Issue.find(match)
     .select("_id createdAt updatedAt status")
     .lean();
@@ -1898,14 +1901,16 @@ const buildRecentActivity = async (match) => {
 
 const getOverview = asyncHandler(async (req, res) => {
   const match = await buildAnalyticsMatch(req, res);
-
-  res.status(200).json(await getOverviewPayload(match, req.user));
+  const payload = await getOverviewPayload(match, req.user);
+  console.log("Analytics Overview Response:", JSON.stringify(payload, null, 2));
+  res.status(200).json(payload);
 });
 
 const getTrends = asyncHandler(async (req, res) => {
   const match = await buildAnalyticsMatch(req, res);
-
-  res.status(200).json(await buildTrendRows(match, req));
+  const payload = await buildTrendRows(match, req);
+  console.log("Analytics Trends Response:", JSON.stringify(payload, null, 2));
+  res.status(200).json(payload);
 });
 
 const getPriorities = asyncHandler(async (req, res) => {
