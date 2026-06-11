@@ -964,7 +964,7 @@ const DeveloperReportsDashboard = ({ user }) => {
               <Area type="monotone" dataKey="bugs" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorBugs)" isAnimationActive={false} />
             </AreaChart>
           </ResponsiveContainer>
-        </ChartFrame>
+        </div>
       </AnalyticsPanel>
 
       <div className="grid gap-6 lg:grid-cols-2">
