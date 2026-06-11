@@ -858,6 +858,16 @@ export const updateUserRole = async ({ id, role }) => {
   return response.data;
 };
 
+export const updateManagedUser = async ({ id, payload }) => {
+  const response = await api.patch(`/users/${id}`, payload);
+  return response.data;
+};
+
+export const deleteManagedUser = async (id) => {
+  const response = await api.delete(`/users/${id}`);
+  return response.data;
+};
+
 export const fetchEmailConfig = async (userId) => {
   const response = await api.get("/settings/email-config", {
     params: buildParams({

@@ -2,10 +2,14 @@ const crypto = require("crypto");
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
 const User = require("../models/User");
+const TeamMember = require("../models/TeamMember");
+const UserEmailConfig = require("../models/UserEmailConfig");
 const {
   clearWorkspaceSenderSelection,
   clearUserSenderSelectionsForSender,
 } = require("./settingsController");
+const { buildAppUrl } = require("../config/env");
+const { sendWorkspaceEmail } = require("../services/emailService");
 const asyncHandler = require("../utils/asyncHandler");
 const {
   ROLE_ADMIN,
@@ -40,14 +44,24 @@ const buildNameFromEmail = (email) => {
 const generateTemporaryPassword = () =>
   `${crypto.randomBytes(4).toString("hex")}A9!`;
 
-const serializeInvitedUser = (user, temporaryPassword) => ({
+const serializeUser = (user) => ({
   _id: user._id,
   name: user.name,
   email: user.email,
   employeeId: user.employeeId || "",
   designation: user.designation || "",
   role: user.role,
-  temporaryPassword,
+  workspaceId: normalizeWorkspaceId(user.workspaceId),
+  createdAt: user.createdAt,
+});
+
+const serializeInvitedUser = (user) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  employeeId: user.employeeId || "",
+  designation: user.designation || "",
+  role: user.role,
 });
 
 const createInvitedUser = async ({
@@ -70,7 +84,54 @@ const createInvitedUser = async ({
     workspaceId: normalizeWorkspaceId(workspaceId),
   });
 
-  return serializeInvitedUser(user, password ? undefined : temporaryPassword);
+  return {
+    temporaryPassword: password ? undefined : temporaryPassword,
+    user,
+  };
+};
+
+const sendInvitationEmail = async ({ email, role, temporaryPassword, workspaceId }) => {
+  const loginUrl = buildAppUrl("/login");
+  const subject = "Your Pirnav Bug Tracker workspace invite";
+  const text = [
+    "You have been invited to Pirnav Bug Tracker.",
+    `Role: ${role}`,
+    `Login: ${loginUrl}`,
+    `Temporary password: ${temporaryPassword}`,
+    "Please sign in with this temporary password and change it from your profile settings.",
+  ].join("\n");
+
+  return sendWorkspaceEmail({
+    workspaceId,
+    to: email,
+    subject,
+    html: `
+      <div style="font-family: Arial, sans-serif; padding: 20px; color: #0F172A;">
+        <h2 style="margin: 0 0 12px; color: #2563EB;">Welcome to Pirnav Bug Tracker</h2>
+        <p style="margin: 0 0 16px;">An administrator invited you to the workspace.</p>
+        <p style="margin: 0 0 8px;"><strong>Role:</strong> ${role}</p>
+        <p style="margin: 0 0 16px;"><strong>Temporary password:</strong> <code style="background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 8px; padding: 6px 10px;">${temporaryPassword}</code></p>
+        <p style="margin: 0 0 20px;">Please sign in with this temporary password and change it from your profile settings.</p>
+        <a href="${loginUrl}" style="display: inline-block; background: #2563EB; color: #FFFFFF; padding: 12px 18px; border-radius: 8px; text-decoration: none; font-weight: 700;">Open workspace</a>
+      </div>
+    `,
+    text,
+  });
+};
+
+const ensureAdminCanChangeRole = async ({ user, role, workspaceId }) => {
+  if (user.role === ROLE_ADMIN && role !== ROLE_ADMIN) {
+    const adminCount = await User.countDocuments({
+      workspaceId,
+      role: ROLE_ADMIN,
+    });
+
+    if (adminCount <= 1) {
+      const error = new Error("At least one admin must remain in the workspace");
+      error.statusCode = 400;
+      throw error;
+    }
+  }
 };
 
 const getManagedUsers = asyncHandler(async (req, res) => {
@@ -113,11 +174,23 @@ const inviteUser = asyncHandler(async (req, res) => {
     throw new Error("A user with that email already exists");
   }
 
-  const invitedUser = await createInvitedUser({ email, role, workspaceId });
+  const { temporaryPassword, user } = await createInvitedUser({ email, role, workspaceId });
+
+  try {
+    await sendInvitationEmail({
+      email,
+      role,
+      temporaryPassword,
+      workspaceId,
+    });
+  } catch (error) {
+    await User.deleteOne({ _id: user._id, workspaceId });
+    throw error;
+  }
 
   res.status(201).json({
-    message: "User invited successfully",
-    invitedUser,
+    message: "User invited successfully and temporary password sent by email",
+    invitedUser: serializeInvitedUser(user),
   });
 });
 
@@ -151,17 +224,7 @@ const updateUserRole = asyncHandler(async (req, res) => {
     throw new Error("User not found in this workspace");
   }
 
-  if (user.role === ROLE_ADMIN && role !== ROLE_ADMIN) {
-    const adminCount = await User.countDocuments({
-      workspaceId,
-      role: ROLE_ADMIN,
-    });
-
-    if (adminCount <= 1) {
-      res.status(400);
-      throw new Error("At least one admin must remain in the workspace");
-    }
-  }
+  await ensureAdminCanChangeRole({ user, role, workspaceId });
 
   let warning = "";
 
@@ -196,15 +259,165 @@ const updateUserRole = asyncHandler(async (req, res) => {
     message: "Role updated successfully",
     warning: warning || undefined,
     user: {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      employeeId: user.employeeId || "",
-      designation: user.designation || "",
-      role: user.role,
-      workspaceId: normalizeWorkspaceId(user.workspaceId),
-      createdAt: user.createdAt,
+      ...serializeUser(user),
     },
+  });
+});
+
+const updateUser = asyncHandler(async (req, res) => {
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const userId = String(req.params.id || "").trim();
+
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    res.status(400);
+    throw new Error("Please provide a valid user id");
+  }
+
+  const user = await User.findOne({
+    _id: userId,
+    workspaceId,
+  });
+
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found in this workspace");
+  }
+
+  const name = normalizeText(req.body.name);
+  const email = normalizeEmail(req.body.email);
+  const employeeId = normalizeText(req.body.employeeId).toUpperCase();
+  const designation = normalizeText(req.body.designation);
+  const role = normalizeRole(req.body.role);
+
+  if (!name || !email || !role) {
+    res.status(400);
+    throw new Error("Name, email, and role are required");
+  }
+
+  if (!emailRegex.test(email)) {
+    res.status(400);
+    throw new Error("Please provide a valid email address");
+  }
+
+  if (!User.availableRoles.includes(role)) {
+    res.status(400);
+    throw new Error(`Role must be one of ${User.availableRoles.join(", ")}`);
+  }
+
+  await ensureAdminCanChangeRole({ user, role, workspaceId });
+
+  const duplicateUser = await User.findOne({
+    _id: { $ne: user._id },
+    $or: [
+      { email },
+      ...(employeeId ? [{ employeeId }] : []),
+    ],
+  })
+    .select("_id email employeeId")
+    .lean();
+
+  if (duplicateUser?.email === email) {
+    res.status(409);
+    throw new Error("A user with that email already exists");
+  }
+
+  if (employeeId && duplicateUser?.employeeId === employeeId) {
+    res.status(409);
+    throw new Error("A user with that employee id already exists");
+  }
+
+  const previousRole = user.role;
+
+  user.name = name;
+  user.email = email;
+  user.employeeId = employeeId || undefined;
+  user.designation = designation;
+  user.role = role;
+  await user.save();
+
+  let warning = "";
+  const losesSenderEligibility =
+    isEligibleWorkspaceSenderRole(previousRole) && !isEligibleWorkspaceSenderRole(role);
+
+  if (losesSenderEligibility) {
+    const clearedUserSenderSelections = await clearUserSenderSelectionsForSender({
+      workspaceId,
+      senderUserId: user._id,
+      updatedByUserId: req.user._id,
+    });
+
+    const clearedWorkspaceSender = await clearWorkspaceSenderSelection({
+      workspaceId,
+      userId: req.user._id,
+      matchUserId: user._id,
+    });
+
+    if ((clearedUserSenderSelections?.modifiedCount || 0) > 0 || clearedWorkspaceSender) {
+      warning =
+        "Saved sender selections were cleared because this user is no longer eligible.";
+    }
+  }
+
+  res.status(200).json({
+    message: "User updated successfully",
+    warning: warning || undefined,
+    user: serializeUser(user),
+  });
+});
+
+const deleteUser = asyncHandler(async (req, res) => {
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const userId = String(req.params.id || "").trim();
+
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    res.status(400);
+    throw new Error("Please provide a valid user id");
+  }
+
+  if (String(req.user._id) === userId) {
+    res.status(400);
+    throw new Error("You cannot delete your own account");
+  }
+
+  const user = await User.findOne({
+    _id: userId,
+    workspaceId,
+  });
+
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found in this workspace");
+  }
+
+  if (user.role === ROLE_ADMIN) {
+    const adminCount = await User.countDocuments({
+      workspaceId,
+      role: ROLE_ADMIN,
+    });
+
+    if (adminCount <= 1) {
+      res.status(400);
+      throw new Error("At least one admin must remain in the workspace");
+    }
+  }
+
+  await clearUserSenderSelectionsForSender({
+    workspaceId,
+    senderUserId: user._id,
+    updatedByUserId: req.user._id,
+  });
+  await clearWorkspaceSenderSelection({
+    workspaceId,
+    userId: req.user._id,
+    matchUserId: user._id,
+  });
+  await UserEmailConfig.deleteMany({ workspaceId, userId: user._id });
+  await TeamMember.deleteMany({ userId: user._id });
+  await User.deleteOne({ _id: user._id, workspaceId });
+
+  res.status(200).json({
+    message: "User deleted successfully",
+    deletedUserId: userId,
   });
 });
 
@@ -369,6 +582,8 @@ const importUsers = asyncHandler(async (req, res) => {
 module.exports = {
   getManagedUsers,
   inviteUser,
+  updateUser,
   updateUserRole,
+  deleteUser,
   importUsers,
 };
