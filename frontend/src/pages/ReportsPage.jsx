@@ -671,6 +671,25 @@ const DeveloperReportsDashboard = ({ user }) => {
       dateTo: "",
     });
 
+  const workDistributionData = useMemo(() =>
+    (data?.charts?.workDistribution || []).map(item => ({ ...item, value: Number(item.value || 0) })),
+    [data?.charts?.workDistribution]
+  );
+
+  const severityDistributionData = useMemo(() =>
+    (data?.charts?.severityDistribution || []).map(item => ({ ...item, value: Number(item.value || 0) })),
+    [data?.charts?.severityDistribution]
+  );
+
+  const sprintTrendData = useMemo(() =>
+    (data?.charts?.sprintTrend || []).map(item => ({
+      ...item,
+      tasks: Number(item.tasks || 0),
+      bugs: Number(item.bugs || 0)
+    })),
+    [data?.charts?.sprintTrend]
+  );
+
   if (error) {
     return (
       <Card className={ANALYTICS_PANEL_CLASS}>
@@ -688,9 +707,10 @@ const DeveloperReportsDashboard = ({ user }) => {
   const { summary, taskMetrics, bugMetrics, productivityScore, charts, recentActivity, moduleStats } = data;
 
   if (import.meta.env.DEV) {
-    console.log("Work Distribution:", charts.workDistribution);
-    console.log("Severity Distribution:", charts.severityDistribution);
-    console.log("Sprint Trend:", charts.sprintTrend);
+    console.log("Analytics API Response:", data);
+    console.log("Work Distribution:", workDistributionData);
+    console.log("Severity Distribution:", severityDistributionData);
+    console.log("Sprint Trend:", sprintTrendData);
   }
 
   const getWorkloadHealth = (assigned) => {
@@ -827,16 +847,19 @@ const DeveloperReportsDashboard = ({ user }) => {
       {/* Row 3: Donut Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
         <AnalyticsPanel title="Work Distribution">
-          <div className="h-[320px] w-full">
-            <ResponsiveContainer width="100%" height={320}>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={charts.workDistribution}
+                  data={workDistributionData}
                   innerRadius={60}
                   outerRadius={80}
                   paddingAngle={5}
                   dataKey="value"
                   nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  isAnimationActive={false}
                 >
                   <Cell fill="#3b82f6" />
                   <Cell fill="#ef4444" />
@@ -844,32 +867,35 @@ const DeveloperReportsDashboard = ({ user }) => {
                 <Tooltip contentStyle={chartTooltipStyle} />
               </PieChart>
             </ResponsiveContainer>
-            <div className="flex justify-center gap-6 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-blue-500" />
-                <span className="text-slate-600">Tasks ({taskMetrics.assigned})</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-rose-500" />
-                <span className="text-slate-600">Bugs ({bugMetrics.assigned})</span>
-              </div>
+          </div>
+          <div className="mt-4 flex justify-center gap-6 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-full bg-blue-500" />
+              <span className="text-slate-600 font-medium">Tasks ({taskMetrics.assigned})</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-full bg-rose-500" />
+              <span className="text-slate-600 font-medium">Bugs ({bugMetrics.assigned})</span>
             </div>
           </div>
         </AnalyticsPanel>
 
         <AnalyticsPanel title="Bug Severity Distribution">
-          <div className="h-[320px] w-full">
-            <ResponsiveContainer width="100%" height={320}>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={charts.severityDistribution}
+                  data={severityDistributionData}
                   innerRadius={60}
                   outerRadius={80}
                   paddingAngle={5}
                   dataKey="value"
                   nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  isAnimationActive={false}
                 >
-                  {charts.severityDistribution.map((entry, index) => (
+                  {severityDistributionData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={
                       entry.name === "Critical" ? "#ef4444" :
                       entry.name === "Major" ? "#f97316" :
@@ -880,18 +906,18 @@ const DeveloperReportsDashboard = ({ user }) => {
                 <Tooltip contentStyle={chartTooltipStyle} />
               </PieChart>
             </ResponsiveContainer>
-            <div className="flex flex-wrap justify-center gap-4 text-xs">
-              {charts.severityDistribution.map((entry) => (
-                <div key={entry.name} className="flex items-center gap-1.5">
-                  <div className={cn("h-2.5 w-2.5 rounded-full",
-                    entry.name === "Critical" ? "bg-rose-500" :
-                    entry.name === "Major" ? "bg-orange-500" :
-                    entry.name === "Minor" ? "bg-amber-500" : "bg-emerald-500"
-                  )} />
-                  <span className="text-slate-500">{entry.name}: {entry.value}</span>
-                </div>
-              ))}
-            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap justify-center gap-4 text-xs">
+            {severityDistributionData.map((entry) => (
+              <div key={entry.name} className="flex items-center gap-1.5">
+                <div className={cn("h-2.5 w-2.5 rounded-full",
+                  entry.name === "Critical" ? "bg-rose-500" :
+                  entry.name === "Major" ? "bg-orange-500" :
+                  entry.name === "Minor" ? "bg-amber-500" : "bg-emerald-500"
+                )} />
+                <span className="text-slate-500 font-medium">{entry.name}: {entry.value}</span>
+              </div>
+            ))}
           </div>
         </AnalyticsPanel>
       </div>
@@ -899,8 +925,8 @@ const DeveloperReportsDashboard = ({ user }) => {
       {/* Row 4: Sprint Trend */}
       <AnalyticsPanel title="Sprint Trend" description="Completed items over last 6 sprints">
         <div className="h-[320px] w-full">
-          <ResponsiveContainer width="100%" height={320}>
-            <AreaChart data={charts.sprintTrend}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={sprintTrendData}>
               <defs>
                 <linearGradient id="colorTasks" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
@@ -915,8 +941,8 @@ const DeveloperReportsDashboard = ({ user }) => {
               <XAxis dataKey="sprint" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
               <Tooltip contentStyle={chartTooltipStyle} />
-              <Area type="monotone" dataKey="tasks" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorTasks)" />
-              <Area type="monotone" dataKey="bugs" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorBugs)" />
+              <Area type="monotone" dataKey="tasks" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorTasks)" isAnimationActive={false} />
+              <Area type="monotone" dataKey="bugs" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorBugs)" isAnimationActive={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
