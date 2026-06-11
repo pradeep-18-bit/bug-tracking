@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -199,9 +199,28 @@ const getStatusParts = (statusFilter) => {
   return { status: statusFilter || "all", statusGroup: "all" };
 };
 
-const ChartFrame = ({ children, className }) => (
-  <div className={cn("h-[260px] w-full", className)}>{children}</div>
-);
+const ChartFrame = ({ children, className, height = 350 }) => {
+  const frameRef = useRef(null);
+
+  useEffect(() => {
+    if (import.meta.env.DEV && frameRef.current) {
+      console.log(`Chart Frame dimensions:`, {
+        width: frameRef.current.offsetWidth,
+        height: frameRef.current.offsetHeight
+      });
+    }
+  }, []);
+
+  return (
+    <div
+      ref={frameRef}
+      className={cn("w-full", className)}
+      style={{ height, minHeight: height }}
+    >
+      {children}
+    </div>
+  );
+};
 
 const KpiCard = ({ accent = "blue", helper, icon: Icon, label, trend, value }) => {
   const tones = {
@@ -504,9 +523,9 @@ const TesterReportsDashboard = ({ user }) => {
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Severity" title="My Bugs by Severity" />
-              <ChartFrame className="h-[230px]">
+              <ChartFrame height={230}>
                 {bugIssues.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={200}>
                     <PieChart>
                       <Pie data={severityRows} dataKey="count" nameKey="key" innerRadius={54} outerRadius={84} paddingAngle={3}>
                         {severityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
@@ -519,8 +538,8 @@ const TesterReportsDashboard = ({ user }) => {
             </div>
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Priority" title="My Bugs by Priority" />
-              <ChartFrame className="h-[230px]">
-                <ResponsiveContainer width="100%" height="100%">
+              <ChartFrame height={230}>
+                <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={priorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
                     <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
                     <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
@@ -535,8 +554,8 @@ const TesterReportsDashboard = ({ user }) => {
             </div>
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3 lg:col-span-2">
               <SectionTitle kicker="Timeline" title="My Verification Timeline" />
-              <ChartFrame className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
+              <ChartFrame height={300}>
+                <ResponsiveContainer width="100%" height={250}>
                   <AreaChart data={timelineRows}>
                     <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
                     <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
@@ -945,7 +964,7 @@ const DeveloperReportsDashboard = ({ user }) => {
               <Area type="monotone" dataKey="bugs" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorBugs)" isAnimationActive={false} />
             </AreaChart>
           </ResponsiveContainer>
-        </div>
+        </ChartFrame>
       </AnalyticsPanel>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -1600,9 +1619,9 @@ const OrganizationReportsDashboard = () => {
           <div className="grid gap-4 lg:grid-cols-2">
             <div>
               <SectionTitle kicker="Task Metrics" title="Task Status Distribution" />
-              <ChartFrame>
+              <ChartFrame height={350}>
                 {taskStatusRows.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={300}>
                     <PieChart>
                       <Pie data={taskStatusRows} dataKey="count" nameKey="label" innerRadius={58} outerRadius={90}>
                         {taskStatusRows.map((row, index) => <Cell key={row.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
@@ -1615,8 +1634,8 @@ const OrganizationReportsDashboard = () => {
             </div>
             <div>
               <SectionTitle kicker="Sprint Burndown" title="Created vs Resolved Trend" />
-              <ChartFrame>
-                <ResponsiveContainer width="100%" height="100%">
+              <ChartFrame height={350}>
+                <ResponsiveContainer width="100%" height={300}>
                   <AreaChart data={trendRows}>
                     <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
                     <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
@@ -1664,9 +1683,9 @@ const OrganizationReportsDashboard = () => {
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Severity" title="Bugs By Severity" />
-              <ChartFrame className="h-[230px]">
+              <ChartFrame height={230}>
                 {bugMetrics.total ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={200}>
                     <PieChart>
                       <Pie data={bugSeverityRows} dataKey="count" nameKey="key" innerRadius={54} outerRadius={84} paddingAngle={3}>
                         {bugSeverityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
@@ -1679,9 +1698,9 @@ const OrganizationReportsDashboard = () => {
             </div>
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Priority" title="Bugs By Priority" />
-              <ChartFrame className="h-[230px]">
+              <ChartFrame height={230}>
                 {bugMetrics.total ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={bugPriorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
                       <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
                       <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
@@ -1727,9 +1746,9 @@ const OrganizationReportsDashboard = () => {
         </AnalyticsPanel>
 
         <AnalyticsPanel title="Bug Resolution Timeline" description="Created vs fixed bugs, throughput, reopen spikes, and QA verification flow.">
-          <ChartFrame className="h-[430px]">
+          <ChartFrame height={430}>
             {bugTimelineRows.length ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={380}>
                 <AreaChart data={bugTimelineRows}>
                   <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
