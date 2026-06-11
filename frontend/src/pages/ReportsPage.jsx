@@ -866,8 +866,8 @@ const DeveloperReportsDashboard = ({ user }) => {
       {/* Row 3: Donut Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
         <AnalyticsPanel title="Work Distribution">
-          <ChartFrame>
-            <ResponsiveContainer width="100%" height={300}>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={workDistributionData}
@@ -886,7 +886,7 @@ const DeveloperReportsDashboard = ({ user }) => {
                 <Tooltip contentStyle={chartTooltipStyle} />
               </PieChart>
             </ResponsiveContainer>
-          </ChartFrame>
+          </div>
           <div className="mt-4 flex justify-center gap-6 text-sm">
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 rounded-full bg-blue-500" />
@@ -900,8 +900,8 @@ const DeveloperReportsDashboard = ({ user }) => {
         </AnalyticsPanel>
 
         <AnalyticsPanel title="Bug Severity Distribution">
-          <ChartFrame>
-            <ResponsiveContainer width="100%" height={300}>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={severityDistributionData}
@@ -925,7 +925,7 @@ const DeveloperReportsDashboard = ({ user }) => {
                 <Tooltip contentStyle={chartTooltipStyle} />
               </PieChart>
             </ResponsiveContainer>
-          </ChartFrame>
+          </div>
           <div className="mt-4 flex flex-wrap justify-center gap-4 text-xs">
             {severityDistributionData.map((entry) => (
               <div key={entry.name} className="flex items-center gap-1.5">
@@ -943,8 +943,8 @@ const DeveloperReportsDashboard = ({ user }) => {
 
       {/* Row 4: Sprint Trend */}
       <AnalyticsPanel title="Sprint Trend" description="Completed items over last 6 sprints">
-        <ChartFrame height={350}>
-          <ResponsiveContainer width="100%" height={300}>
+        <div className="h-[320px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={sprintTrendData}>
               <defs>
                 <linearGradient id="colorTasks" x1="0" y1="0" x2="0" y2="1">
