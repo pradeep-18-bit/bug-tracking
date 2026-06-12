@@ -93,7 +93,7 @@ export const useChatStore = create((set, get) => ({
     socket?.emit("mark_seen", { conversationId });
   },
 
-  loadConversations: async ({ force = false } = {}) => {
+  loadConversations: async ({ force = false, activateFirst = false } = {}) => {
     if (get().isLoadingConversations || (get().hasLoadedConversations && !force)) {
       return;
     }
@@ -108,7 +108,7 @@ export const useChatStore = create((set, get) => ({
         isLoadingConversations: false,
       });
 
-      if (!get().activeConversationId && conversations.length) {
+      if (activateFirst && !get().activeConversationId && conversations.length) {
         await get().setActiveConversation(getId(conversations[0]));
       }
     } catch (error) {
@@ -260,11 +260,12 @@ export const useChatStore = create((set, get) => ({
             return;
           }
 
-          get().receiveMessage({
-            conversationId,
-            message: response.message,
-            tempId,
-          });
+            get().receiveMessage({
+              conversationId,
+              conversation: response.conversation,
+              message: response.message,
+              tempId,
+            });
         }
       );
       return;
@@ -304,7 +305,13 @@ export const useChatStore = create((set, get) => ({
     }));
   },
 
-  receiveMessage: ({ conversationId, message, tempId }) => {
+  receiveMessage: ({
+    conversationId,
+    conversation,
+    isViewingConversation,
+    message,
+    tempId,
+  }) => {
     const normalizedConversationId = String(conversationId || message?.conversationId || "");
 
     if (!normalizedConversationId || !message) {
@@ -313,13 +320,37 @@ export const useChatStore = create((set, get) => ({
 
     set((state) => {
       const activeConversationId = state.activeConversationId;
-      const isActive = activeConversationId === normalizedConversationId;
+      const isActive =
+        typeof isViewingConversation === "boolean"
+          ? isViewingConversation
+          : activeConversationId === normalizedConversationId;
       const senderId = getId(message.senderId);
       const currentConversation = state.conversations.find(
         (item) => getId(item) === normalizedConversationId
       );
+      const incomingConversation = conversation || message?.conversation;
       const shouldIncrementUnread =
-        !isActive && currentConversation && senderId !== state.currentUserId;
+        !isActive && senderId !== state.currentUserId;
+      const nextConversation = currentConversation ||
+        (incomingConversation
+          ? normalizeConversation({
+              ...incomingConversation,
+              _id: normalizedConversationId,
+            })
+          : null);
+      const updatedConversation = nextConversation
+        ? {
+            ...nextConversation,
+            lastMessage: message.message || "Attachment",
+            lastMessageAt: message.createdAt,
+            unreadCount: shouldIncrementUnread
+              ? Number(nextConversation.unreadCount || 0) + 1
+              : nextConversation.unreadCount || 0,
+          }
+        : null;
+      const remainingConversations = state.conversations.filter(
+        (conversation) => getId(conversation) !== normalizedConversationId
+      );
 
       return {
         messagesByConversation: {
@@ -330,20 +361,9 @@ export const useChatStore = create((set, get) => ({
             tempId
           ),
         },
-        conversations: sortConversations(
-          state.conversations.map((conversation) =>
-            getId(conversation) === normalizedConversationId
-              ? {
-                  ...conversation,
-                  lastMessage: message.message || "Attachment",
-                  lastMessageAt: message.createdAt,
-                  unreadCount: shouldIncrementUnread
-                    ? Number(conversation.unreadCount || 0) + 1
-                    : conversation.unreadCount || 0,
-                }
-              : conversation
-          )
-        ),
+        conversations: updatedConversation
+          ? sortConversations([updatedConversation, ...remainingConversations])
+          : state.conversations,
       };
     });
 
@@ -412,6 +432,17 @@ export const useChatStore = create((set, get) => ({
           }
         ),
       },
+      conversations:
+        String(userId) === String(state.currentUserId)
+          ? state.conversations.map((conversation) =>
+              getId(conversation) === String(conversationId)
+                ? {
+                    ...conversation,
+                    unreadCount: 0,
+                  }
+                : conversation
+            )
+          : state.conversations,
     }));
   },
 }));
