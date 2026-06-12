@@ -32,7 +32,7 @@ const ChatHeader = memo(({ conversation, currentUserId, onlineUsers, onToggleSid
     conversation?.type === "direct" && onlineUsers.includes(getId(directUser));
 
   return (
-    <header className="flex min-h-[76px] items-center gap-3 border-b border-white/55 bg-white/52 px-4 py-3 backdrop-blur-2xl sm:px-5">
+    <header className="flex min-h-[76px] shrink-0 items-center gap-3 border-b border-white/55 bg-white/52 px-4 py-3 backdrop-blur-2xl sm:px-5">
       <Button
         type="button"
         variant="ghost"
