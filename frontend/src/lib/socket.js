@@ -25,10 +25,17 @@ export const getChatSocket = (token) => {
     return null;
   }
 
-  if (socket?.connected || socket?.active) {
-    socket.auth = {
-      token: authToken,
-    };
+  if (socket) {
+    if (socket.auth?.token !== authToken) {
+      socket.auth = {
+        token: authToken,
+      };
+
+      if (socket.connected) {
+        socket.disconnect().connect();
+      }
+    }
+
     return socket;
   }
 
@@ -39,9 +46,10 @@ export const getChatSocket = (token) => {
     autoConnect: false,
     reconnection: true,
     reconnectionAttempts: Infinity,
-    reconnectionDelay: 800,
+    reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
-    transports: ["websocket", "polling"],
+    randomizationFactor: 0.5,
+    withCredentials: true,
   });
 
   return socket;
