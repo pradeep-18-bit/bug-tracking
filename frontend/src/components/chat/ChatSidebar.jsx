@@ -172,8 +172,8 @@ const ChatSidebar = memo(
     );
 
     const sidebarContent = (
-      <aside className="flex h-full w-full flex-col overflow-hidden rounded-[30px] border border-white/65 bg-white/50 shadow-[0_26px_70px_-45px_rgba(15,23,42,0.45)] backdrop-blur-2xl lg:rounded-[32px]">
-        <div className="flex shrink-0 items-center justify-between border-b border-white/60 px-4 py-4">
+      <aside className="flex h-full w-full flex-col overflow-hidden border-r border-slate-200 bg-white shadow-none">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-4">
           <div>
             <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-blue-600">
               Realtime
@@ -296,7 +296,7 @@ const ChatSidebar = memo(
 
     return (
       <>
-        <div className="hidden h-full lg:block">{sidebarContent}</div>
+        <div className="hidden h-full w-[380px] shrink-0 lg:block">{sidebarContent}</div>
         <AnimatePresence>
           {isOpen ? (
             <motion.div

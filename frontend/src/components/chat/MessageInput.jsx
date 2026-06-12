@@ -280,11 +280,12 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
 
   return (
     <form
-      className="sticky bottom-0 z-10 shrink-0 border-t border-emerald-100/80 bg-[#f1faf2]/95 px-4 py-3 shadow-[0_-18px_46px_-36px_rgba(15,23,42,0.36)] backdrop-blur-md sm:px-5"
+      className="shrink-0 border-t border-slate-200 bg-[#f0f2f5] px-4 py-3 shadow-none"
+      style={{ height: "70px" }}
       onSubmit={handleSubmit}
     >
       {attachments.length || uploadError ? (
-        <div className="mb-3 space-y-2">
+        <div className="absolute bottom-full left-0 right-0 mb-2 space-y-2 px-4">
           {attachments.map((attachment) => (
             <div
               key={attachment.id}
@@ -350,7 +351,7 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
         </div>
       ) : null}
 
-      <div className="relative flex items-end gap-2 rounded-[24px] border border-emerald-100 bg-white/92 p-2 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.34)]">
+      <div className="relative flex h-full items-center gap-2 rounded-[24px] border border-slate-200 bg-white p-2">
         <input
           ref={fileInputRef}
           type="file"
