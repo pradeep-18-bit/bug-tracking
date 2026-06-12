@@ -44,7 +44,12 @@ const Navbar = () => {
   const { user, logout } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const navigation = getRoleNavigation(user?.role);
-  const chatUnreadCount = useChatStore((state) => state.getTotalUnread());
+  const chatUnreadCount = useChatStore((state) =>
+    state.conversations.reduce(
+      (total, conversation) => total + Number(conversation.unreadCount || 0),
+      0
+    )
+  );
   const hasLoadedConversations = useChatStore(
     (state) => state.hasLoadedConversations
   );

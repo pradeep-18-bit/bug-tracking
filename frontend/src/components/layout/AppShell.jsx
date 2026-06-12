@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { Outlet, useLocation } from "react-router-dom";
+import ChatRealtimeBridge from "@/components/chat/ChatRealtimeBridge";
 import Navbar from "@/components/layout/Navbar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBugWorkflowRealtime } from "@/hooks/useBugWorkflowRealtime";
@@ -23,6 +24,7 @@ const AppShell = () => {
 
   return (
     <div className="relative min-h-screen bg-transparent text-gray-900">
+      <ChatRealtimeBridge />
       <Navbar />
       <main className="mt-4 px-4 pb-10 pt-16 sm:px-6 sm:pt-20 lg:px-8">
         <Suspense fallback={<RouteContentFallback />}>

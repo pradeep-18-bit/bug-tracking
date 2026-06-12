@@ -412,6 +412,17 @@ export const useChatStore = create((set, get) => ({
           }
         ),
       },
+      conversations:
+        String(userId) === String(state.currentUserId)
+          ? state.conversations.map((conversation) =>
+              getId(conversation) === String(conversationId)
+                ? {
+                    ...conversation,
+                    unreadCount: 0,
+                  }
+                : conversation
+            )
+          : state.conversations,
     }));
   },
 }));
