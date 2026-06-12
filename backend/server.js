@@ -42,14 +42,18 @@ app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ limit: "25mb", extended: true }));
 
 // Protect issue attachments from direct access - must use API endpoint
-app.use("/uploads/issue-attachments", (req, res) => {
+const blockIssueAttachmentDirectAccess = (req, res) => {
   res.status(403).json({
     message: "Direct access to issue attachments is not allowed. Use the API endpoint instead.",
   });
-});
+};
+
+app.use("/uploads/issue-attachments", blockIssueAttachmentDirectAccess);
+app.use("/api/uploads/issue-attachments", blockIssueAttachmentDirectAccess);
 
 // Allow other uploads (e.g., chat attachments) for now
 app.use("/uploads", express.static(path.resolve(__dirname, "uploads")));
+app.use("/api/uploads", express.static(path.resolve(__dirname, "uploads")));
 
 app.get("/", (req, res) => {
   res.status(200).json({

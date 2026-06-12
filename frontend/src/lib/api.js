@@ -805,10 +805,23 @@ export const resolveApiAssetUrl = (assetPath = "") => {
     return assetPath;
   }
 
+  const normalizedAssetPath = assetPath.startsWith("/uploads/")
+    ? `/api${assetPath}`
+    : assetPath;
+  const apiBaseUrl = api.defaults.baseURL || "/api";
+
   try {
-    return new URL(assetPath, api.defaults.baseURL).toString();
+    if (/^https?:\/\//i.test(apiBaseUrl)) {
+      return new URL(normalizedAssetPath, apiBaseUrl).toString();
+    }
+
+    if (typeof window !== "undefined") {
+      return new URL(normalizedAssetPath, window.location.origin).toString();
+    }
+
+    return new URL(normalizedAssetPath, apiBaseUrl).toString();
   } catch (error) {
-    return assetPath;
+    return normalizedAssetPath;
   }
 };
 
