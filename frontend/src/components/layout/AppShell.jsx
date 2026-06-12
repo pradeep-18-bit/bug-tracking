@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import ChatRealtimeBridge from "@/components/chat/ChatRealtimeBridge";
 import Navbar from "@/components/layout/Navbar";
@@ -23,6 +23,22 @@ const AppShell = () => {
   const isChatPage = location.pathname === "/chat";
   useBugWorkflowRealtime();
   useScrollRestoration();
+
+  useEffect(() => {
+    if (isChatPage) {
+      document.documentElement.style.height = "100%";
+      document.documentElement.style.overflow = "hidden";
+      document.body.style.height = "100%";
+      document.body.style.overflow = "hidden";
+    }
+
+    return () => {
+      document.documentElement.style.height = "";
+      document.documentElement.style.overflow = "";
+      document.body.style.height = "";
+      document.body.style.overflow = "";
+    };
+  }, [isChatPage]);
 
   return (
     <div

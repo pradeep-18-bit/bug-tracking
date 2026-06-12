@@ -173,7 +173,7 @@ const ChatSidebar = memo(
 
     const sidebarContent = (
       <aside className="flex h-full w-full flex-col overflow-hidden rounded-[30px] border border-white/65 bg-white/50 shadow-[0_26px_70px_-45px_rgba(15,23,42,0.45)] backdrop-blur-2xl lg:rounded-[32px]">
-        <div className="flex items-center justify-between border-b border-white/60 px-4 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/60 px-4 py-4">
           <div>
             <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-blue-600">
               Realtime
@@ -191,7 +191,7 @@ const ChatSidebar = memo(
           </Button>
         </div>
 
-        <div className="border-b border-white/60 p-4">
+        <div className="shrink-0 border-b border-white/60 p-4">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
