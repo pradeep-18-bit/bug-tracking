@@ -806,7 +806,7 @@ const uploadChatAttachment = asyncHandler(async (req, res) => {
   }
 
   const fileName = sanitizeFileName(req.file.originalname);
-  const fileUrl = `/uploads/chat-attachments/${req.file.filename}`;
+  const fileUrl = `/api/uploads/chat-attachments/${req.file.filename}`;
 
   res.status(201).json({
     attachment: {
