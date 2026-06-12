@@ -110,7 +110,7 @@ const ChatWindow = memo(
 
         <div
           ref={scrollRef}
-          className="dashboard-scrollbar flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.74),transparent_34%),linear-gradient(180deg,_#eef8f0_0%,_#f1faf2_48%,_#e8f5e9_100%)] px-4 py-5 shadow-inner sm:px-6"
+          className="dashboard-scrollbar min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.74),transparent_34%),linear-gradient(180deg,_#eef8f0_0%,_#f1faf2_48%,_#e8f5e9_100%)] px-4 py-5 shadow-inner sm:px-6"
         >
           {hasMore ? (
             <div className="mb-4 flex justify-center">

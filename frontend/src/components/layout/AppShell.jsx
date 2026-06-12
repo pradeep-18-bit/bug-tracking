@@ -36,7 +36,7 @@ const AppShell = () => {
       <main
         className={cn(
           isChatPage
-            ? "h-full overflow-hidden pt-16"
+            ? "h-[calc(100vh-4rem)] overflow-hidden mt-16"
             : "mt-4 px-4 pb-10 pt-16 sm:px-6 sm:pt-20 lg:px-8"
         )}
       >

@@ -280,7 +280,7 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
 
   return (
     <form
-      className="shrink-0 border-t border-emerald-100/80 bg-[#f1faf2]/95 px-4 py-3 shadow-[0_-18px_46px_-36px_rgba(15,23,42,0.36)] backdrop-blur-md sm:px-5"
+      className="sticky bottom-0 z-10 shrink-0 border-t border-emerald-100/80 bg-[#f1faf2]/95 px-4 py-3 shadow-[0_-18px_46px_-36px_rgba(15,23,42,0.36)] backdrop-blur-md sm:px-5"
       onSubmit={handleSubmit}
     >
       {attachments.length || uploadError ? (

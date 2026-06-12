@@ -207,7 +207,7 @@ const ChatSidebar = memo(
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
-                className="mt-3 space-y-1 rounded-[22px] border border-white/70 bg-white/85 p-2 shadow-lg"
+                className="dashboard-scrollbar mt-3 max-h-60 space-y-1 overflow-y-auto rounded-[22px] border border-white/70 bg-white/85 p-2 shadow-lg"
               >
                 {searchResults.map((user) => (
                   <button
@@ -239,7 +239,7 @@ const ChatSidebar = memo(
           </AnimatePresence>
         </div>
 
-        <div className="dashboard-scrollbar flex-1 space-y-5 overflow-y-auto p-4">
+        <div className="dashboard-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
           <Section title="Direct Messages" items={groupedConversations.direct}>
             {groupedConversations.direct.map((conversation) => (
               <ConversationButton
