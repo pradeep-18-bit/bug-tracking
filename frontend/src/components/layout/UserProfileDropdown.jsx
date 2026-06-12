@@ -11,7 +11,7 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/use-auth";
-import { hasAdminPanelAccess } from "@/lib/roles";
+import { hasAdminPanelAccess, ROLE_DEVELOPER, ROLE_TESTER } from "@/lib/roles";
 import { getInitials } from "@/lib/utils";
 
 const UserProfileDropdown = () => {
@@ -63,6 +63,9 @@ const UserProfileDropdown = () => {
   const settingsPath = hasAdminPanelAccess(user?.role)
     ? "/settings/users"
     : "/dev/settings";
+  const showSettingsLinks = user?.role !== ROLE_DEVELOPER;
+  const showPreferencesLink =
+    user?.role !== ROLE_DEVELOPER && user?.role !== ROLE_TESTER;
 
   const menuItems = [
     {
@@ -75,16 +78,24 @@ const UserProfileDropdown = () => {
       label: "Change Password",
       onClick: () => handleNavigate("/settings?tab=password"),
     },
-    {
-      icon: Settings,
-      label: "Settings",
-      onClick: () => handleNavigate(settingsPath),
-    },
-    {
-      icon: Sliders,
-      label: "Preferences",
-      onClick: () => handleNavigate("/settings"),
-    },
+    ...(showSettingsLinks
+      ? [
+          {
+            icon: Settings,
+            label: "Settings",
+            onClick: () => handleNavigate(settingsPath),
+          },
+        ]
+      : []),
+    ...(showPreferencesLink
+      ? [
+          {
+            icon: Sliders,
+            label: "Preferences",
+            onClick: () => handleNavigate("/settings"),
+          },
+        ]
+      : []),
   ];
 
   return (
