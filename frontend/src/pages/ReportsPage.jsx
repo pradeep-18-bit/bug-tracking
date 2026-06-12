@@ -964,6 +964,7 @@ const DeveloperReportsDashboard = ({ user }) => {
 
       {/* Row 4: Sprint Trend */}
       <AnalyticsPanel title="Sprint Trend" description="Completed items over last 6 sprints">
+
         <ChartFrame height={320}>
           {sprintTrendData.length ? (
             <ResponsiveContainer width="100%" height={320}>
@@ -988,6 +989,7 @@ const DeveloperReportsDashboard = ({ user }) => {
             </ResponsiveContainer>
           ) : <AnalyticsEmptyState className="min-h-[320px]" icon={AreaChartIcon} title="No trend data" description="Sprint performance trends will appear here." />}
         </ChartFrame>
+
       </AnalyticsPanel>
 
       <div className="grid gap-6 lg:grid-cols-2">
