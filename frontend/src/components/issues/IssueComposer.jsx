@@ -620,20 +620,20 @@ const IssueComposer = ({
   };
 
   const reporterLabel = reporterName || "Logged-in tester";
-  const testerFieldLabelClass = "text-[13px] font-semibold text-slate-700";
-  const testerFieldGroupClass = "space-y-1.5";
+  const testerFieldLabelClass = "text-xs font-semibold text-slate-700";
+  const testerFieldGroupClass = "space-y-1";
   const testerInputClass =
-    "h-10 rounded-xl border-slate-300 px-3 text-sm shadow-none focus-visible:border-blue-500 focus-visible:ring-blue-500/20";
+    "h-9 rounded-lg border-slate-300 px-3 text-sm shadow-none focus-visible:border-blue-500 focus-visible:ring-blue-500/20";
   const testerSelectClass =
-    "field-select h-10 rounded-xl border-slate-300 px-3 text-sm shadow-none focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20";
+    "field-select h-9 rounded-lg border-slate-300 px-3 text-sm shadow-none focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20";
   const testerTextareaClass =
-    "rounded-xl border-slate-300 px-3 py-2 text-sm shadow-none focus-visible:border-blue-500 focus-visible:ring-blue-500/20";
-  const testerSectionClass = "space-y-3";
+    "rounded-lg border-slate-300 px-3 py-2 text-sm shadow-none focus-visible:border-blue-500 focus-visible:ring-blue-500/20";
+  const testerSectionClass = "space-y-2";
   const testerSectionHeadingClass =
-    "flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 before:h-px before:flex-1 before:bg-slate-200 after:h-px after:flex-1 after:bg-slate-200";
+    "flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 before:h-px before:flex-1 before:bg-slate-200 after:h-px after:flex-1 after:bg-slate-200";
 
   const formContent = (
-    <form className={isTesterBugReport ? "space-y-4" : "space-y-5"} onSubmit={handleSubmit}>
+    <form className={isTesterBugReport ? "space-y-3" : "space-y-5"} onSubmit={handleSubmit}>
       {submitBlockedMessage ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
           {submitBlockedMessage}
@@ -671,15 +671,15 @@ const IssueComposer = ({
       ) : null}
 
       {isTesterBugReport && isBugType ? (
-        <div className="space-y-4 rounded-[20px] border border-slate-200 bg-slate-50/70 p-3 shadow-sm sm:p-4">
-          <div className="inline-flex w-fit rounded-full border border-blue-100 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+        <div className="space-y-3 rounded-[16px] border border-slate-200 bg-slate-50/70 p-3 shadow-sm">
+          <div className="inline-flex w-fit rounded-full border border-blue-100 bg-white px-2.5 py-0.5 text-xs font-semibold text-slate-600">
             Reported by: {reporterLabel}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(280px,3fr)]">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,3fr)_minmax(260px,1fr)]">
             <section className={testerSectionClass}>
               <h3 className={testerSectionHeadingClass}>Basic Information</h3>
-              <div className="grid gap-3">
+              <div className="grid gap-2.5">
                 <div className={testerFieldGroupClass}>
                   <label className={testerFieldLabelClass} htmlFor="title">
                     {titleLabel}
@@ -701,7 +701,7 @@ const IssueComposer = ({
                   <Textarea
                     id="description"
                     name="description"
-                    className={cn(testerTextareaClass, "min-h-[132px]")}
+                    className={cn(testerTextareaClass, "h-[150px] min-h-[140px] resize-y")}
                     placeholder={descriptionPlaceholder}
                     value={formData.description}
                     onChange={handleChange}
@@ -712,7 +712,7 @@ const IssueComposer = ({
 
             <section className={testerSectionClass}>
               <h3 className={testerSectionHeadingClass}>Assignment</h3>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
                 <label className={testerFieldGroupClass}>
                   <span className={cn(testerFieldLabelClass, "flex items-center gap-2")}>
                     <ClipboardList className="h-4 w-4 text-blue-600" />
@@ -813,7 +813,7 @@ const IssueComposer = ({
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
                 <label
                   className={cn(
-                    "flex min-h-[64px] cursor-pointer items-start gap-3 rounded-xl border bg-white px-3 py-2.5 transition hover:border-blue-300 hover:bg-blue-50/40",
+                    "flex min-h-[58px] cursor-pointer items-start gap-2 rounded-lg border bg-white px-2.5 py-2 transition hover:border-blue-300 hover:bg-blue-50/40",
                     formData.bugDetails.addToBucket
                       ? "border-blue-300 bg-blue-50 ring-1 ring-blue-200"
                       : "border-slate-200"
@@ -838,7 +838,7 @@ const IssueComposer = ({
                     }
                   />
                   <span className="min-w-0">
-                    <span className="block text-sm font-semibold leading-5 text-slate-800">
+                    <span className="block text-[13px] font-semibold leading-4 text-slate-800">
                       Add to Bucket
                     </span>
                     <span className="block text-xs leading-4 text-slate-500">
@@ -849,7 +849,7 @@ const IssueComposer = ({
 
                 <label
                   className={cn(
-                    "flex min-h-[64px] cursor-pointer items-start gap-3 rounded-xl border bg-white px-3 py-2.5 transition hover:border-blue-300 hover:bg-blue-50/40",
+                    "flex min-h-[58px] cursor-pointer items-start gap-2 rounded-lg border bg-white px-2.5 py-2 transition hover:border-blue-300 hover:bg-blue-50/40",
                     formData.bugDetails.sendToTriage
                       ? "border-blue-300 bg-blue-50 ring-1 ring-blue-200"
                       : "border-slate-200"
@@ -874,7 +874,7 @@ const IssueComposer = ({
                     }
                   />
                   <span className="min-w-0">
-                    <span className="block text-sm font-semibold leading-5 text-slate-800">
+                    <span className="block text-[13px] font-semibold leading-4 text-slate-800">
                       Send to Triage Board
                     </span>
                     <span className="block text-xs leading-4 text-slate-500">
@@ -888,7 +888,7 @@ const IssueComposer = ({
 
           <section className={testerSectionClass}>
             <h3 className={testerSectionHeadingClass}>Classification</h3>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
               <label className={testerFieldGroupClass}>
                 <span className={testerFieldLabelClass}>Module/Page</span>
                 <Input
@@ -961,12 +961,6 @@ const IssueComposer = ({
                   ))}
                 </select>
               </label>
-            </div>
-          </section>
-
-          <section className={testerSectionClass}>
-            <h3 className={testerSectionHeadingClass}>Impact</h3>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               <label className={testerFieldGroupClass}>
                 <span className={testerFieldLabelClass}>Severity</span>
                 <select
