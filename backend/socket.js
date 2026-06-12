@@ -29,8 +29,11 @@ const getAllowedOrigins = () => {
 };
 
 const roomName = (conversationId) => `conversation:${conversationId}`;
+const userRoomName = (userId) => `user:${userId}`;
 const workspaceRoomName = (workspaceId) =>
   `workspace:${normalizeWorkspaceId(workspaceId)}`;
+
+const objectIdString = (value) => String(value?._id || value?.id || value || "");
 
 const addOnlineUser = (user, socketId) => {
   const workspaceId = normalizeWorkspaceId(user.workspaceId);
@@ -154,6 +157,7 @@ const setupChatSocket = (server) => {
   io.on("connection", async (socket) => {
     console.log(`[Socket] Client connected: ${socket.id} (User: ${socket.user?.name})`);
     addOnlineUser(socket.user, socket.id);
+    socket.join(userRoomName(socket.user._id));
     socket.join(workspaceRoomName(socket.user.workspaceId));
     emitOnlineUsers(io, socket.user.workspaceId);
 
@@ -206,10 +210,17 @@ const setupChatSocket = (server) => {
         const eventPayload = {
           message,
           conversationId: String(conversation._id),
+          conversation,
           tempId: payload.tempId || null,
         };
+        const participantRooms = (conversation.participants || [])
+          .map((participant) => userRoomName(objectIdString(participant)))
+          .filter(Boolean);
 
-        io.to(roomName(conversation._id)).emit("receive_message", eventPayload);
+        io.to([roomName(conversation._id), ...participantRooms]).emit(
+          "receive_message",
+          eventPayload
+        );
         callback?.({
           ok: true,
           ...eventPayload,
