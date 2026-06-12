@@ -5,6 +5,7 @@ import Navbar from "@/components/layout/Navbar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBugWorkflowRealtime } from "@/hooks/useBugWorkflowRealtime";
 import useScrollRestoration from "@/hooks/use-scroll-restoration";
+import { cn } from "@/lib/utils";
 
 const RouteContentFallback = () => (
   <div className="space-y-5">
@@ -19,16 +20,31 @@ const RouteContentFallback = () => (
 
 const AppShell = () => {
   const location = useLocation();
+  const isChatPage = location.pathname === "/chat";
   useBugWorkflowRealtime();
   useScrollRestoration();
 
   return (
-    <div className="relative min-h-screen bg-transparent text-gray-900">
+    <div
+      className={cn(
+        "relative bg-transparent text-gray-900",
+        isChatPage ? "h-screen overflow-hidden" : "min-h-screen"
+      )}
+    >
       <ChatRealtimeBridge />
       <Navbar />
-      <main className="mt-4 px-4 pb-10 pt-16 sm:px-6 sm:pt-20 lg:px-8">
+      <main
+        className={cn(
+          isChatPage
+            ? "h-full overflow-hidden pt-16"
+            : "mt-4 px-4 pb-10 pt-16 sm:px-6 sm:pt-20 lg:px-8"
+        )}
+      >
         <Suspense fallback={<RouteContentFallback />}>
-          <div key={`${location.pathname}${location.search}`} className="page-shell-enter">
+          <div
+            key={`${location.pathname}${location.search}`}
+            className={cn("page-shell-enter", isChatPage && "h-full overflow-hidden")}
+          >
             <Outlet />
           </div>
         </Suspense>
