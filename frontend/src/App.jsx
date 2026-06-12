@@ -15,6 +15,7 @@ const AuthPage = lazy(() => import("@/pages/AuthPage"));
 const AdminBugsPage = lazy(() => import("@/pages/AdminBugsPage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const DeveloperDashboardPage = lazy(() => import("@/pages/DeveloperDashboardPage"));
+const DeveloperBugBoardPage = lazy(() => import("@/pages/DeveloperBugBoardPage"));
 const DeveloperSettingsPage = lazy(() => import("@/pages/DeveloperSettingsPage"));
 const TesterDashboardPage = lazy(() => import("@/pages/TesterDashboardPage"));
 const TesterBugsPage = lazy(() => import("@/pages/TesterBugsPage"));
@@ -203,6 +204,14 @@ const App = () => (
         element={
           <ProtectedRoute roles={[ROLE_DEVELOPER, ROLE_TEAM_LEAD]}>
             <DeveloperDashboardPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dev/bugs"
+        element={
+          <ProtectedRoute roles={[ROLE_DEVELOPER, ROLE_TEAM_LEAD]}>
+            <DeveloperBugBoardPage />
           </ProtectedRoute>
         }
       />

@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  Bell,
   Bug,
   CalendarDays,
   CheckCircle2,
@@ -28,6 +29,9 @@ import {
   fetchMyReportedBugs,
   fetchProjects,
   fetchRecentTasks,
+  fetchNotifications,
+  fetchUnreadNotificationCount,
+  markNotificationAsRead,
 } from "@/lib/api";
 import {
   ISSUE_STATUS,
@@ -44,7 +48,10 @@ import { getProjectTeams, resolveUserId } from "@/lib/project-teams";
 import { ROLE_TESTER } from "@/lib/roles";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
+import { readStoredSession } from "@/lib/session";
+import { getChatSocket } from "@/lib/socket";
 import EmptyState from "@/components/shared/EmptyState";
+import NotificationCard from "@/components/dashboard/NotificationCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -437,6 +444,7 @@ const RecentTasksPanel = ({
 
 const TesterDashboardPage = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const testerId = String(user?._id || user?.id || "");
   const isTester = user?.role === ROLE_TESTER;
@@ -489,6 +497,50 @@ const TesterDashboardPage = () => {
     queryFn: fetchMyReportedBugs,
     enabled: Boolean(testerId && isTester),
   });
+
+  const {
+    data: notifications = [],
+    isLoading: isNotificationsLoading,
+  } = useQuery({
+    queryKey: ["issues", "notifications", testerId],
+    queryFn: fetchNotifications,
+    enabled: Boolean(testerId),
+  });
+
+  const {
+    data: unreadCount = 0,
+  } = useQuery({
+    queryKey: ["issues", "notifications", "unread-count", testerId],
+    queryFn: fetchUnreadNotificationCount,
+    enabled: Boolean(testerId),
+  });
+
+  useEffect(() => {
+    const session = readStoredSession();
+    const token = session?.token;
+    const socket = getChatSocket(token);
+
+    if (!socket || !testerId) return;
+
+    if (!socket.connected) {
+      socket.connect();
+    }
+
+    const handleNewNotification = (notification) => {
+      queryClient.setQueryData(["issues", "notifications", testerId], (old = []) => {
+        return [notification, ...old].slice(0, 20);
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["issues", "notifications", "unread-count", testerId],
+      });
+    };
+
+    socket.on("notification_received", handleNewNotification);
+
+    return () => {
+      socket.off("notification_received", handleNewNotification);
+    };
+  }, [testerId, queryClient]);
 
   const assignedProjects = useMemo(
     () =>
@@ -563,6 +615,27 @@ const TesterDashboardPage = () => {
     navigate(`/bugs?bug=${encodeURIComponent(issueId)}`);
   };
 
+  const handleOpenNotification = async (notification) => {
+    const notificationId = notification.id || notification._id;
+    if (!notification.isRead) {
+      try {
+        await markNotificationAsRead(notificationId);
+        queryClient.invalidateQueries({
+          queryKey: ["issues", "notifications", testerId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["issues", "notifications", "unread-count", testerId],
+        });
+      } catch (error) {
+        console.error("Failed to mark notification as read:", error);
+      }
+    }
+
+    if (notification.link) {
+      navigate(notification.link);
+    }
+  };
+
   const error = projectsError || issuesError || reportedBugsError;
   const isLoading = isProjectsLoading || isIssuesLoading;
 
@@ -620,7 +693,7 @@ const TesterDashboardPage = () => {
 
         <Button
           className="interactive-button h-11 w-full shrink-0 rounded-2xl border border-indigo-300/30 bg-[linear-gradient(90deg,#2563EB_0%,#6366F1_55%,#8B5CF6_100%)] px-4 text-white shadow-[0_14px_28px_-18px_rgba(99,102,241,0.82)] hover:brightness-105 sm:w-auto sm:px-5"
-          onClick={() => navigate("/bugs")}
+          onClick={() => navigate("/bugs?view=report")}
           type="button"
         >
           <Plus className="h-4 w-4" />
@@ -628,6 +701,13 @@ const TesterDashboardPage = () => {
         </Button>
 
         <AttachedProjectsTile projects={assignedProjects} />
+
+        <NotificationCard
+          notifications={notifications}
+          unreadCount={unreadCount}
+          isLoading={isNotificationsLoading}
+          onOpenNotification={handleOpenNotification}
+        />
       </section>
 
       <section className="flex snap-x gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:pb-0 xl:grid-cols-5 [&>*]:min-w-[220px] [&>*]:snap-start md:[&>*]:min-w-0">

@@ -471,6 +471,26 @@ export const fetchIssueActivity = async (filters = {}) => {
   return [];
 };
 
+export const fetchNotifications = async () => {
+  const response = await api.get("/issues/notifications");
+  return response.data || [];
+};
+
+export const fetchUnreadNotificationCount = async () => {
+  const response = await api.get("/issues/notifications/unread-count");
+  return response.data?.count || 0;
+};
+
+export const markNotificationAsRead = async (id) => {
+  const response = await api.patch(`/issues/notifications/${id}/read`);
+  return response.data;
+};
+
+export const markAllNotificationsAsRead = async () => {
+  const response = await api.post("/issues/notifications/read-all");
+  return response.data;
+};
+
 export const createIssue = async (payload) => {
   const normalizedPayload = normalizeIssuePayload(payload);
   logIssuePayload("Create issue", normalizedPayload);
@@ -605,6 +625,13 @@ export const fetchSelectedUserReport = async (filters = {}) => {
 
 export const fetchTeamReports = async (filters = {}) => {
   const response = await api.get("/reports/team", {
+    params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const fetchDeveloperDashboardAnalytics = async (filters = {}) => {
+  const response = await api.get("/reports/developer/dashboard", {
     params: buildParams(normalizeIssueFilters(filters)),
   });
   return response.data;
@@ -828,6 +855,16 @@ export const updateUserRole = async ({ id, role }) => {
   const response = await api.patch(`/users/${id}/role`, {
     role,
   });
+  return response.data;
+};
+
+export const updateManagedUser = async ({ id, payload }) => {
+  const response = await api.patch(`/users/${id}`, payload);
+  return response.data;
+};
+
+export const deleteManagedUser = async (id) => {
+  const response = await api.delete(`/users/${id}`);
   return response.data;
 };
 

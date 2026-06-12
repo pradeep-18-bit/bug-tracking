@@ -41,6 +41,7 @@ import {
   normalizeBugStatusForIssue,
   resolveBugDetails,
   resolveIssueProjectId,
+  resolveIssueTeamId,
 } from "@/lib/issues";
 import {
   findProjectById,
@@ -54,6 +55,7 @@ import { cn, formatDateTime, getInitials } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import EmptyState from "@/components/shared/EmptyState";
+import ToastNotice from "@/components/shared/ToastNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -126,7 +128,15 @@ const getDashboardFilterQueryValue = (value) => {
 };
 
 const getNestedUser = (value) => (value && typeof value === "object" ? value : null);
-const getReporter = (issue) => getNestedUser(issue?.reporter);
+const getNamedFallbackUser = (name = "", fallback = null) =>
+  name ? { ...(fallback || {}), name } : fallback;
+const getReporter = (issue) =>
+  getNamedFallbackUser(issue?.reporterName, getNestedUser(issue?.reporter));
+const getTesterOwner = (issue) =>
+  getNamedFallbackUser(
+    issue?.testerOwnerName,
+    getNestedUser(resolveBugDetails(issue)?.testerOwner)
+  );
 const getBugDeveloper = (issue) =>
   getNestedUser(resolveBugDetails(issue)?.developerLead) || getNestedUser(issue?.assignee);
 
@@ -477,6 +487,7 @@ const AdminBugsPage = () => {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamString = searchParams.toString();
+  const [toast, setToast] = useState(null);
   const initialStatusQuery = normalizeStatusQueryValue(searchParams.get("status"));
   const initialDashboardFilter = getDashboardFilterQueryValue(
     searchParams.get("filter") || searchParams.get("status")
@@ -590,6 +601,18 @@ const AdminBugsPage = () => {
 
   const bugs = useMemo(() => (Array.isArray(bugsData) ? bugsData : []), [bugsData]);
   const actionMenuId = actionMenu?.issueId || "";
+
+  useEffect(() => {
+    if (!toast?.id) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [toast?.id]);
 
   useEffect(() => {
     if (!projects.length) {
@@ -765,7 +788,7 @@ const AdminBugsPage = () => {
         const developer = getBugDeveloper(bugIssue);
 
         return (
-          [ISSUE_STATUS.NEW, ISSUE_STATUS.TRIAGED, ISSUE_STATUS.OPEN].includes(status) ||
+          [ISSUE_STATUS.NEW, ISSUE_STATUS.NEEDS_TRIAGE, ISSUE_STATUS.TRIAGED, ISSUE_STATUS.OPEN].includes(status) ||
           !resolveUserId(developer)
         );
       }),
@@ -840,13 +863,28 @@ const AdminBugsPage = () => {
   const updateIssueMutation = useMutation({
     mutationFn: updateIssue,
     onSuccess: async (updatedIssue) => {
-      setSelectedBug(updatedIssue);
+      if (selectedBug?._id === updatedIssue._id) {
+        setSelectedBug(updatedIssue);
+      }
+      setToast({
+        id: `update-success-${Date.now()}`,
+        type: "success",
+        message: "Bug updated successfully.",
+      });
+      setActionMenu(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["bugs"] }),
         queryClient.invalidateQueries({ queryKey: ["issues"] }),
         queryClient.invalidateQueries({ queryKey: ["reports"] }),
         queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
+    },
+    onError: (err) => {
+      setToast({
+        id: `update-error-${Date.now()}`,
+        type: "error",
+        message: err.response?.data?.message || "Failed to update bug.",
+      });
     },
   });
 
@@ -869,25 +907,26 @@ const AdminBugsPage = () => {
 
     for (const bugIssue of selectedBugs) {
       const currentStatus = normalizeBugStatusForIssue(bugIssue);
+      const payload = {};
 
-      await updateIssueMutation.mutateAsync({
-        id: bugIssue._id,
-        payload: {
-          ...(bulkPriority ? { priority: bulkPriority } : {}),
-          ...(bulkDeveloperId
-            ? {
-                assigneeId: bulkDeveloperId,
-                bugDetails: {
-                  ...resolveBugDetails(bugIssue),
-                  developerLeadId: bulkDeveloperId,
-                },
-                status: ISSUE_STATUS.ASSIGNED,
-              }
-            : currentStatus === ISSUE_STATUS.NEW
-              ? { status: ISSUE_STATUS.TRIAGED }
-              : {}),
-        },
-      });
+      if (bulkPriority) {
+        payload.priority = bulkPriority;
+      }
+
+      if (bulkDeveloperId) {
+        payload.assigneeId = bulkDeveloperId;
+        payload.assignedDeveloperId = bulkDeveloperId;
+        payload.status = ISSUE_STATUS.ASSIGNED;
+      } else if (currentStatus === ISSUE_STATUS.NEW) {
+        payload.status = ISSUE_STATUS.TRIAGED;
+      }
+
+      if (Object.keys(payload).length > 0) {
+        await updateIssueMutation.mutateAsync({
+          id: bugIssue._id,
+          payload,
+        });
+      }
     }
 
     setSelectedTriageIds([]);
@@ -1010,17 +1049,14 @@ const AdminBugsPage = () => {
       id: bugIssue._id,
       payload: {
         assigneeId: developerId,
-        bugDetails: {
-          ...resolveBugDetails(bugIssue),
-          developerLeadId: developerId,
-        },
+        assignedDeveloperId: developerId,
         status: ISSUE_STATUS.ASSIGNED,
       },
     });
   };
 
   const handleQuickPriority = (bugIssue, priority) => {
-    if (!priority || priority === bugIssue.priority) {
+    if (!priority) {
       return;
     }
 
@@ -1033,7 +1069,7 @@ const AdminBugsPage = () => {
   };
 
   const handleQuickStatus = (bugIssue, status) => {
-    if (!status || status === normalizeBugStatusForIssue(bugIssue)) {
+    if (!status) {
       return;
     }
 
@@ -1046,16 +1082,13 @@ const AdminBugsPage = () => {
   };
 
   const handleMoveToTriageBucket = (bugIssue) => {
-    const currentStatus = normalizeBugStatusForIssue(bugIssue);
-
-    if (currentStatus === ISSUE_STATUS.TRIAGED) {
-      return;
-    }
-
     updateIssueMutation.mutate({
       id: bugIssue._id,
       payload: {
-        status: ISSUE_STATUS.TRIAGED,
+        status: ISSUE_STATUS.AVAILABLE_QUEUE,
+        addToBucket: true,
+        assignedDeveloperId: "",
+        assigneeId: "",
       },
     });
   };
@@ -1129,6 +1162,13 @@ const AdminBugsPage = () => {
       return null;
     }
 
+    const bugProjectId = resolveIssueProjectId(bugIssue);
+    const bugTeamId = resolveIssueTeamId(bugIssue);
+    const bugProject = findProjectById(projects, bugProjectId);
+    const teamDevelopers = getProjectTeamMembers(bugProject, bugTeamId).filter(
+      (member) => member.role === "Developer"
+    );
+
     return createPortal(
       <div
         data-triage-action-menu
@@ -1151,11 +1191,20 @@ const AdminBugsPage = () => {
               }}
             >
               <option value="">Select developer</option>
-              {developers.map((developerOption) => (
-                <option key={resolveUserId(developerOption)} value={resolveUserId(developerOption)}>
-                  {getUserLabel(developerOption)}
+              {teamDevelopers.length > 0 ? (
+                teamDevelopers.map((developerOption) => (
+                  <option
+                    key={resolveUserId(developerOption)}
+                    value={resolveUserId(developerOption)}
+                  >
+                    {getUserLabel(developerOption)}
+                  </option>
+                ))
+              ) : (
+                <option value="" disabled>
+                  No developers available in this team
                 </option>
-              ))}
+              )}
             </ActionSelect>
           </div>
 
@@ -1383,7 +1432,7 @@ const AdminBugsPage = () => {
                 <div className="hidden md:block">
                   <div className="max-h-[430px] overflow-auto pr-1">
                     <div className="min-w-[900px] space-y-1.5 lg:min-w-0">
-                      <div className="grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]">
+                      <div className="grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(130px,0.65fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]">
                         <div className="flex justify-center">
                           <input
                             aria-label="Select all triage bugs"
@@ -1397,6 +1446,7 @@ const AdminBugsPage = () => {
                         </div>
                         <span>Bug Info</span>
                         <span>Module / Project</span>
+                        <span>Tester</span>
                         <span>Developer</span>
                         <span>Status / Priority</span>
                         <span>Date</span>
@@ -1405,6 +1455,8 @@ const AdminBugsPage = () => {
 
                       {triageBugs.slice(0, 60).map((bugIssue) => {
                         const details = resolveBugDetails(bugIssue);
+                        const reporter = getReporter(bugIssue);
+                        const reporterName = getUserLabel(reporter, "Unknown tester");
                         const developer = getBugDeveloper(bugIssue);
                         const developerName = getUserLabel(developer);
                         const status = normalizeBugStatusForIssue(bugIssue);
@@ -1416,7 +1468,7 @@ const AdminBugsPage = () => {
                           <article
                             key={bugIssue._id}
                             className={cn(
-                              "group relative grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 rounded-lg border border-l-4 border-slate-200 bg-white px-2 py-2 shadow-sm transition duration-150 hover:-translate-y-px hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-md lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]",
+                              "group relative grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 rounded-lg border border-l-4 border-slate-200 bg-white px-2 py-2 shadow-sm transition duration-150 hover:-translate-y-px hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-md lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(130px,0.65fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]",
                               severityAccentClassName(severity)
                             )}
                           >
@@ -1431,7 +1483,12 @@ const AdminBugsPage = () => {
                             </div>
 
                             <button className="min-w-0 text-left" type="button" onClick={() => setSelectedBug(bugIssue)}>
-                              <span className="block font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">{getIssueDisplayKey(bugIssue)}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">{getIssueDisplayKey(bugIssue)}</span>
+                                {status === ISSUE_STATUS.NEW || status === ISSUE_STATUS.NEEDS_TRIAGE ? (
+                                  <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-blue-700">Source: Tester Review Required</span>
+                                ) : null}
+                              </div>
                               <span className="mt-0.5 block truncate text-[13px] font-bold leading-5 text-slate-950">{bugIssue.title}</span>
                               <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-500">
                                 {getProjectName(bugIssue, projects)} &bull; {details.moduleName || "Unmapped module"}
@@ -1444,6 +1501,13 @@ const AdminBugsPage = () => {
                                 <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-600">{moduleTag}</span>
                               </div>
                               <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">{getIssueCategory(bugIssue)}</p>
+                            </div>
+
+                            <div className="min-w-0">
+                              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-[10px] text-white">{getInitials(reporterName)}</span>
+                                <span className="truncate">{reporterName}</span>
+                              </span>
                             </div>
 
                             <div className="min-w-0">
@@ -1535,7 +1599,8 @@ const AdminBugsPage = () => {
 
                         <div className="mt-2 grid gap-1.5 text-[11px] font-medium text-slate-600">
                           <span className="truncate">{details.moduleName || "Unmapped"} / {getIssueCategory(bugIssue)}</span>
-                          <span className="truncate">{developerName}</span>
+                          <span className="truncate">Tester: {getUserLabel(getReporter(bugIssue), "Unknown tester")}</span>
+                          <span className="truncate">Dev: {developerName}</span>
                           <span className="truncate">{formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}</span>
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -1874,6 +1939,8 @@ const AdminBugsPage = () => {
         canEditAssignee
         canDeleteIssue={false}
       />
+
+      <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 };

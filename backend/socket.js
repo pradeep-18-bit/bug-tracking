@@ -92,22 +92,28 @@ const authenticateSocket = async (socket, next) => {
       socket.handshake.headers?.authorization?.split(" ")[1]?.trim();
 
     if (!token) {
+      console.warn(`[Socket Auth] Missing token for socket: ${socket.id}`);
       throw new Error("Authentication token is required");
     }
 
     if (!process.env.JWT_SECRET) {
+      console.error("[Socket Auth] JWT secret is not configured");
       throw new Error("JWT secret is not configured");
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     if (!decoded?.id) {
+      console.warn(`[Socket Auth] Invalid token for socket: ${socket.id}`);
       throw new Error("Invalid token");
     }
 
     const user = await User.findById(decoded.id).select("-password").lean();
 
     if (!user || !CHAT_ACCESS_ROLES.includes(user.role)) {
+      console.warn(
+        `[Socket Auth] Unauthorized role or user not found for socket: ${socket.id}`
+      );
       throw new Error("Unauthorized");
     }
 
@@ -119,13 +125,18 @@ const authenticateSocket = async (socket, next) => {
       workspaceId: normalizeWorkspaceId(user.workspaceId || decoded.workspaceId),
     };
 
+    console.log(
+      `[Socket Auth] Authenticated user ${user.name} (${user.email}) for socket: ${socket.id}`
+    );
     next();
   } catch (error) {
+    console.error(`[Socket Auth] Error for socket ${socket.id}: ${error.message}`);
     next(new Error(error?.message || "Socket authentication failed"));
   }
 };
 
 const setupChatSocket = (server) => {
+  console.log("[Socket] Initializing Socket.IO server...");
   const io = new Server(server, {
     cors: {
       origin: getAllowedOrigins(),
@@ -135,9 +146,13 @@ const setupChatSocket = (server) => {
   });
   socketServer = io;
 
-  io.use(authenticateSocket);
+  io.use((socket, next) => {
+    console.log(`[Socket] Connection attempt: ${socket.id}`);
+    authenticateSocket(socket, next);
+  });
 
   io.on("connection", async (socket) => {
+    console.log(`[Socket] Client connected: ${socket.id} (User: ${socket.user?.name})`);
     addOnlineUser(socket.user, socket.id);
     socket.join(workspaceRoomName(socket.user.workspaceId));
     emitOnlineUsers(io, socket.user.workspaceId);
@@ -288,7 +303,8 @@ const setupChatSocket = (server) => {
       }
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", (reason) => {
+      console.log(`[Socket] Client disconnected: ${socket.id} (Reason: ${reason})`);
       removeOnlineUser(socket.id);
       emitOnlineUsers(io, socket.user.workspaceId);
     });
@@ -304,6 +320,24 @@ const emitWorkspaceEvent = (workspaceId, eventName, payload = {}) => {
 
   socketServer.to(workspaceRoomName(workspaceId)).emit(eventName, payload);
   return true;
+};
+
+const emitToUser = (userId, eventName, payload = {}) => {
+  if (!socketServer || !userId || !eventName) {
+    return false;
+  }
+
+  const userIdStr = String(userId);
+  let emitted = false;
+
+  socketServer.sockets.sockets.forEach((socket) => {
+    if (String(socket.user?._id || socket.user?.id) === userIdStr) {
+      socket.emit(eventName, payload);
+      emitted = true;
+    }
+  });
+
+  return emitted;
 };
 
 const emitBugWorkflowEvent = ({
@@ -334,6 +368,7 @@ const emitBugWorkflowEvent = ({
 module.exports = {
   emitBugWorkflowEvent,
   emitWorkspaceEvent,
+  emitToUser,
   getOnlineUsers,
   setupChatSocket,
 };

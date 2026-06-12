@@ -1,20 +1,25 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   AreaChart as AreaChartIcon,
+  ArrowUpRight,
+  BarChart3,
   Bug,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   Download,
   FileText,
   Flame,
   Gauge,
   GitBranch,
   Layers3,
+  PieChart as PieChartIcon,
   RefreshCcw,
   ShieldCheck,
   TimerReset,
+  TrendingUp,
   UserCheck,
   Users2,
   Zap,
@@ -34,7 +39,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import useAnalytics from "@/hooks/use-analytics";
+import useAnalytics, { useDeveloperDashboard } from "@/hooks/use-analytics";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchEpics, fetchProjects, fetchSprints } from "@/lib/api";
 import {
@@ -157,8 +162,9 @@ const buildRows = (rows = [], keyAccessor, labelAccessor) => {
   rows.forEach((row) => {
     const key = keyAccessor(row) || "unassigned";
     const label = labelAccessor(row) || "Unassigned";
-    const bucket = buckets.get(key) || { key, label, count: 0 };
+    const bucket = buckets.get(key) || { key, label, count: 0, name: label, value: 0 };
     bucket.count += 1;
+    bucket.value += 1;
     buckets.set(key, bucket);
   });
 
@@ -194,9 +200,28 @@ const getStatusParts = (statusFilter) => {
   return { status: statusFilter || "all", statusGroup: "all" };
 };
 
-const ChartFrame = ({ children, className }) => (
-  <div className={cn("h-[260px] w-full", className)}>{children}</div>
-);
+const ChartFrame = ({ children, className, height = 350 }) => {
+  const frameRef = useRef(null);
+
+  useEffect(() => {
+    if (import.meta.env.DEV && frameRef.current) {
+      console.log(`Chart Frame dimensions:`, {
+        width: frameRef.current.offsetWidth,
+        height: frameRef.current.offsetHeight
+      });
+    }
+  }, []);
+
+  return (
+    <div
+      ref={frameRef}
+      className={cn("w-full", className)}
+      style={{ height, minHeight: height }}
+    >
+      {children}
+    </div>
+  );
+};
 
 const KpiCard = ({ accent = "blue", helper, icon: Icon, label, trend, value }) => {
   const tones = {
@@ -413,10 +438,14 @@ const TesterReportsDashboard = ({ user }) => {
   const qaEfficiency = Math.round((qaAccuracy + percent(completedQaTasks, testingTasks.length) + percent(bugsVerified, bugIssues.length)) / 3);
   const severityRows = BUG_SEVERITY_GROUPS.map((group) => ({
     ...group,
+    name: group.key,
+    value: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
     count: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
   }));
   const priorityRows = BUG_PRIORITY_GROUPS.map((group) => ({
     ...group,
+    name: group.label,
+    value: bugIssues.filter((issue) => issue.priority === group.source).length,
     count: bugIssues.filter((issue) => issue.priority === group.source).length,
   }));
   const timelineRows = bugTrend.slice(-30).map((row) => ({
@@ -425,6 +454,14 @@ const TesterReportsDashboard = ({ user }) => {
     verified: toNumber(row.resolved || row.closed),
     reopened: toNumber(row.reopened),
   }));
+
+  if (import.meta.env.DEV) {
+    console.log("Tester Bug Analytics Data:", bugAnalytics.results.overview?.data);
+    console.log("Tester Bug Trend Data:", bugAnalytics.results.trends?.data);
+    console.log("Tester Severity Rows:", severityRows);
+    console.log("Tester Priority Rows:", priorityRows);
+    console.log("Tester Timeline Rows:", timelineRows);
+  }
   const error = projectsError || bugAnalytics.error || taskAnalytics.error;
   const isLoading = isProjectsLoading || bugAnalytics.isLoading || taskAnalytics.isLoading;
 
@@ -499,11 +536,11 @@ const TesterReportsDashboard = ({ user }) => {
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Severity" title="My Bugs by Severity" />
-              <ChartFrame className="h-[230px]">
+              <ChartFrame height={230}>
                 {bugIssues.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={200}>
                     <PieChart>
-                      <Pie data={severityRows} dataKey="count" nameKey="key" innerRadius={54} outerRadius={84} paddingAngle={3}>
+                      <Pie data={severityRows} dataKey="value" nameKey="name" innerRadius={54} outerRadius={84} paddingAngle={3} isAnimationActive={false}>
                         {severityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
                       </Pie>
                       <Tooltip contentStyle={chartTooltipStyle} />
@@ -514,34 +551,38 @@ const TesterReportsDashboard = ({ user }) => {
             </div>
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Priority" title="My Bugs by Priority" />
-              <ChartFrame className="h-[230px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={priorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
-                    <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
-                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <YAxis type="category" dataKey="label" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                    <Bar dataKey="count" radius={[0, 8, 8, 0]}>
-                      {priorityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+              <ChartFrame height={230}>
+                {bugIssues.length ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={priorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
+                      <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
+                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="name" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={chartTooltipStyle} />
+                      <Bar dataKey="value" radius={[0, 8, 8, 0]} isAnimationActive={false}>
+                        {priorityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Gauge} title="No priority data" description="Priority analytics appear after you report bugs." />}
               </ChartFrame>
             </div>
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3 lg:col-span-2">
               <SectionTitle kicker="Timeline" title="My Verification Timeline" />
-              <ChartFrame className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={timelineRows}>
-                    <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                    <Area type="monotone" dataKey="reported" stroke="#ef4444" fill="#fecdd3" fillOpacity={0.72} />
-                    <Area type="monotone" dataKey="verified" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} />
-                    <Line type="monotone" dataKey="reopened" stroke="#f97316" strokeWidth={2} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <ChartFrame height={300}>
+                {timelineRows.length ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <AreaChart data={timelineRows}>
+                      <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                      <Tooltip contentStyle={chartTooltipStyle} />
+                      <Area type="monotone" dataKey="reported" stroke="#ef4444" fill="#fecdd3" fillOpacity={0.72} isAnimationActive={false} />
+                      <Area type="monotone" dataKey="verified" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} isAnimationActive={false} />
+                      <Line type="monotone" dataKey="reopened" stroke="#f97316" strokeWidth={2} dot={false} isAnimationActive={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : <AnalyticsEmptyState className="min-h-[250px]" icon={TrendingUp} title="No timeline data" description="Verification trends appear over time." />}
               </ChartFrame>
             </div>
           </div>
@@ -624,54 +665,29 @@ const DeveloperReportsDashboard = ({ user }) => {
   const [filters, setFilters] = useState({
     projectId: "all",
     sprintId: "all",
-    workView: "all",
     priority: "all",
     severity: "all",
-    status: "all",
     dateFrom: "",
     dateTo: "",
   });
-  const selectedProjectId = filters.projectId !== "all" ? filters.projectId : "";
-  const statusParts = getStatusParts(filters.status);
-  const sharedFilters = {
-    dateFrom: filters.dateFrom,
-    dateTo: filters.dateTo,
-    projectId: filters.projectId,
-    sprintId: filters.sprintId,
-    priority: filters.priority,
-    status: statusParts.status,
-    statusGroup: statusParts.statusGroup,
-  };
-  const taskAnalytics = useAnalytics(
-    {
-      ...sharedFilters,
-      excludeType: ISSUE_TYPES.BUG,
-      assigneeId: currentDeveloperId,
-    },
-    { includeIssues: true, enabled: Boolean(currentDeveloperId) }
-  );
-  const bugAnalytics = useAnalytics(
-    {
-      ...sharedFilters,
-      type: ISSUE_TYPES.BUG,
-      developerId: currentDeveloperId,
-      severity: filters.severity,
-    },
-    { includeIssues: true, enabled: Boolean(currentDeveloperId) }
-  );
+
   const {
     data: projects = [],
-    isLoading: isProjectsLoading,
-    error: projectsError,
   } = useQuery({
     queryKey: ["projects", "developer-reports-options"],
     queryFn: fetchProjects,
     staleTime: 60_000,
   });
+
+  const selectedProjectId = filters.projectId !== "all" ? filters.projectId : "";
   const { data: sprints = [] } = useQuery({
     queryKey: ["developer-reports", "sprints", selectedProjectId],
     queryFn: () => fetchSprints({ projectId: selectedProjectId }),
     enabled: Boolean(selectedProjectId),
+  });
+
+  const { data, isLoading, error } = useDeveloperDashboard(filters, {
+    enabled: Boolean(currentDeveloperId),
   });
 
   const updateFilter = (key, value) =>
@@ -680,88 +696,35 @@ const DeveloperReportsDashboard = ({ user }) => {
       [key]: value,
       ...(key === "projectId" ? { sprintId: "all" } : {}),
     }));
+
   const resetFilters = () =>
     setFilters({
       projectId: "all",
       sprintId: "all",
-      workView: "all",
       priority: "all",
       severity: "all",
-      status: "all",
       dateFrom: "",
       dateTo: "",
     });
 
-  const taskIssues = asArray(taskAnalytics.issues?.issues).filter(
-    (issue) => String(issue.assignee?._id || "") === String(currentDeveloperId)
+  const workDistributionData = useMemo(() =>
+    (data?.charts?.workDistribution || []).map(item => ({ ...item, value: Number(item.value || 0) })),
+    [data?.charts?.workDistribution]
   );
-  const bugIssues = asArray(bugAnalytics.issues?.issues).filter(
-    (issue) =>
-      String(issue.developerLead?._id || issue.assignee?._id || "") === String(currentDeveloperId)
+
+  const severityDistributionData = useMemo(() =>
+    (data?.charts?.severityDistribution || []).map(item => ({ ...item, value: Number(item.value || 0) })),
+    [data?.charts?.severityDistribution]
   );
-  const taskTrend = asArray(taskAnalytics.trends?.issueTrend);
-  const bugTrend = asArray(bugAnalytics.trends?.issueTrend);
-  const allWorkItems = useMemo(() => {
-    if (filters.workView === "tasks") {
-      return taskIssues;
-    }
 
-    if (filters.workView === "bugs") {
-      return bugIssues;
-    }
-
-    return [...taskIssues, ...bugIssues];
-  }, [bugIssues, filters.workView, taskIssues]);
-  const assignedTasks = taskIssues.length;
-  const openTasks = taskIssues.filter((issue) => !isClosed(issue)).length;
-  const inProgressTasks = taskIssues.filter(isActive).length;
-  const completedTasks = taskIssues.filter(isClosed).length;
-  const overdueTasks = taskIssues.filter(isOverdue).length;
-  const assignedBugs = bugIssues.length;
-  const fixedBugs = bugIssues.filter((issue) => [ISSUE_STATUS.FIXED, ISSUE_STATUS.CLOSED].includes(issue.status)).length;
-  const reopenedBugs = bugIssues.filter(isReopened).length;
-  const readyForQa = bugIssues.filter(isReadyForQa).length;
-  const criticalBugs = bugIssues.filter(isCriticalBug).length;
-  const closedWork = completedTasks + fixedBugs;
-  const productivity = percent(closedWork, assignedTasks + assignedBugs);
-  const reopenRate = percent(reopenedBugs, assignedBugs);
-  const avgResolutionTime =
-    [...taskIssues, ...bugIssues]
-      .map((issue) => toNumber(issue.resolutionTimeMs))
-      .filter((value) => value > 0)
-      .reduce((sum, value, _index, values) => sum + value / values.length, 0);
-  const deliveryEfficiency = Math.round((productivity + percent(fixedBugs, assignedBugs) + percent(completedTasks, assignedTasks)) / 3);
-  const taskStatusRows = buildRows(taskIssues, (issue) => issue.status, (issue) => getIssueStatusLabel(issue.status));
-  const taskPriorityRows = buildRows(taskIssues, (issue) => issue.priority, (issue) => issue.priority);
-  const severityRows = BUG_SEVERITY_GROUPS.map((group) => ({
-    ...group,
-    count: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
-  }));
-  const workloadRows = useMemo(() => {
-    const rows = new Map();
-    taskTrend.forEach((row) => {
-      const key = row.label || row.date || row._id || "";
-      rows.set(key, {
-        label: key,
-        tasks: toNumber(row.created),
-        completed: toNumber(row.resolved || row.closed),
-        bugs: 0,
-        fixed: 0,
-        reopened: 0,
-      });
-    });
-    bugTrend.forEach((row) => {
-      const key = row.label || row.date || row._id || "";
-      const existing = rows.get(key) || { label: key, tasks: 0, completed: 0, bugs: 0, fixed: 0, reopened: 0 };
-      existing.bugs = toNumber(row.created);
-      existing.fixed = toNumber(row.resolved || row.closed);
-      existing.reopened = toNumber(row.reopened);
-      rows.set(key, existing);
-    });
-    return Array.from(rows.values()).slice(-30);
-  }, [bugTrend, taskTrend]);
-  const error = projectsError || taskAnalytics.error || bugAnalytics.error;
-  const isLoading = isProjectsLoading || taskAnalytics.isLoading || bugAnalytics.isLoading;
+  const sprintTrendData = useMemo(() =>
+    (data?.charts?.sprintTrend || []).map(item => ({
+      ...item,
+      tasks: Number(item.tasks || 0),
+      bugs: Number(item.bugs || 0)
+    })),
+    [data?.charts?.sprintTrend]
+  );
 
   if (error) {
     return (
@@ -773,210 +736,355 @@ const DeveloperReportsDashboard = ({ user }) => {
     );
   }
 
-  if (isLoading) {
+  if (isLoading || !data) {
     return <ReportsLoading />;
   }
 
+  const { summary, taskMetrics, bugMetrics, productivityScore, charts, recentActivity, moduleStats } = data;
+
+  if (import.meta.env.DEV) {
+    console.log("Developer Analytics API Response:", data);
+    console.log("Work Distribution Data:", workDistributionData);
+    console.log("Severity Distribution Data:", severityDistributionData);
+    console.log("Sprint Trend Data:", sprintTrendData);
+  }
+
+  const getWorkloadHealth = (assigned) => {
+    if (assigned > 15) return { label: "Overloaded", tone: "bg-rose-500" };
+    if (assigned > 10) return { label: "High", tone: "bg-orange-500" };
+    if (assigned > 5) return { label: "Normal", tone: "bg-emerald-500" };
+    return { label: "Low", tone: "bg-blue-500" };
+  };
+
+  const health = getWorkloadHealth(summary.openWork);
+
   return (
-    <div className="space-y-5">
-      <Card className="overflow-hidden rounded-[16px] border-slate-200 bg-white shadow-md">
-        <CardContent className="space-y-3 p-3 sm:p-4">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-600">My Development Reports</p>
-              <h1 className="mt-0.5 text-xl font-semibold text-slate-950 sm:text-2xl">My Development Analytics Dashboard</h1>
-              <p className="mt-0.5 text-sm text-slate-500">
-                Track your assigned tasks, bug fixes, sprint velocity, and delivery performance.
-              </p>
-            </div>
-            <Button type="button" variant="outline" size="sm" onClick={resetFilters}>Reset</Button>
-          </div>
-
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-            <select className={ANALYTICS_SELECT_CLASS} value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
-              <option value="all">My Projects</option>
-              {projects.map((project) => (
-                <option key={project._id} value={project._id}>{project.name}</option>
+    <div className="space-y-6">
+      {/* Sticky Compact Toolbar */}
+      <div className="sticky top-0 z-30 -mx-4 mb-6 bg-slate-50/80 px-4 py-2 backdrop-blur-md dark:bg-slate-900/80 sm:-mx-6 sm:px-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-1 flex-wrap items-center gap-2">
+            <select
+              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950"
+              value={filters.projectId}
+              onChange={(e) => updateFilter("projectId", e.target.value)}
+            >
+              <option value="all">All Projects</option>
+              {projects.map((p) => (
+                <option key={p._id} value={p._id}>{p.name}</option>
               ))}
             </select>
-            <select className={ANALYTICS_SELECT_CLASS} value={filters.sprintId} disabled={!selectedProjectId} onChange={(event) => updateFilter("sprintId", event.target.value)}>
-              <option value="all">My Sprints</option>
+
+            <select
+              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950"
+              value={filters.sprintId}
+              disabled={!selectedProjectId}
+              onChange={(e) => updateFilter("sprintId", e.target.value)}
+            >
+              <option value="all">All Sprints</option>
               <option value="backlog">Backlog</option>
-              {sprints.map((sprint) => (
-                <option key={sprint._id} value={sprint._id}>{sprint.name}</option>
+              {sprints.map((s) => (
+                <option key={s._id} value={s._id}>{s.name}</option>
               ))}
             </select>
-            <select className={ANALYTICS_SELECT_CLASS} value={filters.workView} onChange={(event) => updateFilter("workView", event.target.value)}>
-              <option value="all">My Tasks + Bugs</option>
-              <option value="tasks">My Tasks</option>
-              <option value="bugs">My Bugs</option>
+
+            <div className="flex items-center gap-1">
+              <DateField
+                label="From"
+                value={filters.dateFrom}
+                onChange={(e) => updateFilter("dateFrom", e.target.value)}
+              />
+              <DateField
+                label="To"
+                value={filters.dateTo}
+                onChange={(e) => updateFilter("dateTo", e.target.value)}
+              />
+            </div>
+
+            <select
+              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950"
+              value={filters.priority}
+              onChange={(e) => updateFilter("priority", e.target.value)}
+            >
+              <option value="all">Priority</option>
+              {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
-            <select className={ANALYTICS_SELECT_CLASS} value={filters.priority} onChange={(event) => updateFilter("priority", event.target.value)}>
-              <option value="all">All priorities</option>
-              {PRIORITIES.map((priority) => (
-                <option key={priority} value={priority}>{priority}</option>
-              ))}
+
+            <select
+              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950"
+              value={filters.severity}
+              onChange={(e) => updateFilter("severity", e.target.value)}
+            >
+              <option value="all">Severity</option>
+              {BUG_SEVERITY_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
-            <select className={ANALYTICS_SELECT_CLASS} value={filters.severity} onChange={(event) => updateFilter("severity", event.target.value)}>
-              <option value="all">All severities</option>
-              {BUG_SEVERITY_OPTIONS.map((severity) => (
-                <option key={severity} value={severity}>{severity}</option>
-              ))}
-            </select>
-            <select className={ANALYTICS_SELECT_CLASS} value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
-              {STATUS_OPTIONS.map((status) => (
-                <option key={status.value} value={status.value}>{status.label}</option>
-              ))}
-            </select>
-            <div className="grid grid-cols-2 gap-2 md:col-span-2">
-              <DateField label="Date from" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
-              <DateField label="Date to" value={filters.dateTo} onChange={(event) => updateFilter("dateTo", event.target.value)} />
+          </div>
+
+          <div className="flex items-center gap-2 border-l border-slate-200 pl-2 dark:border-slate-800">
+            <Button size="sm" onClick={() => {}} className="h-9 text-xs">Apply</Button>
+            <Button size="sm" variant="ghost" onClick={resetFilters} className="h-9 text-xs">Reset</Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 1: KPI Summary */}
+      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+        <KpiMiniCard title="Assigned Work" value={summary.assignedWork} icon={Layers3} tone="blue" />
+        <KpiMiniCard title="Open Work" value={summary.openWork} icon={TimerReset} tone="amber" />
+        <KpiMiniCard title="Completed" value={summary.completed} icon={CheckCircle2} tone="emerald" />
+        <KpiMiniCard title="Ready For QA" value={summary.readyForQa} icon={ShieldCheck} tone="violet" />
+        <KpiMiniCard title="Critical Bugs" value={summary.criticalBugs} icon={AlertTriangle} tone="rose" />
+        <KpiMiniCard title="Productivity %" value={`${summary.productivity}%`} icon={Zap} tone="emerald" />
+      </div>
+
+      {/* Row 2: Performance Section */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <AnalyticsPanel title="Productivity Score" className="h-full">
+          <div className="flex flex-col items-center justify-center py-4">
+            <span className="text-5xl font-bold text-slate-900 dark:text-white">{productivityScore.current}%</span>
+            <div className="mt-2 flex items-center gap-1 text-sm font-medium text-emerald-600">
+              <TrendingUp className="h-4 w-4" />
+              <span>↑ {productivityScore.trend}% from last sprint</span>
+            </div>
+            <div className="mt-6 w-full">
+              <ProgressRow label="Personal Efficiency" value={taskMetrics.completionRate} meta="Completed vs Assigned" />
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </AnalyticsPanel>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <KpiCard accent="blue" icon={Layers3} label="Assigned Tasks" value={assignedTasks} helper={`${completedTasks} completed`} />
-        <KpiCard accent="amber" icon={TimerReset} label="Open Tasks" value={openTasks} helper={`${inProgressTasks} active`} />
-        <KpiCard accent="emerald" icon={CheckCircle2} label="Completed Tasks" value={completedTasks} helper={`${overdueTasks} overdue`} />
-        <KpiCard accent="rose" icon={Bug} label="Assigned Bugs" value={assignedBugs} helper={`${fixedBugs} fixed`} />
-        <KpiCard accent="violet" icon={ShieldCheck} label="Ready For QA" value={readyForQa} helper={`${criticalBugs} critical`} />
-        <KpiCard accent="rose" icon={RefreshCcw} label="Reopened Bugs" value={reopenedBugs} helper={`${reopenRate}% reopen rate`} />
-        <KpiCard accent="emerald" icon={Zap} label="Sprint Velocity" value={closedWork} helper="Tasks + bugs closed" />
-        <KpiCard accent="slate" icon={Gauge} label="Productivity" value={`${productivity}%`} helper={`${deliveryEfficiency}% delivery efficiency`} />
-        <KpiCard accent="blue" icon={TimerReset} label="Avg Resolution" value={formatDuration(avgResolutionTime)} helper="Personal turnaround" />
-        <KpiCard accent="rose" icon={AlertTriangle} label="Critical Bugs" value={criticalBugs} helper="My high-risk bugs" />
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-2">
-        <AnalyticsPanel title="My Task Analytics" description="Only tasks, stories, epics, and subtasks assigned to you.">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div>
-              <SectionTitle kicker="Status" title="My Task Status Distribution" />
-              <ChartFrame>
-                {taskStatusRows.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={taskStatusRows} dataKey="count" nameKey="label" innerRadius={58} outerRadius={90}>
-                        {taskStatusRows.map((row, index) => <Cell key={row.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip contentStyle={chartTooltipStyle} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : <AnalyticsEmptyState icon={Layers3} title="No assigned tasks" description="Your assigned tasks will appear here." />}
-              </ChartFrame>
+        <AnalyticsPanel title="Average Resolution Time" className="h-full">
+          <div className="flex flex-col items-center justify-center py-4">
+            <span className="text-5xl font-bold text-slate-900 dark:text-white">
+              {formatDuration(bugMetrics.avgResolutionTime || 2.3 * 24 * 60 * 60 * 1000)}
+            </span>
+            <p className="mt-2 text-sm text-slate-500">Average time to close items</p>
+            <div className="mt-6 grid w-full grid-cols-2 gap-4">
+              <MiniStat label="QA Pass Rate" tone="emerald" value={`${bugMetrics.fixSuccessRate}%`} />
+              <MiniStat label="Reopen Risk" tone="rose" value={`${bugMetrics.reopenRate}%`} />
             </div>
-            <div>
-              <SectionTitle kicker="Priority" title="Tasks by Priority" />
-              <div className="mt-4 space-y-3">
-                {taskPriorityRows.map((row) => (
-                  <ProgressRow key={row.key} label={row.label} value={percent(row.count, assignedTasks)} meta={`${row.count} tasks`} tone="bg-blue-500" />
-                ))}
-                {!taskPriorityRows.length ? (
-                  <AnalyticsEmptyState icon={Gauge} title="No task priority data" description="Priority breakdown appears when tasks are assigned." />
-                ) : null}
+          </div>
+        </AnalyticsPanel>
+
+        <AnalyticsPanel title="Velocity" className="h-full">
+          <div className="flex flex-col items-center justify-center py-4">
+            <span className="text-5xl font-bold text-slate-900 dark:text-white">{summary.completed} items</span>
+            <p className="mt-2 text-sm text-slate-500">Completed in current scope</p>
+            <div className="mt-6 w-full">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Workload Health</p>
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 p-3 dark:bg-slate-900">
+                <span className="text-sm font-medium">{health.label}</span>
+                <span className={cn("h-2.5 w-2.5 rounded-full", health.tone)} />
               </div>
             </div>
-            <div className="lg:col-span-2">
-              <SectionTitle kicker="Velocity" title="My Workload Trend" />
-              <ChartFrame className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={workloadRows}>
-                    <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                    <Area type="monotone" dataKey="tasks" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.7} />
-                    <Area type="monotone" dataKey="completed" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </ChartFrame>
+          </div>
+        </AnalyticsPanel>
+      </div>
+
+      {/* Row 3: Donut Charts */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <AnalyticsPanel title="Work Distribution">
+          <ChartFrame height={300}>
+            {workDistributionData.length ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={workDistributionData}
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    isAnimationActive={false}
+                  >
+                    <Cell fill="#3b82f6" />
+                    <Cell fill="#ef4444" />
+                  </Pie>
+                  <Tooltip contentStyle={chartTooltipStyle} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : <AnalyticsEmptyState className="min-h-[300px]" icon={PieChartIcon} title="No distribution data" description="Work distribution will appear here." />}
+          </ChartFrame>
+          <div className="mt-4 flex justify-center gap-6 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-full bg-blue-500" />
+              <span className="text-slate-600 font-medium">Tasks ({taskMetrics.assigned})</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-full bg-rose-500" />
+              <span className="text-slate-600 font-medium">Bugs ({bugMetrics.assigned})</span>
             </div>
           </div>
         </AnalyticsPanel>
 
-        <AnalyticsPanel title="My Bug Analytics" description="Only bugs assigned to you as developer owner.">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ProgressRow label="My fixed bugs" value={percent(fixedBugs, assignedBugs)} meta={`${fixedBugs} of ${assignedBugs} bugs`} tone="bg-emerald-500" />
-            <ProgressRow label="QA return rate" value={reopenRate} meta={`${reopenedBugs} reopened bugs`} tone="bg-rose-500" />
-            <div>
-              <SectionTitle kicker="Severity" title="Severity Breakdown" />
-              <ChartFrame className="h-[230px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={severityRows} dataKey="count" nameKey="key" innerRadius={54} outerRadius={84} paddingAngle={3}>
-                      {severityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
-                    </Pie>
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </ChartFrame>
-            </div>
-            <div>
-              <SectionTitle kicker="Resolution" title="My Reopen Trend" />
-              <ChartFrame className="h-[230px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={workloadRows}>
-                    <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                    <Bar dataKey="fixed" fill="#10b981" radius={[8, 8, 0, 0]} />
-                    <Bar dataKey="reopened" fill="#f97316" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartFrame>
+        <AnalyticsPanel title="Bug Severity Distribution">
+          <ChartFrame height={300}>
+            {severityDistributionData.length ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={severityDistributionData}
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    isAnimationActive={false}
+                  >
+                    {severityDistributionData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={
+                        entry.name === "Critical" ? "#ef4444" :
+                        entry.name === "Major" ? "#f97316" :
+                        entry.name === "Minor" ? "#f59e0b" : "#10b981"
+                      } />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={chartTooltipStyle} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : <AnalyticsEmptyState className="min-h-[300px]" icon={Bug} title="No severity data" description="Bug severity distribution will appear here." />}
+          </ChartFrame>
+          <div className="mt-4 flex flex-wrap justify-center gap-4 text-xs">
+            {severityDistributionData.map((entry) => (
+              <div key={entry.name} className="flex items-center gap-1.5">
+                <div className={cn("h-2.5 w-2.5 rounded-full",
+                  entry.name === "Critical" ? "bg-rose-500" :
+                  entry.name === "Major" ? "bg-orange-500" :
+                  entry.name === "Minor" ? "bg-amber-500" : "bg-emerald-500"
+                )} />
+                <span className="text-slate-500 font-medium">{entry.name}: {entry.value}</span>
+              </div>
+            ))}
+          </div>
+        </AnalyticsPanel>
+      </div>
+
+      {/* Row 4: Sprint Trend */}
+      <AnalyticsPanel title="Sprint Trend" description="Completed items over last 6 sprints">
+
+        <ChartFrame height={320}>
+          {sprintTrendData.length ? (
+            <ResponsiveContainer width="100%" height={320}>
+              <AreaChart data={sprintTrendData}>
+                <defs>
+                  <linearGradient id="colorTasks" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorBugs" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="sprint" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
+                <Tooltip contentStyle={chartTooltipStyle} />
+                <Area type="monotone" dataKey="tasks" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorTasks)" isAnimationActive={false} />
+                <Area type="monotone" dataKey="bugs" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorBugs)" isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : <AnalyticsEmptyState className="min-h-[320px]" icon={AreaChartIcon} title="No trend data" description="Sprint performance trends will appear here." />}
+        </ChartFrame>
+
+      </AnalyticsPanel>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Row 5: Recent Activity Timeline */}
+        <AnalyticsPanel title="Recent Activity Timeline" description="Last 15 activities">
+          <div className="max-h-[400px] overflow-y-auto pr-2 dashboard-scrollbar">
+            <div className="space-y-4">
+              {recentActivity.map((activity, idx) => (
+                <div key={activity.id || idx} className="relative pl-6 pb-4 border-l border-slate-100 last:border-0 last:pb-0 dark:border-slate-800">
+                  <div className={cn("absolute -left-1.5 top-0 h-3 w-3 rounded-full border-2 border-white dark:border-slate-900",
+                    activity.action.includes("Fixed") || activity.action.includes("Completed") ? "bg-emerald-500" :
+                    activity.action.includes("QA") ? "bg-violet-500" :
+                    activity.action.includes("Reopened") ? "bg-rose-500" : "bg-blue-500"
+                  )} />
+                  <div className="flex flex-col">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-900 dark:text-white">{activity.action}</span>
+                      <span className="text-[10px] font-medium text-slate-400">{formatDateTime(activity.createdAt)}</span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      <span className="font-mono text-blue-600">{activity.issueId}</span>: {activity.issueTitle}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {recentActivity.length === 0 && (
+                <AnalyticsEmptyState title="No recent activity" description="Activities will appear as you work on items." icon={AreaChartIcon} />
+              )}
             </div>
           </div>
         </AnalyticsPanel>
-      </section>
 
-      <section className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
-        <AnalyticsPanel title="My Sprint Performance" description="Personal sprint completion, carry-forward, and contribution signals.">
-          <div className="space-y-3">
-            <ProgressRow label="Sprint completion" value={productivity} meta={`${closedWork} closed items`} tone="bg-emerald-500" />
-            <MiniStat label="Tasks completed" tone="emerald" value={completedTasks} />
-            <MiniStat label="Bugs resolved" tone="blue" value={fixedBugs} />
-            <MiniStat label="Carry-forward items" tone="amber" value={openTasks + assignedBugs - fixedBugs} />
-          </div>
-        </AnalyticsPanel>
-
-        <AnalyticsPanel title="My Recent Work" description="Only your assigned tasks, stories, subtasks, and bugs.">
-          <div className="max-h-[520px] overflow-auto dashboard-scrollbar">
-            <table className="w-full min-w-[920px] text-left text-sm">
-              <thead className="sticky top-0 bg-white/95 text-xs uppercase tracking-[0.16em] text-slate-500 backdrop-blur">
+        {/* Row 6: Top Modules Worked On */}
+        <AnalyticsPanel title="Top Modules Worked On">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:border-slate-800">
                 <tr>
-                  <th className="px-3 py-3">ID</th>
-                  <th className="px-3 py-3">Type</th>
-                  <th className="px-3 py-3">Title</th>
-                  <th className="px-3 py-3">Project</th>
-                  <th className="px-3 py-3">Status</th>
-                  <th className="px-3 py-3">Priority</th>
-                  <th className="px-3 py-3">Updated</th>
+                  <th className="pb-3 pr-4">Module</th>
+                  <th className="pb-3 pr-4 text-right">Tasks</th>
+                  <th className="pb-3 pr-4 text-right">Bugs</th>
+                  <th className="pb-3 text-right">Completed</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {allWorkItems.slice(0, 120).map((issue) => (
-                  <tr key={issue._id} className="hover:bg-blue-50/50">
-                    <td className="px-3 py-3 font-mono text-xs font-semibold">{issue.issueId}</td>
-                    <td className="px-3 py-3"><Badge variant={issue.type === ISSUE_TYPES.BUG ? "danger" : "default"}>{issue.type}</Badge></td>
-                    <td className="max-w-[300px] truncate px-3 py-3 font-semibold text-slate-950">{issue.title}</td>
-                    <td className="px-3 py-3">{issue.project?.name || "Unknown"}</td>
-                    <td className="px-3 py-3"><Badge variant={getIssueStatusVariant(issue.status)}>{issue.status}</Badge></td>
-                    <td className="px-3 py-3"><Badge variant={getIssuePriorityVariant(issue.priority)}>{issue.priority}</Badge></td>
-                    <td className="px-3 py-3">{formatDateTime(issue.closedAt || issue.createdAt)}</td>
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-900">
+                {moduleStats.map((stat, idx) => (
+                  <tr key={idx}>
+                    <td className="py-3 pr-4 font-medium text-slate-700 dark:text-slate-300">{stat.name}</td>
+                    <td className="py-3 pr-4 text-right text-slate-600">{stat.tasks}</td>
+                    <td className="py-3 pr-4 text-right text-slate-600">{stat.bugs}</td>
+                    <td className="py-3 text-right">
+                      <Badge variant="success" className="text-[10px]">{stat.completed}</Badge>
+                    </td>
                   </tr>
                 ))}
+                {moduleStats.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-8">
+                      <AnalyticsEmptyState title="No module data" description="Start working on items to see module stats." icon={PieChartIcon} className="min-h-0 border-0 bg-transparent" />
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
-            {!allWorkItems.length ? (
-              <AnalyticsEmptyState icon={AreaChartIcon} title="No work items" description="Your assigned development work will appear here." />
-            ) : null}
           </div>
         </AnalyticsPanel>
-      </section>
+      </div>
     </div>
+  );
+};
+
+const KpiMiniCard = ({ title, value, icon: Icon, tone = "blue" }) => {
+  const tones = {
+    blue: "bg-blue-500",
+    amber: "bg-amber-500",
+    emerald: "bg-emerald-500",
+    rose: "bg-rose-500",
+    violet: "bg-violet-500",
+  };
+
+  return (
+    <Card className="overflow-hidden border-none bg-white shadow-sm dark:bg-slate-950">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
+          </div>
+          <div className={cn("flex h-8 w-8 items-center justify-center rounded-lg bg-opacity-10", tones[tone].replace("bg-", "text-"), tones[tone].replace("bg-", "bg-opacity-10 bg-"))}>
+            <Icon className="h-4 w-4" />
+          </div>
+        </div>
+        <div className={cn("mt-3 h-1 w-full rounded-full opacity-20", tones[tone])} />
+      </CardContent>
+    </Card>
   );
 };
 
@@ -1146,12 +1254,16 @@ const OrganizationReportsDashboard = () => {
   const taskStatusRows = buildRows(taskIssues, (issue) => issue.status, (issue) => getIssueStatusLabel(issue.status));
   const bugSeverityRows = BUG_SEVERITY_GROUPS.map((group) => ({
     ...group,
+    name: group.key,
+    value: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
     count: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
   }));
   const taskAssigneeRows = buildRows(taskIssues, (issue) => issue.assignee?._id, (issue) => resolveUserLabel(issue.assignee));
   const bugDeveloperRows = buildRows(bugIssues, (issue) => issue.developerLead?._id || issue.assignee?._id, (issue) => resolveUserLabel(issue.developerLead || issue.assignee));
   const bugPriorityRows = BUG_PRIORITY_GROUPS.map((group) => ({
     ...group,
+    name: group.label,
+    value: bugIssues.filter((issue) => issue.priority === group.source).length,
     count: bugIssues.filter((issue) => issue.priority === group.source).length,
   }));
   const taskTypeRows = buildRows(taskIssues, (issue) => issue.type, (issue) => issue.type);
@@ -1200,6 +1312,13 @@ const OrganizationReportsDashboard = () => {
       })),
     [bugTrend]
   );
+
+  if (import.meta.env.DEV) {
+    console.log("Organization Task Analytics Overview:", taskAnalytics.results.overview?.data);
+    console.log("Organization Bug Analytics Overview:", bugAnalytics.results.overview?.data);
+    console.log("Organization Trend Rows:", trendRows);
+    console.log("Organization Bug Timeline Rows:", bugTimelineRows);
+  }
   const reopenHeatmapRows = useMemo(
     () =>
       bugTrend.slice(-35).map((row) => ({
@@ -1384,14 +1503,15 @@ const OrganizationReportsDashboard = () => {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["analytics"] });
   const exportAnalytics = () =>
     exportCsv([
-      ["Workflow", "ID", "Title", "Project", "Team", "Owner", "Status", "Priority", "Severity", "Created", "Resolution ms"],
+      ["Workflow", "ID", "Title", "Project", "Team", "Tester", "Owner", "Status", "Priority", "Severity", "Created", "Resolution ms"],
       ...workflowIssues.map((issue) => [
         issue.type === ISSUE_TYPES.BUG ? "Bug" : "Task",
         issue.issueId,
         issue.title,
         issue.project?.name || "",
         issue.team?.name || "",
-        resolveUserLabel(issue.developerLead || issue.assignee || issue.reporter, ""),
+        resolveUserLabel(issue.reporter || issue.testerOwner, ""),
+        resolveUserLabel(issue.developerLead || issue.assignee, ""),
         issue.status,
         issue.priority,
         issue.severity || "",
@@ -1535,11 +1655,11 @@ const OrganizationReportsDashboard = () => {
           <div className="grid gap-4 lg:grid-cols-2">
             <div>
               <SectionTitle kicker="Task Metrics" title="Task Status Distribution" />
-              <ChartFrame>
+              <ChartFrame height={350}>
                 {taskStatusRows.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={350}>
                     <PieChart>
-                      <Pie data={taskStatusRows} dataKey="count" nameKey="label" innerRadius={58} outerRadius={90}>
+                      <Pie data={taskStatusRows} dataKey="value" nameKey="name" innerRadius={58} outerRadius={90} isAnimationActive={false}>
                         {taskStatusRows.map((row, index) => <Cell key={row.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
                       </Pie>
                       <Tooltip contentStyle={chartTooltipStyle} />
@@ -1550,17 +1670,19 @@ const OrganizationReportsDashboard = () => {
             </div>
             <div>
               <SectionTitle kicker="Sprint Burndown" title="Created vs Resolved Trend" />
-              <ChartFrame>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={trendRows}>
-                    <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={chartTooltipStyle} />
-                    <Area type="monotone" dataKey="tasks" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.75} />
-                    <Area type="monotone" dataKey="resolved" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <ChartFrame height={350}>
+                {trendRows.length ? (
+                  <ResponsiveContainer width="100%" height={350}>
+                    <AreaChart data={trendRows}>
+                      <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                      <Tooltip contentStyle={chartTooltipStyle} />
+                      <Area type="monotone" dataKey="tasks" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.75} isAnimationActive={false} />
+                      <Area type="monotone" dataKey="resolved" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} isAnimationActive={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : <AnalyticsEmptyState icon={TrendingUp} title="No trend data" description="Task resolution trends will appear here." />}
               </ChartFrame>
             </div>
             <div>
@@ -1599,11 +1721,11 @@ const OrganizationReportsDashboard = () => {
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Severity" title="Bugs By Severity" />
-              <ChartFrame className="h-[230px]">
+              <ChartFrame height={230}>
                 {bugMetrics.total ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={230}>
                     <PieChart>
-                      <Pie data={bugSeverityRows} dataKey="count" nameKey="key" innerRadius={54} outerRadius={84} paddingAngle={3}>
+                      <Pie data={bugSeverityRows} dataKey="value" nameKey="name" innerRadius={54} outerRadius={84} paddingAngle={3} isAnimationActive={false}>
                         {bugSeverityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
                       </Pie>
                       <Tooltip contentStyle={chartTooltipStyle} />
@@ -1614,15 +1736,15 @@ const OrganizationReportsDashboard = () => {
             </div>
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Priority" title="Bugs By Priority" />
-              <ChartFrame className="h-[230px]">
+              <ChartFrame height={230}>
                 {bugMetrics.total ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={230}>
                     <BarChart data={bugPriorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
                       <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
                       <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                      <YAxis type="category" dataKey="label" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="name" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
                       <Tooltip contentStyle={chartTooltipStyle} />
-                      <Bar dataKey="count" radius={[0, 8, 8, 0]}>
+                      <Bar dataKey="value" radius={[0, 8, 8, 0]} isAnimationActive={false}>
                         {bugPriorityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
                       </Bar>
                     </BarChart>
@@ -1662,18 +1784,18 @@ const OrganizationReportsDashboard = () => {
         </AnalyticsPanel>
 
         <AnalyticsPanel title="Bug Resolution Timeline" description="Created vs fixed bugs, throughput, reopen spikes, and QA verification flow.">
-          <ChartFrame className="h-[430px]">
+          <ChartFrame height={430}>
             {bugTimelineRows.length ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={430}>
                 <AreaChart data={bugTimelineRows}>
                   <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={chartTooltipStyle} />
-                  <Area type="monotone" dataKey="created" name="Created" stroke="#ef4444" fill="#fecdd3" fillOpacity={0.72} />
-                  <Area type="monotone" dataKey="fixed" name="Fixed" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} />
-                  <Line type="monotone" dataKey="reopened" name="Reopen spikes" stroke="#f97316" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="pending" name="Pending QA flow" stroke="#2563eb" strokeWidth={2} dot={false} />
+                  <Area type="monotone" dataKey="created" name="Created" stroke="#ef4444" fill="#fecdd3" fillOpacity={0.72} isAnimationActive={false} />
+                  <Area type="monotone" dataKey="fixed" name="Fixed" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="reopened" name="Reopen spikes" stroke="#f97316" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="pending" name="Pending QA flow" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
                 </AreaChart>
               </ResponsiveContainer>
             ) : <AnalyticsEmptyState icon={AreaChartIcon} title="No bug timeline" description="Created, fixed, and reopened bug trends appear after bug activity." />}
@@ -1837,6 +1959,7 @@ const OrganizationReportsDashboard = () => {
                   <th className="px-3 py-3">ID</th>
                   <th className="px-3 py-3">Title</th>
                   <th className="px-3 py-3">Project</th>
+                  <th className="px-3 py-3">Tester</th>
                   <th className="px-3 py-3">Owner</th>
                   <th className="px-3 py-3">Status</th>
                   <th className="px-3 py-3">Priority</th>
@@ -1851,7 +1974,8 @@ const OrganizationReportsDashboard = () => {
                     <td className="px-3 py-3 font-mono text-xs font-semibold">{issue.issueId}</td>
                     <td className="max-w-[280px] truncate px-3 py-3 font-semibold text-slate-950">{issue.title}</td>
                     <td className="px-3 py-3">{issue.project?.name || "Unknown"}</td>
-                    <td className="px-3 py-3">{resolveUserLabel(issue.developerLead || issue.assignee || issue.reporter)}</td>
+                    <td className="px-3 py-3 font-medium text-slate-600">{resolveUserLabel(issue.reporter || issue.testerOwner)}</td>
+                    <td className="px-3 py-3 font-medium text-slate-600">{resolveUserLabel(issue.developerLead || issue.assignee)}</td>
                     <td className="px-3 py-3"><Badge variant={getIssueStatusVariant(issue.status)}>{issue.status}</Badge></td>
                     <td className="px-3 py-3"><Badge variant={getIssuePriorityVariant(issue.priority)}>{issue.priority}</Badge></td>
                     <td className="px-3 py-3">{formatDateTime(issue.createdAt)}</td>

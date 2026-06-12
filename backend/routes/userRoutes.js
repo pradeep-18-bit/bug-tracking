@@ -3,7 +3,9 @@ const multer = require("multer");
 const {
   getManagedUsers,
   inviteUser,
+  updateUser,
   updateUserRole,
+  deleteUser,
   importUsers,
 } = require("../controllers/userController");
 const { protect } = require("../middleware/authMiddleware");
@@ -21,7 +23,9 @@ router.use(protect, adminOnly);
 
 router.get("/", getManagedUsers);
 router.post("/invite", inviteUser);
+router.patch("/:id", updateUser);
 router.patch("/:id/role", updateUserRole);
+router.delete("/:id", deleteUser);
 router.post("/import", upload.single("file"), importUsers);
 router.post("/import-users", upload.single("file"), importUsers);
 

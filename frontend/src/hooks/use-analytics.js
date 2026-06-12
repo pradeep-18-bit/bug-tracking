@@ -8,6 +8,7 @@ import {
   fetchAnalyticsRecentActivity,
   fetchAnalyticsTeams,
   fetchAnalyticsTrends,
+  fetchDeveloperDashboardAnalytics,
 } from "@/lib/api";
 
 const createAnalyticsFilters = (filters = {}) => ({
@@ -94,6 +95,17 @@ const analyticsQueries = [
     optional: true,
   },
 ];
+
+export const useDeveloperDashboard = (filters = {}, options = {}) => {
+  const normalizedFilters = useMemo(() => createAnalyticsFilters(filters), [filters]);
+
+  return useQuery({
+    queryKey: ["developer-dashboard", normalizedFilters],
+    queryFn: () => fetchDeveloperDashboardAnalytics(normalizedFilters),
+    staleTime: 30_000,
+    ...options,
+  });
+};
 
 export const useAnalytics = (filters = {}, options = {}) => {
   const normalizedFilters = useMemo(() => createAnalyticsFilters(filters), [filters]);

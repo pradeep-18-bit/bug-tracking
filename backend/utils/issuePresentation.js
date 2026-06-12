@@ -2,6 +2,8 @@ const {
   ISSUE_STATUS,
   getCanonicalIssueStatus,
 } = require("../utils/issueStatus");
+const { getBugLifecycleStatus } = require("../utils/bugLifecycle");
+const { getCanonicalIssueType, ISSUE_TYPES } = require("../utils/issueTypes");
 
 const issuePopulation = [
   { path: "assignee", select: "name email role" },
@@ -46,9 +48,24 @@ const serializeIssue = (issue) => {
         }
       : serializedIssue?.dependsOnIssueId || null;
 
+  const status = getCanonicalIssueStatus(serializedIssue.status, ISSUE_STATUS.TODO);
+  const type = getCanonicalIssueType(serializedIssue.type, serializedIssue.type);
+  const isBug = type === ISSUE_TYPES.BUG;
+
   return {
     ...serializedIssue,
-    status: getCanonicalIssueStatus(serializedIssue.status, ISSUE_STATUS.TODO),
+    status,
+    bugLifecycleStatus: isBug ? getBugLifecycleStatus(status) : null,
+    reporterName:
+      serializedIssue.reporterName ||
+      serializedIssue.reporter?.name ||
+      serializedIssue.reporter?.email ||
+      "",
+    testerOwnerName:
+      serializedIssue.testerOwnerName ||
+      serializedIssue.bugDetails?.testerOwner?.name ||
+      serializedIssue.bugDetails?.testerOwner?.email ||
+      "",
     dependsOnIssueId: dependencyIssue,
     assigneeId: assigneeReference ? String(assigneeReference) : null,
     assignedDeveloperId: serializedIssue.assignedDeveloperId
