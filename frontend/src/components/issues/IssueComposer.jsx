@@ -628,9 +628,9 @@ const IssueComposer = ({
     "field-select h-9 rounded-lg border-slate-300 px-3 text-sm shadow-none focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20";
   const testerTextareaClass =
     "rounded-lg border-slate-300 px-3 py-2 text-sm shadow-none focus-visible:border-blue-500 focus-visible:ring-blue-500/20";
-  const testerSectionClass = "space-y-2";
-  const testerSectionHeadingClass =
-    "flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 before:h-px before:flex-1 before:bg-slate-200 after:h-px after:flex-1 after:bg-slate-200";
+  const testerMetaGroupClass = "space-y-1 rounded-lg border border-slate-200 bg-white p-2";
+  const testerCompactActionClass =
+    "flex min-h-[56px] cursor-pointer items-start gap-2 rounded-lg border bg-white px-2.5 py-2 transition hover:border-blue-300 hover:bg-blue-50/40";
 
   const formContent = (
     <form className={isTesterBugReport ? "space-y-3" : "space-y-5"} onSubmit={handleSubmit}>
@@ -671,149 +671,143 @@ const IssueComposer = ({
       ) : null}
 
       {isTesterBugReport && isBugType ? (
-        <div className="space-y-3 rounded-[16px] border border-slate-200 bg-slate-50/70 p-3 shadow-sm">
+        <div className="space-y-2.5 rounded-[14px] border border-slate-200 bg-slate-50/70 p-3 shadow-sm">
           <div className="inline-flex w-fit rounded-full border border-blue-100 bg-white px-2.5 py-0.5 text-xs font-semibold text-slate-600">
             Reported by: {reporterLabel}
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,3fr)_minmax(260px,1fr)]">
-            <section className={testerSectionClass}>
-              <h3 className={testerSectionHeadingClass}>Basic Information</h3>
-              <div className="grid gap-2.5">
-                <div className={testerFieldGroupClass}>
-                  <label className={testerFieldLabelClass} htmlFor="title">
-                    {titleLabel}
-                  </label>
-                  <Input
-                    id="title"
-                    name="title"
-                    className={testerInputClass}
-                    placeholder={titlePlaceholder}
-                    value={formData.title}
-                    onChange={handleChange}
-                  />
-                </div>
-
-                <div className={testerFieldGroupClass}>
-                  <label className={testerFieldLabelClass} htmlFor="description">
-                    Description
-                  </label>
-                  <Textarea
-                    id="description"
-                    name="description"
-                    className={cn(testerTextareaClass, "h-[150px] min-h-[140px] resize-y")}
-                    placeholder={descriptionPlaceholder}
-                    value={formData.description}
-                    onChange={handleChange}
-                  />
-                </div>
-              </div>
-            </section>
-
-            <section className={testerSectionClass}>
-              <h3 className={testerSectionHeadingClass}>Assignment</h3>
-              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
-                <label className={testerFieldGroupClass}>
-                  <span className={cn(testerFieldLabelClass, "flex items-center gap-2")}>
-                    <ClipboardList className="h-4 w-4 text-blue-600" />
-                    {projectLabel}
-                  </span>
-                  <select
-                    className={testerSelectClass}
-                    name="projectId"
-                    value={formData.projectId}
-                    onChange={handleChange}
-                  >
-                    {projects.length ? (
-                      projects.map((project) => (
-                        <option key={project._id} value={project._id}>
-                          {project.name}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="">No projects available</option>
-                    )}
-                  </select>
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,7fr)_minmax(260px,3fr)]">
+            <div className="grid gap-2">
+              <div className={testerFieldGroupClass}>
+                <label className={testerFieldLabelClass} htmlFor="title">
+                  {titleLabel}
                 </label>
-
-                <label className={testerFieldGroupClass}>
-                  <span className={cn(testerFieldLabelClass, "flex items-center gap-2")}>
-                    <Users2 className="h-4 w-4 text-blue-600" />
-                    Team
-                  </span>
-                  <select
-                    className={testerSelectClass}
-                    name="teamId"
-                    value={formData.teamId}
-                    onChange={handleChange}
-                    disabled={!availableTeams.length}
-                  >
-                    {availableTeams.length ? (
-                      availableTeams.map((team) => (
-                        <option key={team._id} value={team._id}>
-                          {team.name}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="">No attached teams</option>
-                    )}
-                  </select>
-                </label>
-
-                <label className={testerFieldGroupClass}>
-                  <span className={testerFieldLabelClass}>Suggested Team</span>
-                  <select
-                    className={testerSelectClass}
-                    value={formData.bugDetails.suggestedTeam}
-                    onChange={(event) =>
-                      setFormData((current) => ({
-                        ...current,
-                        bugDetails: {
-                          ...current.bugDetails,
-                          suggestedTeam: event.target.value,
-                        },
-                      }))
-                    }
-                  >
-                    <option value="">Auto-select</option>
-                    {BUG_TEAM_OPTIONS.map((team) => (
-                      <option key={team} value={team}>
-                        {team}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className={testerFieldGroupClass}>
-                  <span className={testerFieldLabelClass}>Suggested Developer</span>
-                  <select
-                    className={testerSelectClass}
-                    value={formData.bugDetails.developerLeadId}
-                    onChange={(event) =>
-                      setFormData((current) => ({
-                        ...current,
-                        bugDetails: {
-                          ...current.bugDetails,
-                          developerLeadId: event.target.value,
-                        },
-                      }))
-                    }
-                    disabled={!formData.teamId || formData.bugDetails.addToBucket || formData.bugDetails.sendToTriage}
-                  >
-                    <option value="">Unassigned</option>
-                    {developerOptions.map((assignee) => (
-                      <option key={assignee._id} value={assignee._id}>
-                        {assignee.name} ({assignee.role})
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <Input
+                  id="title"
+                  name="title"
+                  className={testerInputClass}
+                  placeholder={titlePlaceholder}
+                  value={formData.title}
+                  onChange={handleChange}
+                />
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <div className={testerFieldGroupClass}>
+                <label className={testerFieldLabelClass} htmlFor="description">
+                  Description
+                </label>
+                <Textarea
+                  id="description"
+                  name="description"
+                  className={cn(testerTextareaClass, "h-[140px] min-h-[140px] resize-y")}
+                  placeholder={descriptionPlaceholder}
+                  value={formData.description}
+                  onChange={handleChange}
+                />
+              </div>
+            </div>
+
+            <div className="grid content-start gap-2 sm:grid-cols-2 lg:grid-cols-2">
+              <label className={testerFieldGroupClass}>
+                <span className={cn(testerFieldLabelClass, "flex items-center gap-2")}>
+                  <ClipboardList className="h-4 w-4 text-blue-600" />
+                  {projectLabel}
+                </span>
+                <select
+                  className={testerSelectClass}
+                  name="projectId"
+                  value={formData.projectId}
+                  onChange={handleChange}
+                >
+                  {projects.length ? (
+                    projects.map((project) => (
+                      <option key={project._id} value={project._id}>
+                        {project.name}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">No projects available</option>
+                  )}
+                </select>
+              </label>
+
+              <label className={testerFieldGroupClass}>
+                <span className={cn(testerFieldLabelClass, "flex items-center gap-2")}>
+                  <Users2 className="h-4 w-4 text-blue-600" />
+                  Team
+                </span>
+                <select
+                  className={testerSelectClass}
+                  name="teamId"
+                  value={formData.teamId}
+                  onChange={handleChange}
+                  disabled={!availableTeams.length}
+                >
+                  {availableTeams.length ? (
+                    availableTeams.map((team) => (
+                      <option key={team._id} value={team._id}>
+                        {team.name}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">No attached teams</option>
+                  )}
+                </select>
+              </label>
+
+              <label className={testerFieldGroupClass}>
+                <span className={testerFieldLabelClass}>Suggested Team</span>
+                <select
+                  className={testerSelectClass}
+                  value={formData.bugDetails.suggestedTeam}
+                  onChange={(event) =>
+                    setFormData((current) => ({
+                      ...current,
+                      bugDetails: {
+                        ...current.bugDetails,
+                        suggestedTeam: event.target.value,
+                      },
+                    }))
+                  }
+                >
+                  <option value="">Auto-select</option>
+                  {BUG_TEAM_OPTIONS.map((team) => (
+                    <option key={team} value={team}>
+                      {team}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className={testerFieldGroupClass}>
+                <span className={testerFieldLabelClass}>Suggested Developer</span>
+                <select
+                  className={testerSelectClass}
+                  value={formData.bugDetails.developerLeadId}
+                  onChange={(event) =>
+                    setFormData((current) => ({
+                      ...current,
+                      bugDetails: {
+                        ...current.bugDetails,
+                        developerLeadId: event.target.value,
+                      },
+                    }))
+                  }
+                  disabled={!formData.teamId || formData.bugDetails.addToBucket || formData.bugDetails.sendToTriage}
+                >
+                  <option value="">Unassigned</option>
+                  {developerOptions.map((assignee) => (
+                    <option key={assignee._id} value={assignee._id}>
+                      {assignee.name} ({assignee.role})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid gap-2 sm:grid-cols-2 lg:col-span-2 lg:grid-cols-2">
                 <label
                   className={cn(
-                    "flex min-h-[58px] cursor-pointer items-start gap-2 rounded-lg border bg-white px-2.5 py-2 transition hover:border-blue-300 hover:bg-blue-50/40",
+                    testerCompactActionClass,
                     formData.bugDetails.addToBucket
                       ? "border-blue-300 bg-blue-50 ring-1 ring-blue-200"
                       : "border-slate-200"
@@ -849,7 +843,7 @@ const IssueComposer = ({
 
                 <label
                   className={cn(
-                    "flex min-h-[58px] cursor-pointer items-start gap-2 rounded-lg border bg-white px-2.5 py-2 transition hover:border-blue-300 hover:bg-blue-50/40",
+                    testerCompactActionClass,
                     formData.bugDetails.sendToTriage
                       ? "border-blue-300 bg-blue-50 ring-1 ring-blue-200"
                       : "border-slate-200"
@@ -883,13 +877,11 @@ const IssueComposer = ({
                   </span>
                 </label>
               </div>
-            </section>
+            </div>
           </div>
 
-          <section className={testerSectionClass}>
-            <h3 className={testerSectionHeadingClass}>Classification</h3>
-            <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
-              <label className={testerFieldGroupClass}>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              <label className={testerMetaGroupClass}>
                 <span className={testerFieldLabelClass}>Module/Page</span>
                 <Input
                   className={testerInputClass}
@@ -905,7 +897,7 @@ const IssueComposer = ({
                 </datalist>
               </label>
 
-              <label className={testerFieldGroupClass}>
+              <label className={testerMetaGroupClass}>
                 <span className={testerFieldLabelClass}>Bug Category</span>
                 <BugCategorySelect
                   value={formData.bugDetails.category}
@@ -924,7 +916,7 @@ const IssueComposer = ({
                 />
               </label>
 
-              <label className={testerFieldGroupClass}>
+              <label className={testerMetaGroupClass}>
                 <span className={testerFieldLabelClass}>Affected Platform</span>
                 <select
                   className={testerSelectClass}
@@ -947,21 +939,7 @@ const IssueComposer = ({
                 </select>
               </label>
 
-              <label className={testerFieldGroupClass}>
-                <span className={testerFieldLabelClass}>Environment</span>
-                <select
-                  className={testerSelectClass}
-                  value={formData.bugDetails.affectedPlatform}
-                  disabled
-                >
-                  {BUG_PLATFORM_OPTIONS.map((platform) => (
-                    <option key={platform} value={platform}>
-                      {platform}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={testerFieldGroupClass}>
+              <label className={testerMetaGroupClass}>
                 <span className={testerFieldLabelClass}>Severity</span>
                 <select
                   className={testerSelectClass}
@@ -985,7 +963,7 @@ const IssueComposer = ({
                 </select>
               </label>
 
-              <label className={testerFieldGroupClass}>
+              <label className={testerMetaGroupClass}>
                 <span className={testerFieldLabelClass}>Priority</span>
                 <select
                   className={testerSelectClass}
@@ -1005,7 +983,7 @@ const IssueComposer = ({
                 </select>
               </label>
 
-              <label className={testerFieldGroupClass}>
+              <label className={testerMetaGroupClass}>
                 <span className={testerFieldLabelClass}>Reproducibility</span>
                 <select
                   className={testerSelectClass}
@@ -1028,11 +1006,24 @@ const IssueComposer = ({
                   <option value="Unable to reproduce">Unable to reproduce</option>
                 </select>
               </label>
-            </div>
-          </section>
 
-          <section className={testerSectionClass}>
-            <h3 className={testerSectionHeadingClass}>Reproduction</h3>
+              <label className={testerMetaGroupClass}>
+                <span className={testerFieldLabelClass}>Environment</span>
+                <select
+                  className={testerSelectClass}
+                  value={formData.bugDetails.affectedPlatform}
+                  disabled
+                >
+                  {BUG_PLATFORM_OPTIONS.map((platform) => (
+                    <option key={platform} value={platform}>
+                      {platform}
+                    </option>
+                  ))}
+                </select>
+              </label>
+          </div>
+
+          <div className="space-y-2 border-t border-slate-200 pt-2.5">
             <label className={testerFieldGroupClass}>
               <span className={testerFieldLabelClass}>Steps to Reproduce</span>
               <Textarea
@@ -1109,7 +1100,7 @@ const IssueComposer = ({
                 ) : null}
               </label>
             ) : null}
-          </section>
+          </div>
         </div>
       ) : null}
 
