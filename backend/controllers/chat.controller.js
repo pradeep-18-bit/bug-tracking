@@ -10,6 +10,7 @@ const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const User = require("../models/User");
 const asyncHandler = require("../utils/asyncHandler");
+const { uploadToS3 } = require("../utils/s3");
 const {
   buildProjectAccessQuery,
   mergeProjectTeamIds,
@@ -134,20 +135,7 @@ const isAllowedAttachment = (file = {}) => {
   );
 };
 
-const chatAttachmentStorage = multer.diskStorage({
-  destination: (_req, _file, callback) => {
-    callback(null, chatAttachmentsRoot);
-  },
-  filename: (_req, file, callback) => {
-    callback(
-      null,
-      `${Date.now()}-${Math.round(Math.random() * 1e9)}-${sanitizeFileName(
-        file?.originalname
-      )}`
-    );
-  },
-});
-
+const chatAttachmentStorage = multer.memoryStorage();
 const uploadChatAttachmentMiddleware = multer({
   storage: chatAttachmentStorage,
   limits: {
@@ -806,8 +794,11 @@ const uploadChatAttachment = asyncHandler(async (req, res) => {
   }
 
   const fileName = sanitizeFileName(req.file.originalname);
-  const fileUrl = `/api/uploads/chat-attachments/${req.file.filename}`;
 
+  const fileUrl = await uploadToS3(
+  req.file,
+  "chat-attachments"
+);
   res.status(201).json({
     attachment: {
       name: fileName,

@@ -1,10 +1,11 @@
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import ChatRealtimeBridge from "@/components/chat/ChatRealtimeBridge";
 import Navbar from "@/components/layout/Navbar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBugWorkflowRealtime } from "@/hooks/useBugWorkflowRealtime";
 import useScrollRestoration from "@/hooks/use-scroll-restoration";
+import { cn } from "@/lib/utils";
 
 const RouteContentFallback = () => (
   <div className="space-y-5">
@@ -19,16 +20,48 @@ const RouteContentFallback = () => (
 
 const AppShell = () => {
   const location = useLocation();
+  const isChatPage = location.pathname === "/chat";
   useBugWorkflowRealtime();
   useScrollRestoration();
 
+  useEffect(() => {
+    if (isChatPage) {
+      document.documentElement.style.height = "100%";
+      document.documentElement.style.overflow = "hidden";
+      document.body.style.height = "100%";
+      document.body.style.overflow = "hidden";
+    }
+
+    return () => {
+      document.documentElement.style.height = "";
+      document.documentElement.style.overflow = "";
+      document.body.style.height = "";
+      document.body.style.overflow = "";
+    };
+  }, [isChatPage]);
+
   return (
-    <div className="relative min-h-screen bg-transparent text-gray-900">
+    <div
+      className={cn(
+        "relative h-full overflow-hidden bg-transparent text-gray-900"
+      )}
+    >
       <ChatRealtimeBridge />
       <Navbar />
-      <main className="mt-4 px-4 pb-10 pt-16 sm:px-6 sm:pt-20 lg:px-8">
+      <main
+        className={cn(
+          "app-main-content",
+          isChatPage ? "overflow-hidden pb-0" : "overflow-y-auto pb-6"
+        )}
+      >
         <Suspense fallback={<RouteContentFallback />}>
-          <div key={`${location.pathname}${location.search}`} className="page-shell-enter">
+          <div
+            key={`${location.pathname}${location.search}`}
+            className={cn(
+              "page-shell-enter w-full",
+              isChatPage ? "h-full overflow-hidden" : "min-h-full"
+            )}
+          >
             <Outlet />
           </div>
         </Suspense>

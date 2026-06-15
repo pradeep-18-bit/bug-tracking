@@ -41,22 +41,24 @@ const isImageAttachment = (attachment = {}) =>
   getAttachmentType(attachment).startsWith("image/");
 
 const AttachmentCard = ({ attachment, isOwn, onPreview }) => {
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const fileName = getAttachmentName(attachment);
   const fileUrl = resolveApiAssetUrl(getAttachmentUrl(attachment));
   const fileType = getAttachmentType(attachment);
 
-  if (isImageAttachment(attachment)) {
+  if (isImageAttachment(attachment) && fileUrl && !imageLoadFailed) {
     return (
       <button
         type="button"
-        className="group block overflow-hidden rounded-[18px] border border-white/35 bg-white/16 text-left shadow-sm"
+        className="group block w-64 max-w-full overflow-hidden rounded-[18px] border border-white/35 bg-white/16 text-left shadow-sm sm:w-80"
         onClick={() => onPreview({ fileName, fileUrl })}
       >
         <img
           src={fileUrl}
           alt={fileName}
           loading="lazy"
-          className="max-h-64 w-full min-w-44 object-cover transition duration-200 group-hover:scale-[1.015]"
+          onError={() => setImageLoadFailed(true)}
+          className="max-h-72 w-full bg-white/18 object-contain transition duration-200 group-hover:scale-[1.015]"
         />
         <span
           className={cn(
@@ -91,25 +93,28 @@ const AttachmentCard = ({ attachment, isOwn, onPreview }) => {
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-bold">{fileName}</p>
         <p className={cn("mt-0.5 truncate text-xs", isOwn ? "text-white/74" : "text-slate-500")}>
-          {fileType || "Document"} {formatFileSize(attachment.size)}
+          {imageLoadFailed ? "Preview unavailable" : fileType || "Document"}{" "}
+          {formatFileSize(attachment.size)}
         </p>
       </div>
-      <a
-        href={fileUrl}
-        download={fileName}
-        target="_blank"
-        rel="noreferrer"
-        className={cn(
-          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition",
-          isOwn
-            ? "bg-white/15 text-white hover:bg-white/25"
-            : "bg-white text-emerald-700 hover:bg-emerald-50"
-        )}
-        aria-label={`Download ${fileName}`}
-        title="Download"
-      >
-        <Download className="h-4 w-4" />
-      </a>
+      {fileUrl ? (
+        <a
+          href={fileUrl}
+          download={fileName}
+          target="_blank"
+          rel="noreferrer"
+          className={cn(
+            "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition",
+            isOwn
+              ? "bg-white/15 text-white hover:bg-white/25"
+              : "bg-white text-emerald-700 hover:bg-emerald-50"
+          )}
+          aria-label={`Download ${fileName}`}
+          title="Download"
+        >
+          <Download className="h-4 w-4" />
+        </a>
+      ) : null}
     </div>
   );
 };
@@ -136,7 +141,7 @@ const MessageBubble = memo(({ message, currentUserId }) => {
 
         <div
           className={cn(
-            "max-w-[86%] space-y-1 sm:max-w-[68%]",
+            "flex max-w-[92%] flex-col space-y-1 sm:max-w-[68%]",
             isOwn ? "items-end text-right" : "items-start text-left"
           )}
         >
@@ -151,7 +156,7 @@ const MessageBubble = memo(({ message, currentUserId }) => {
 
           <div
             className={cn(
-              "rounded-[22px] border px-4 py-3 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.36)] backdrop-blur-sm",
+              "rounded-[20px] border px-3 py-2.5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.36)] backdrop-blur-sm sm:rounded-[22px] sm:px-4 sm:py-3",
               isOwn
                 ? "border-blue-300/70 bg-gradient-to-r from-blue-600 to-sky-500 text-white"
                 : "border-emerald-100 bg-white/92 text-slate-800"
@@ -195,11 +200,11 @@ const MessageBubble = memo(({ message, currentUserId }) => {
 
       {previewImage ? (
         <div
-          className="fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/70 p-2 backdrop-blur-sm sm:p-4"
           onClick={() => setPreviewImage(null)}
         >
           <div
-            className="relative max-h-[90vh] max-w-5xl overflow-hidden rounded-[24px] border border-white/20 bg-white shadow-2xl"
+            className="relative max-h-[88dvh] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[20px] border border-white/20 bg-white shadow-2xl sm:max-h-[90vh] sm:max-w-5xl sm:rounded-[24px]"
             onClick={(event) => event.stopPropagation()}
           >
             <Button
@@ -216,7 +221,7 @@ const MessageBubble = memo(({ message, currentUserId }) => {
             <img
               src={previewImage.fileUrl}
               alt={previewImage.fileName}
-              className="max-h-[90vh] w-full object-contain"
+              className="max-h-[88dvh] w-full object-contain sm:max-h-[90vh]"
             />
           </div>
         </div>

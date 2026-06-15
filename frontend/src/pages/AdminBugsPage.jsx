@@ -1293,7 +1293,7 @@ const AdminBugsPage = () => {
 
       <Card className="overflow-visible rounded-[14px] border border-slate-200/90 bg-white shadow-[0_18px_48px_-32px_rgba(15,23,42,0.46)]">
         <CardContent className="p-0">
-          <div className="sticky top-16 z-20 rounded-t-[14px] border-b border-slate-300/80 bg-white/92 px-3 py-2 backdrop-blur-xl sm:px-4">
+          <div className="sticky top-[var(--app-content-spacing)] z-20 rounded-t-[14px] border-b border-slate-300/80 bg-white/92 px-3 py-2 backdrop-blur-xl sm:px-4">
             <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
               <div className="min-w-0">
                 <h2 className="flex items-center gap-2 text-[15px] font-semibold text-slate-950">

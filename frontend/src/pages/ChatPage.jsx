@@ -72,7 +72,7 @@ const ChatPage = () => {
   );
 
   return (
-    <div className="mx-auto grid h-[calc(100vh-7rem)] min-h-[660px] w-full max-w-screen-2xl gap-4 overflow-hidden lg:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="flex h-full w-full overflow-hidden">
       <ChatSidebar
         activeConversationId={activeConversationId}
         conversations={conversations}

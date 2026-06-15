@@ -32,7 +32,7 @@ const ChatHeader = memo(({ conversation, currentUserId, onlineUsers, onToggleSid
     conversation?.type === "direct" && onlineUsers.includes(getId(directUser));
 
   return (
-    <header className="flex min-h-[76px] items-center gap-3 border-b border-white/55 bg-white/52 px-4 py-3 backdrop-blur-2xl sm:px-5">
+    <header className="flex min-h-[68px] shrink-0 items-center gap-2 border-b border-white/55 bg-white/52 px-3 py-2.5 backdrop-blur-2xl sm:min-h-[76px] sm:gap-3 sm:px-5 sm:py-3">
       <Button
         type="button"
         variant="ghost"
@@ -43,9 +43,9 @@ const ChatHeader = memo(({ conversation, currentUserId, onlineUsers, onToggleSid
         <Menu className="h-4 w-4" />
       </Button>
 
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/70 bg-gradient-to-r from-blue-100 to-cyan-100 text-blue-700 shadow-sm">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/70 bg-gradient-to-r from-blue-100 to-cyan-100 text-blue-700 shadow-sm sm:h-12 sm:w-12">
         {conversation?.type === "direct" ? (
-          <Avatar className="h-11 w-11">
+          <Avatar className="h-9 w-9 sm:h-11 sm:w-11">
             <AvatarFallback>{getInitials(directUser?.name || title)}</AvatarFallback>
           </Avatar>
         ) : (
