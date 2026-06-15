@@ -6,6 +6,8 @@
 
 @layer base {
   :root {
+    --app-navbar-height: 4rem;
+    --app-content-spacing: 1.5rem;
     --background: 210 40% 98%;
     --foreground: 222 47% 11%;
     --card: 0 0% 100%;
@@ -219,6 +221,19 @@
     animation: page-shell-enter 220ms ease-out both;
   }
 
+  .app-main-content {
+    box-sizing: border-box;
+    bottom: 0;
+    left: 0;
+    padding-left: 24px;
+    padding-right: 24px;
+    padding-top: var(--app-content-spacing);
+    position: absolute;
+    right: 0;
+    top: var(--app-navbar-height);
+    width: 100%;
+  }
+
   .interactive-card {
     @apply transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-lg;
   }
@@ -305,7 +320,7 @@
   .page-wrapper {
     box-sizing: border-box;
     max-width: 100%;
-    padding: 16px 24px;
+    padding: 0;
     width: 100%;
   }
 
@@ -330,7 +345,7 @@
     height: fit-content;
     max-width: 100%;
     position: sticky;
-    top: 80px;
+    top: var(--app-content-spacing);
     width: 300px;
   }
 
@@ -1107,10 +1122,6 @@
   .right-panel {
     position: static;
     width: 100%;
-  }
-
-  .page-wrapper {
-    padding: 16px;
   }
 
   .status-item {

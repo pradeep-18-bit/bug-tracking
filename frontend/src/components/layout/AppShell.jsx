@@ -43,22 +43,24 @@ const AppShell = () => {
   return (
     <div
       className={cn(
-        "relative bg-transparent text-gray-900 h-full overflow-hidden"
+        "relative h-full overflow-hidden bg-transparent text-gray-900"
       )}
     >
       <ChatRealtimeBridge />
       <Navbar />
       <main
         className={cn(
-          isChatPage
-            ? "h-[calc(100vh-4rem)] overflow-hidden mt-16"
-            : "h-[calc(100vh-4rem)] overflow-y-auto mt-16"
+          "app-main-content",
+          isChatPage ? "overflow-hidden pb-0" : "overflow-y-auto pb-6"
         )}
       >
         <Suspense fallback={<RouteContentFallback />}>
           <div
             key={`${location.pathname}${location.search}`}
-            className={cn("page-shell-enter", isChatPage && "h-full overflow-hidden")}
+            className={cn(
+              "page-shell-enter w-full",
+              isChatPage ? "h-full overflow-hidden" : "min-h-full"
+            )}
           >
             <Outlet />
           </div>
