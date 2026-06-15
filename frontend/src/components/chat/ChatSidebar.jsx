@@ -172,8 +172,8 @@ const ChatSidebar = memo(
     );
 
     const sidebarContent = (
-      <aside className="flex h-full w-full flex-col overflow-hidden rounded-[30px] border border-white/65 bg-white/50 shadow-[0_26px_70px_-45px_rgba(15,23,42,0.45)] backdrop-blur-2xl lg:rounded-[32px]">
-        <div className="flex items-center justify-between border-b border-white/60 px-4 py-4">
+      <aside className="flex h-full w-full flex-col overflow-hidden border-r border-slate-200 bg-white shadow-none">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-4">
           <div>
             <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-blue-600">
               Realtime
@@ -191,7 +191,7 @@ const ChatSidebar = memo(
           </Button>
         </div>
 
-        <div className="border-b border-white/60 p-4">
+        <div className="shrink-0 border-b border-white/60 p-4">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -207,7 +207,7 @@ const ChatSidebar = memo(
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
-                className="mt-3 space-y-1 rounded-[22px] border border-white/70 bg-white/85 p-2 shadow-lg"
+                className="dashboard-scrollbar mt-3 max-h-60 space-y-1 overflow-y-auto rounded-[22px] border border-white/70 bg-white/85 p-2 shadow-lg"
               >
                 {searchResults.map((user) => (
                   <button
@@ -239,7 +239,7 @@ const ChatSidebar = memo(
           </AnimatePresence>
         </div>
 
-        <div className="dashboard-scrollbar flex-1 space-y-5 overflow-y-auto p-4">
+        <div className="dashboard-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
           <Section title="Direct Messages" items={groupedConversations.direct}>
             {groupedConversations.direct.map((conversation) => (
               <ConversationButton
@@ -296,7 +296,7 @@ const ChatSidebar = memo(
 
     return (
       <>
-        <div className="hidden h-full lg:block">{sidebarContent}</div>
+        <div className="hidden h-full w-[380px] shrink-0 lg:block">{sidebarContent}</div>
         <AnimatePresence>
           {isOpen ? (
             <motion.div
