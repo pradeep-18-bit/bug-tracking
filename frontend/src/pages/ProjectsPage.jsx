@@ -364,12 +364,12 @@ const ProjectsPage = () => {
           id="projects-panel"
           role="tabpanel"
         >
-          <div className="grid min-w-0 w-full grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+          <div className="grid min-w-0 w-full grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {isProjectsLoading ? (
               Array.from({ length: PROJECT_GRID_SKELETON_COUNT }).map((_, index) => (
                 <Skeleton
                   key={`project-skeleton-${index}`}
-                  className="h-[300px] w-full rounded-2xl"
+                  className="h-[286px] w-full rounded-2xl"
                 />
               ))
             ) : projects.length ? (
@@ -439,7 +439,7 @@ const ProjectsPage = () => {
                 />
               ))
             ) : (
-              <div className="lg:col-span-2">
+              <div className="md:col-span-2 xl:col-span-3 2xl:col-span-4">
                 <EmptyState
                   title="No projects yet"
                   description="Create a project, attach a team, and start organizing work in a tighter project space."
