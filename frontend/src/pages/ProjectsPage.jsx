@@ -295,12 +295,12 @@ const ProjectsPage = () => {
   }
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-4">
       <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
 
       <section className="w-full">
         <Card className="overflow-hidden border-white/70 bg-white/82 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.32)] backdrop-blur-xl">
-          <CardContent className="flex flex-col gap-3 p-2 sm:flex-row sm:items-center sm:justify-between sm:p-3">
+          <CardContent className="flex flex-col gap-2 p-1.5 sm:flex-row sm:items-center sm:justify-between sm:p-2">
             <div
               aria-label="Projects and teams"
               className="grid grid-cols-2 gap-2 rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-1 sm:inline-grid"
@@ -317,7 +317,7 @@ const ProjectsPage = () => {
                     key={id}
                     aria-controls={`${id}-panel`}
                     aria-selected={isSelected}
-                    className={`interactive-button inline-flex h-11 items-center justify-center gap-2 rounded-[20px] px-5 text-sm font-semibold transition ${
+                    className={`interactive-button inline-flex h-10 items-center justify-center gap-2 rounded-[18px] px-4 text-sm font-semibold transition ${
                       isSelected
                         ? "bg-slate-950 text-white shadow-[0_14px_30px_-20px_rgba(15,23,42,0.8)]"
                         : "border border-transparent bg-white/70 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-950"
@@ -336,7 +336,7 @@ const ProjectsPage = () => {
 
             {activeTab === "projects" ? (
               <Button
-                className="interactive-button h-11 w-full rounded-2xl border border-indigo-300/30 bg-[linear-gradient(90deg,#2563EB_0%,#6366F1_55%,#8B5CF6_100%)] px-6 text-white shadow-[0_14px_28px_-18px_rgba(99,102,241,0.82)] hover:brightness-105 sm:w-auto"
+                className="interactive-button h-10 w-full rounded-2xl border border-indigo-300/30 bg-[linear-gradient(90deg,#2563EB_0%,#6366F1_55%,#8B5CF6_100%)] px-5 text-white shadow-[0_14px_28px_-18px_rgba(99,102,241,0.82)] hover:brightness-105 sm:w-auto"
                 onClick={() => setIsCreateDialogOpen(true)}
                 type="button"
               >
@@ -345,7 +345,7 @@ const ProjectsPage = () => {
               </Button>
             ) : (
               <Button
-                className="interactive-button h-11 w-full rounded-2xl border border-emerald-300/40 bg-[linear-gradient(90deg,#059669_0%,#0891B2_100%)] px-6 text-white shadow-[0_14px_28px_-18px_rgba(16,185,129,0.72)] hover:brightness-105 sm:w-auto"
+                className="interactive-button h-10 w-full rounded-2xl border border-emerald-300/40 bg-[linear-gradient(90deg,#059669_0%,#0891B2_100%)] px-5 text-white shadow-[0_14px_28px_-18px_rgba(16,185,129,0.72)] hover:brightness-105 sm:w-auto"
                 onClick={() => setIsCreateTeamDialogOpen(true)}
                 type="button"
               >
@@ -360,16 +360,16 @@ const ProjectsPage = () => {
       {activeTab === "projects" ? (
         <section
           aria-labelledby="projects-tab"
-          className="min-w-0 w-full space-y-4"
+          className="min-w-0 w-full space-y-3"
           id="projects-panel"
           role="tabpanel"
         >
-          <div className="grid min-w-0 w-full grid-cols-1 gap-5 lg:grid-cols-2">
+          <div className="grid min-w-0 w-full grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
             {isProjectsLoading ? (
               Array.from({ length: PROJECT_GRID_SKELETON_COUNT }).map((_, index) => (
                 <Skeleton
                   key={`project-skeleton-${index}`}
-                  className="h-[360px] w-full rounded-[32px]"
+                  className="h-[300px] w-full rounded-2xl"
                 />
               ))
             ) : projects.length ? (

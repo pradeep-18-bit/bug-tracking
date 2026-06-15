@@ -115,10 +115,10 @@ const StatusBadge = ({ status = "Active" }) => (
   <span
     className={
       status === "Completed"
-        ? "inline-flex h-8 items-center gap-2 rounded-full bg-emerald-400/20 px-3 text-xs font-semibold text-emerald-50 ring-1 ring-emerald-200/30 backdrop-blur"
+        ? "inline-flex h-7 items-center gap-1.5 rounded-full bg-emerald-400/20 px-2.5 text-xs font-semibold text-emerald-50 ring-1 ring-emerald-200/30 backdrop-blur"
         : status === "On Hold"
-          ? "inline-flex h-8 items-center gap-2 rounded-full bg-amber-400/20 px-3 text-xs font-semibold text-amber-50 ring-1 ring-amber-200/30 backdrop-blur"
-        : "inline-flex h-8 items-center gap-2 rounded-full bg-white/10 px-3 text-xs font-semibold text-white ring-1 ring-white/20 backdrop-blur"
+          ? "inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-400/20 px-2.5 text-xs font-semibold text-amber-50 ring-1 ring-amber-200/30 backdrop-blur"
+        : "inline-flex h-7 items-center gap-1.5 rounded-full bg-white/10 px-2.5 text-xs font-semibold text-white ring-1 ring-white/20 backdrop-blur"
     }
   >
     <span
@@ -147,7 +147,7 @@ const getProjectAssignmentName = (value) => {
 
 const ProjectAssignmentsSummary = ({ managerName, teamLeadName }) => (
   <p
-    className="mt-4 max-w-full truncate text-sm font-medium leading-6 text-white/90"
+    className="mt-3 max-w-full truncate text-xs font-medium leading-5 text-white/90"
     title={`${managerName} \u2022 ${teamLeadName}`}
   >
     <span>{managerName}</span>
@@ -161,7 +161,7 @@ const ProjectTeamsPreview = ({ teams = [] }) => {
   const overflowTeams = Math.max(teams.length - visibleTeams.length, 0);
 
   return (
-    <div className="flex w-full max-w-full flex-col gap-3 pt-1">
+    <div className="flex w-full max-w-full flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase text-white/70">
         <span>Attached Teams</span>
         <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/10 px-2 text-[10px] font-semibold text-white/90 ring-1 ring-white/10">
@@ -174,12 +174,12 @@ const ProjectTeamsPreview = ({ teams = [] }) => {
           visibleTeams.map((team) => (
             <span
               key={team._id}
-              className="inline-flex max-w-full items-center gap-2 rounded-full bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 ring-1 ring-white/10 backdrop-blur"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-white/10 px-2 py-1 text-xs font-medium text-white/90 ring-1 ring-white/10 backdrop-blur"
             >
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold text-white ring-1 ring-white/20">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold text-white ring-1 ring-white/20">
                 {getInitials(team.name)}
               </span>
-              <span className="max-w-[11rem] truncate">
+              <span className="max-w-[8.5rem] truncate">
                 {team.name}
               </span>
               <span className="text-white/55">
@@ -191,7 +191,7 @@ const ProjectTeamsPreview = ({ teams = [] }) => {
           <span className="text-xs text-white/75">No teams attached</span>
         )}
         {overflowTeams ? (
-          <span className="inline-flex h-9 items-center rounded-full bg-white/20 px-3 text-xs font-semibold text-white ring-1 ring-white/10 backdrop-blur">
+          <span className="inline-flex h-7 items-center rounded-full bg-white/20 px-2.5 text-xs font-semibold text-white ring-1 ring-white/10 backdrop-blur">
             +{overflowTeams} more
           </span>
         ) : null}
@@ -205,7 +205,7 @@ const ProjectEpicsPreview = ({ epics = [], onSelectEpic }) => {
   const overflowEpics = Math.max(epics.length - visibleEpics.length, 0);
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
           <FolderTree className="h-3.5 w-3.5 text-violet-600" />
@@ -216,13 +216,13 @@ const ProjectEpicsPreview = ({ epics = [], onSelectEpic }) => {
         </span>
       </div>
 
-      <div className="mt-3 flex min-h-[32px] flex-wrap gap-2">
+      <div className="mt-2 flex min-h-[28px] flex-wrap gap-1.5">
         {visibleEpics.length ? (
           visibleEpics.map((epic) => (
             <button
               key={epic._id || epic.name}
               type="button"
-              className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:-translate-y-0.5 hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 transition hover:-translate-y-0.5 hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
               onClick={() => onSelectEpic?.(epic)}
               title={epic.name}
             >
@@ -237,7 +237,7 @@ const ProjectEpicsPreview = ({ epics = [], onSelectEpic }) => {
           <span className="text-sm text-slate-500">No epics yet</span>
         )}
         {overflowEpics ? (
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-500">
+          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-500">
             +{overflowEpics}
           </span>
         ) : null}
@@ -491,19 +491,19 @@ const ProjectCard = ({
   return (
     <>
       <Card
-        className="page-shell-enter interactive-card flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_22px_56px_-42px_rgba(15,23,42,0.42)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_30px_70px_-42px_rgba(15,23,42,0.5)]"
+        className="page-shell-enter interactive-card flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_18px_42px_-32px_rgba(15,23,42,0.36)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_24px_54px_-36px_rgba(15,23,42,0.46)]"
         style={{ animationDelay: `${index * 45}ms` }}
       >
         <div
-          className="relative min-h-[238px] overflow-hidden px-5 py-5 text-white sm:px-6"
+          className="relative min-h-[180px] overflow-hidden px-4 py-4 text-white sm:px-5"
           style={{ backgroundImage: palette.headerGradient }}
         >
           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.13)_0%,rgba(255,255,255,0)_44%,rgba(15,23,42,0.13)_100%)]" />
 
-          <div className="relative flex h-full min-w-0 flex-col gap-5">
-            <div className="flex min-w-0 items-start justify-between gap-4">
+          <div className="relative flex h-full min-w-0 flex-col gap-3.5">
+            <div className="flex min-w-0 items-start justify-between gap-3">
               <div className="flex min-w-0 flex-1 flex-col">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] uppercase text-white/70">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase text-white/70">
                   <span>Project</span>
                   {projectShortCode ? (
                     <>
@@ -515,14 +515,14 @@ const ProjectCard = ({
                   <span>Created {projectCreatedAt}</span>
                 </div>
                 <h3
-                  className="mt-3 line-clamp-2 max-w-[32rem] text-2xl font-semibold leading-tight text-white sm:text-[28px]"
+                  className="mt-2 line-clamp-2 max-w-[32rem] text-xl font-semibold leading-tight text-white sm:text-2xl"
                   title={projectTitle}
                 >
                   {projectTitle}
                 </h3>
                 <span
                   aria-hidden="true"
-                  className="mt-3 h-[3px] w-24 max-w-[45%] rounded-full opacity-95"
+                  className="mt-2.5 h-[3px] w-20 max-w-[45%] rounded-full opacity-95"
                   style={{
                     backgroundImage: palette.accentGradient,
                     boxShadow: `0 0 0 1px rgba(255, 255, 255, 0.24), 0 0 18px ${palette.glowColor}`,
@@ -537,10 +537,10 @@ const ProjectCard = ({
               <div className="flex shrink-0 flex-col items-end gap-2">
                 <StatusBadge status={projectStatus} />
                 {canManageProject ? (
-                  <div className="flex items-center gap-1.5 rounded-2xl bg-white/10 p-1 ring-1 ring-white/20 backdrop-blur">
+                  <div className="flex items-center gap-1 rounded-2xl bg-white/10 p-1 ring-1 ring-white/20 backdrop-blur">
                     <Button
                       aria-label="Manage Project"
-                      className="interactive-button h-9 w-9 rounded-xl bg-white/10 p-0 text-white ring-1 ring-white/10 hover:bg-white/20"
+                      className="interactive-button h-8 w-8 rounded-xl bg-white/10 p-0 text-white ring-1 ring-white/10 hover:bg-white/20"
                       title="Manage Project"
                       type="button"
                       onClick={() => setIsManageDialogOpen(true)}
@@ -550,7 +550,7 @@ const ProjectCard = ({
                     </Button>
                     <Button
                       aria-label={project.isCompleted ? "Reopen Project" : "Mark as Completed"}
-                      className="interactive-button h-9 w-9 rounded-xl bg-white/10 p-0 text-white ring-1 ring-white/10 hover:bg-white/20"
+                      className="interactive-button h-8 w-8 rounded-xl bg-white/10 p-0 text-white ring-1 ring-white/10 hover:bg-white/20"
                       disabled={isUpdatingStatus}
                       title={project.isCompleted ? "Reopen Project" : "Mark as Completed"}
                       type="button"
@@ -568,7 +568,7 @@ const ProjectCard = ({
                       </span>
                     </Button>
                     <Button
-                      className="interactive-button h-9 w-9 rounded-xl bg-rose-500/20 p-0 text-rose-50 ring-1 ring-rose-200/30 shadow-[0_18px_36px_-24px_rgba(244,63,94,0.95)] backdrop-blur hover:bg-rose-500/30"
+                      className="interactive-button h-8 w-8 rounded-xl bg-rose-500/20 p-0 text-rose-50 ring-1 ring-rose-200/30 shadow-[0_18px_36px_-24px_rgba(244,63,94,0.95)] backdrop-blur hover:bg-rose-500/30"
                       disabled={isDeletingProject}
                       size="icon"
                       title="Delete Project"
@@ -591,13 +591,13 @@ const ProjectCard = ({
           </div>
         </div>
 
-        <CardContent className="flex flex-1 flex-col gap-4 p-5 sm:p-6">
+        <CardContent className="flex flex-1 flex-col gap-3 p-4 sm:p-5">
           {project.description ? (
-            <p className="line-clamp-2 text-sm leading-6 text-slate-600">
+            <p className="line-clamp-2 text-sm leading-5 text-slate-600">
               {project.description}
             </p>
           ) : (
-            <p className="text-sm leading-6 text-slate-500">
+            <p className="text-sm leading-5 text-slate-500">
               No description added yet.
             </p>
           )}
@@ -610,24 +610,24 @@ const ProjectCard = ({
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             {metricItems.map((item) => {
               const MetricIcon = item.icon;
 
               return (
                 <div
                   key={item.label}
-                  className="interactive-card min-h-[88px] rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 shadow-sm transition duration-200 hover:border-blue-200 hover:bg-white hover:shadow-md"
+                  className="interactive-card min-h-[72px] rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 shadow-sm transition duration-200 hover:border-blue-200 hover:bg-white hover:shadow-md"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-[11px] font-semibold uppercase text-slate-500">
                       {item.label}
                     </p>
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-blue-600 shadow-sm ring-1 ring-slate-200">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-blue-600 shadow-sm ring-1 ring-slate-200">
                       <MetricIcon className="h-4 w-4" />
                     </span>
                   </div>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  <p className="mt-1.5 text-xl font-semibold text-slate-950">
                     {item.value}
                   </p>
                 </div>
