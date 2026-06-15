@@ -99,6 +99,17 @@ const BUG_PRIORITY_GROUPS = [
   { key: "P3", label: "P3 Medium", source: "Medium", color: "#2563eb" },
   { key: "P4", label: "P4 Low", source: "Low", color: "#10b981" },
 ];
+const DEVELOPER_WORK_DISTRIBUTION_COLORS = {
+  Tasks: "#3b82f6",
+  Bugs: "#ef4444",
+};
+const DEVELOPER_SEVERITY_COLORS = {
+  Critical: "#ef4444",
+  Major: "#f97316",
+  Minor: "#f59e0b",
+  Low: "#10b981",
+  Unspecified: "#64748b",
+};
 const STATUS_OPTIONS = [
   { value: "all", label: "All statuses" },
   { value: "open", label: "Open group", statusGroup: "open" },
@@ -138,6 +149,10 @@ const toNumber = (value) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
 };
+const sumChartValues = (rows = [], dataKey = "value") =>
+  asArray(rows).reduce((sum, row) => sum + toNumber(row?.[dataKey]), 0);
+const hasChartValues = (rows = [], dataKey = "value") =>
+  sumChartValues(rows, dataKey) > 0;
 const percent = (part, total) => (total ? Math.round((part / total) * 100) : 0);
 const resolveUserLabel = (user, fallback = "Unassigned") =>
   user?.name || user?.email || fallback;
@@ -205,18 +220,18 @@ const ChartFrame = ({ children, className, height = 350 }) => {
 
   useEffect(() => {
     if (import.meta.env.DEV && frameRef.current) {
-      console.log(`Chart Frame dimensions:`, {
+      console.debug("Reports chart frame dimensions:", {
         width: frameRef.current.offsetWidth,
-        height: frameRef.current.offsetHeight
+        height: frameRef.current.offsetHeight,
       });
     }
-  }, []);
+  }, [height]);
 
   return (
     <div
       ref={frameRef}
-      className={cn("w-full", className)}
-      style={{ height, minHeight: height }}
+      className={cn("min-w-0 w-full overflow-visible", className)}
+      style={{ height, minHeight: height, minWidth: 0 }}
     >
       {children}
     </div>
@@ -707,24 +722,46 @@ const DeveloperReportsDashboard = ({ user }) => {
       dateTo: "",
     });
 
-  const workDistributionData = useMemo(() =>
-    (data?.charts?.workDistribution || []).map(item => ({ ...item, value: Number(item.value || 0) })),
-    [data?.charts?.workDistribution]
-  );
+  const workDistributionData = useMemo(() => {
+    const metricRows = [
+      { name: "Tasks", value: toNumber(data?.taskMetrics?.assigned) },
+      { name: "Bugs", value: toNumber(data?.bugMetrics?.assigned) },
+    ].filter((item) => item.value > 0);
 
-  const severityDistributionData = useMemo(() =>
-    (data?.charts?.severityDistribution || []).map(item => ({ ...item, value: Number(item.value || 0) })),
-    [data?.charts?.severityDistribution]
-  );
+    if (metricRows.length) {
+      return metricRows;
+    }
+
+    return asArray(data?.charts?.workDistribution)
+      .map((item) => ({ ...item, value: toNumber(item?.value) }))
+      .filter((item) => item.name && item.value > 0);
+  }, [data?.bugMetrics?.assigned, data?.charts?.workDistribution, data?.taskMetrics?.assigned]);
+
+  const severityDistributionData = useMemo(() => {
+    const knownRows = asArray(data?.charts?.severityDistribution)
+      .map((item) => ({ ...item, value: toNumber(item?.value) }))
+      .filter((item) => item.name && item.value > 0);
+    const knownTotal = sumChartValues(knownRows);
+    const bugTotal = toNumber(data?.bugMetrics?.assigned);
+    const unspecified = Math.max(bugTotal - knownTotal, 0);
+
+    return unspecified > 0
+      ? [...knownRows, { name: "Unspecified", value: unspecified }]
+      : knownRows;
+  }, [data?.bugMetrics?.assigned, data?.charts?.severityDistribution]);
 
   const sprintTrendData = useMemo(() =>
     (data?.charts?.sprintTrend || []).map(item => ({
       ...item,
-      tasks: Number(item.tasks || 0),
-      bugs: Number(item.bugs || 0)
+      tasks: toNumber(item.tasks),
+      bugs: toNumber(item.bugs)
     })),
     [data?.charts?.sprintTrend]
   );
+  const hasWorkDistributionChart = hasChartValues(workDistributionData);
+  const hasSeverityDistributionChart = hasChartValues(severityDistributionData);
+  const hasSprintTrendChart =
+    hasChartValues(sprintTrendData, "tasks") || hasChartValues(sprintTrendData, "bugs");
 
   if (error) {
     return (
@@ -743,10 +780,15 @@ const DeveloperReportsDashboard = ({ user }) => {
   const { summary, taskMetrics, bugMetrics, productivityScore, charts, recentActivity, moduleStats } = data;
 
   if (import.meta.env.DEV) {
-    console.log("Developer Analytics API Response:", data);
-    console.log("Work Distribution Data:", workDistributionData);
-    console.log("Severity Distribution Data:", severityDistributionData);
-    console.log("Sprint Trend Data:", sprintTrendData);
+    console.debug("Developer Analytics API Response:", data);
+    console.debug("Developer Reports chart data:", {
+      workDistributionData,
+      severityDistributionData,
+      sprintTrendData,
+      hasWorkDistributionChart,
+      hasSeverityDistributionChart,
+      hasSprintTrendChart,
+    });
   }
 
   const getWorkloadHealth = (assigned) => {
@@ -884,8 +926,8 @@ const DeveloperReportsDashboard = ({ user }) => {
       <div className="grid gap-6 lg:grid-cols-2">
         <AnalyticsPanel title="Work Distribution">
           <ChartFrame height={300}>
-            {workDistributionData.length ? (
-              <ResponsiveContainer width="100%" height={300}>
+            {hasWorkDistributionChart ? (
+              <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={workDistributionData}
@@ -898,8 +940,12 @@ const DeveloperReportsDashboard = ({ user }) => {
                     cy="50%"
                     isAnimationActive={false}
                   >
-                    <Cell fill="#3b82f6" />
-                    <Cell fill="#ef4444" />
+                    {workDistributionData.map((entry) => (
+                      <Cell
+                        key={entry.name}
+                        fill={DEVELOPER_WORK_DISTRIBUTION_COLORS[entry.name] || CHART_COLORS[0]}
+                      />
+                    ))}
                   </Pie>
                   <Tooltip contentStyle={chartTooltipStyle} />
                 </PieChart>
@@ -920,8 +966,8 @@ const DeveloperReportsDashboard = ({ user }) => {
 
         <AnalyticsPanel title="Bug Severity Distribution">
           <ChartFrame height={300}>
-            {severityDistributionData.length ? (
-              <ResponsiveContainer width="100%" height={300}>
+            {hasSeverityDistributionChart ? (
+              <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={severityDistributionData}
@@ -935,11 +981,10 @@ const DeveloperReportsDashboard = ({ user }) => {
                     isAnimationActive={false}
                   >
                     {severityDistributionData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={
-                        entry.name === "Critical" ? "#ef4444" :
-                        entry.name === "Major" ? "#f97316" :
-                        entry.name === "Minor" ? "#f59e0b" : "#10b981"
-                      } />
+                      <Cell
+                        key={`${entry.name}-${index}`}
+                        fill={DEVELOPER_SEVERITY_COLORS[entry.name] || CHART_COLORS[index % CHART_COLORS.length]}
+                      />
                     ))}
                   </Pie>
                   <Tooltip contentStyle={chartTooltipStyle} />
@@ -950,11 +995,10 @@ const DeveloperReportsDashboard = ({ user }) => {
           <div className="mt-4 flex flex-wrap justify-center gap-4 text-xs">
             {severityDistributionData.map((entry) => (
               <div key={entry.name} className="flex items-center gap-1.5">
-                <div className={cn("h-2.5 w-2.5 rounded-full",
-                  entry.name === "Critical" ? "bg-rose-500" :
-                  entry.name === "Major" ? "bg-orange-500" :
-                  entry.name === "Minor" ? "bg-amber-500" : "bg-emerald-500"
-                )} />
+                <div
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: DEVELOPER_SEVERITY_COLORS[entry.name] || CHART_COLORS[0] }}
+                />
                 <span className="text-slate-500 font-medium">{entry.name}: {entry.value}</span>
               </div>
             ))}
@@ -966,8 +1010,8 @@ const DeveloperReportsDashboard = ({ user }) => {
       <AnalyticsPanel title="Sprint Trend" description="Completed items over last 6 sprints">
 
         <ChartFrame height={320}>
-          {sprintTrendData.length ? (
-            <ResponsiveContainer width="100%" height={320}>
+          {hasSprintTrendChart ? (
+            <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={sprintTrendData}>
                 <defs>
                   <linearGradient id="colorTasks" x1="0" y1="0" x2="0" y2="1">

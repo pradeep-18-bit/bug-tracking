@@ -28,9 +28,12 @@ const getAllowedOrigins = () => {
   return configuredOrigins.length ? configuredOrigins : true;
 };
 
-const roomName = (conversationId) => `conversation:${conversationId}`;
+const roomName = (conversationId) => `conversation:${objectIdString(conversationId)}`;
+const userRoomName = (userId) => `user:${objectIdString(userId)}`;
 const workspaceRoomName = (workspaceId) =>
   `workspace:${normalizeWorkspaceId(workspaceId)}`;
+
+const objectIdString = (value) => String(value?._id || value?.id || value || "");
 
 const addOnlineUser = (user, socketId) => {
   const workspaceId = normalizeWorkspaceId(user.workspaceId);
@@ -78,11 +81,11 @@ const emitOnlineUsers = (io, workspaceId) => {
   const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
   const onlineUsers = getOnlineUsers(normalizedWorkspaceId);
 
-  io.sockets.sockets.forEach((socket) => {
-    if (socket.user?.workspaceId === normalizedWorkspaceId) {
-      socket.emit("online_users", onlineUsers);
-    }
-  });
+  console.log(
+    `[Socket] Broadcasting online users to workspace ${normalizedWorkspaceId}: ${onlineUsers.length} users`
+  );
+
+  io.to(workspaceRoomName(normalizedWorkspaceId)).emit("online_users", onlineUsers);
 };
 
 const authenticateSocket = async (socket, next) => {
@@ -142,18 +145,24 @@ const setupChatSocket = (server) => {
       origin: getAllowedOrigins(),
       credentials: true,
     },
-    transports: ["websocket", "polling"],
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    connectTimeout: 45000,
+    allowEIO3: true,
   });
   socketServer = io;
 
   io.use((socket, next) => {
-    console.log(`[Socket] Connection attempt: ${socket.id}`);
+    console.log(
+      `[Socket] Connection attempt: ${socket.id} (Transport: ${socket.conn.transport.name})`
+    );
     authenticateSocket(socket, next);
   });
 
   io.on("connection", async (socket) => {
     console.log(`[Socket] Client connected: ${socket.id} (User: ${socket.user?.name})`);
     addOnlineUser(socket.user, socket.id);
+    socket.join(userRoomName(socket.user._id));
     socket.join(workspaceRoomName(socket.user.workspaceId));
     emitOnlineUsers(io, socket.user.workspaceId);
 
@@ -206,10 +215,17 @@ const setupChatSocket = (server) => {
         const eventPayload = {
           message,
           conversationId: String(conversation._id),
+          conversation,
           tempId: payload.tempId || null,
         };
+        const participantRooms = (conversation.participants || [])
+          .map((participant) => userRoomName(objectIdString(participant)))
+          .filter(Boolean);
 
-        io.to(roomName(conversation._id)).emit("receive_message", eventPayload);
+        io.to([roomName(conversation._id), ...participantRooms]).emit(
+          "receive_message",
+          eventPayload
+        );
         callback?.({
           ok: true,
           ...eventPayload,
@@ -327,17 +343,19 @@ const emitToUser = (userId, eventName, payload = {}) => {
     return false;
   }
 
-  const userIdStr = String(userId);
-  let emitted = false;
+  const targetRoom = userRoomName(userId);
+  const socketsInRoom = socketServer.sockets.adapter.rooms.get(targetRoom);
+  const isOnline = socketsInRoom && socketsInRoom.size > 0;
 
-  socketServer.sockets.sockets.forEach((socket) => {
-    if (String(socket.user?._id || socket.user?.id) === userIdStr) {
-      socket.emit(eventName, payload);
-      emitted = true;
-    }
-  });
+  console.log(
+    `[Socket] Emitting event "${eventName}" to user: ${objectIdString(
+      userId
+    )} (Online: ${Boolean(isOnline)})`
+  );
 
-  return emitted;
+  socketServer.to(targetRoom).emit(eventName, payload);
+
+  return Boolean(isOnline);
 };
 
 const emitBugWorkflowEvent = ({

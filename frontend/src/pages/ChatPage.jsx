@@ -3,7 +3,7 @@ import ChatSidebar from "@/components/chat/ChatSidebar";
 import ChatWindow from "@/components/chat/ChatWindow";
 import { useAuth } from "@/hooks/use-auth";
 import { useChatStore } from "@/lib/chatStore";
-import { disconnectChatSocket, getChatSocket } from "@/lib/socket";
+import { getChatSocket } from "@/lib/socket";
 
 const getId = (value) => String(value?._id || value?.id || value || "");
 
@@ -21,16 +21,11 @@ const ChatPage = () => {
   const createDirectConversation = useChatStore(
     (state) => state.createDirectConversation
   );
-  const loadConversations = useChatStore((state) => state.loadConversations);
   const loadMessages = useChatStore((state) => state.loadMessages);
-  const receiveMessage = useChatStore((state) => state.receiveMessage);
   const searchUsers = useChatStore((state) => state.searchUsers);
   const sendMessage = useChatStore((state) => state.sendMessage);
   const setActiveConversation = useChatStore((state) => state.setActiveConversation);
   const setCurrentUserId = useChatStore((state) => state.setCurrentUserId);
-  const setOnlineUsers = useChatStore((state) => state.setOnlineUsers);
-  const setTyping = useChatStore((state) => state.setTyping);
-  const markSeenLocal = useChatStore((state) => state.markSeenLocal);
 
   const activeConversation = useMemo(
     () =>
@@ -58,70 +53,15 @@ const ChatPage = () => {
   }, [setCurrentUserId, user]);
 
   useEffect(() => {
-    if (!token) {
-      return undefined;
-    }
-
-    loadConversations({ force: true });
-
-    const socket = getChatSocket(token);
-
-    if (!socket) {
-      return undefined;
-    }
-
-    const handleReceiveMessage = (payload) => receiveMessage(payload);
-    const handleOnlineUsers = (users) => setOnlineUsers(users);
-    const handleTyping = (payload) =>
-      setTyping({
-        conversationId: payload.conversationId,
-        user: payload.user,
-        stopped: payload.stopped,
-      });
-    const handleMessageSeen = (payload) => markSeenLocal(payload);
-    const handleConnect = () => {
-      const currentConversationId = useChatStore.getState().activeConversationId;
-
-      if (currentConversationId) {
-        socket.emit("join_conversation", { conversationId: currentConversationId });
-        socket.emit("mark_seen", { conversationId: currentConversationId });
-      }
-    };
-
-    socket.on("receive_message", handleReceiveMessage);
-    socket.on("online_users", handleOnlineUsers);
-    socket.on("user_typing", handleTyping);
-    socket.on("message_seen", handleMessageSeen);
-    socket.on("connect", handleConnect);
-    socket.connect();
-
-    return () => {
-      socket.off("receive_message", handleReceiveMessage);
-      socket.off("online_users", handleOnlineUsers);
-      socket.off("user_typing", handleTyping);
-      socket.off("message_seen", handleMessageSeen);
-      socket.off("connect", handleConnect);
-      disconnectChatSocket();
-    };
-  }, [
-    loadConversations,
-    markSeenLocal,
-    receiveMessage,
-    setOnlineUsers,
-    setTyping,
-    token,
-  ]);
-
-  useEffect(() => {
     const socket = getChatSocket();
 
-    if (!socket || !activeConversationId) {
+    if (!token || !socket || !activeConversationId) {
       return;
     }
 
     socket.emit("join_conversation", { conversationId: activeConversationId });
     socket.emit("mark_seen", { conversationId: activeConversationId });
-  }, [activeConversationId]);
+  }, [activeConversationId, token]);
 
   const handleSelectConversation = useCallback(
     async (conversationId) => {
@@ -132,7 +72,7 @@ const ChatPage = () => {
   );
 
   return (
-    <div className="mx-auto grid h-[calc(100vh-7rem)] min-h-[660px] w-full max-w-screen-2xl gap-4 overflow-hidden lg:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="flex h-full w-full overflow-hidden">
       <ChatSidebar
         activeConversationId={activeConversationId}
         conversations={conversations}

@@ -2,9 +2,15 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn, getInitials } from "@/lib/utils";
 
 const sizeClasses = {
-  sm: "h-9 w-9 text-[11px]",
+  sm: "h-7 w-7 text-[10px]",
   md: "h-10 w-10 text-xs",
   lg: "h-12 w-12 text-sm",
+};
+
+const overflowSizeClasses = {
+  sm: "h-7 min-w-7 text-[10px]",
+  md: "h-8 min-w-8 text-xs",
+  lg: "h-9 min-w-9 text-sm",
 };
 
 const TeamMemberStack = ({
@@ -47,7 +53,12 @@ const TeamMemberStack = ({
       </div>
 
       {overflowCount ? (
-        <span className="ml-2 inline-flex h-8 min-w-8 items-center justify-center rounded-full border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-600 shadow-sm">
+        <span
+          className={cn(
+            "ml-1.5 inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-2 font-semibold text-slate-600 shadow-sm",
+            overflowSizeClasses[size] || overflowSizeClasses.md
+          )}
+        >
           +{overflowCount}
         </span>
       ) : null}

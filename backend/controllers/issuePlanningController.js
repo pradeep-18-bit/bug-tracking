@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
+const { uploadToS3 } = require("../utils/s3");
 const mongoose = require("mongoose");
 const Comment = require("../models/Comment");
 const Epic = require("../models/Epic");
@@ -35,21 +36,7 @@ fs.mkdirSync(attachmentsRoot, {
   recursive: true,
 });
 
-const attachmentStorage = multer.diskStorage({
-  destination: (_req, _file, callback) => {
-    callback(null, attachmentsRoot);
-  },
-  filename: (_req, file, callback) => {
-    const safeFileName = String(file?.originalname || "attachment")
-      .replace(/\s+/g, "-")
-      .replace(/[^a-zA-Z0-9._-]/g, "");
-
-    callback(
-      null,
-      `${Date.now()}-${Math.round(Math.random() * 1e9)}-${safeFileName || "attachment"}`
-    );
-  },
-});
+const attachmentStorage = multer.memoryStorage();
 
 const uploadIssueAttachmentMiddleware = multer({
   storage: attachmentStorage,
@@ -634,13 +621,16 @@ const uploadIssueAttachment = asyncHandler(async (req, res) => {
   }
 
   const attachment = await IssueAttachment.create({
-    issueId: issue._id,
-    uploadedBy: req.user._id,
-    fileName: req.file.originalname,
-    mimeType: req.file.mimetype,
-    sizeBytes: req.file.size,
-    storagePath: `/uploads/issue-attachments/${req.file.filename}`,
-  });
+  issueId: issue._id,
+  uploadedBy: req.user._id,
+  fileName: req.file.originalname,
+  mimeType: req.file.mimetype,
+  sizeBytes: req.file.size,
+  storagePath: await uploadToS3(
+    req.file,
+    "issue-attachments"
+  ),
+});
 
   await attachment.populate("uploadedBy", "name email role");
   await recordIssueHistory({
