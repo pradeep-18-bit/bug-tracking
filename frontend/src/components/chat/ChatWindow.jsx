@@ -83,7 +83,7 @@ const ChatWindow = memo(
 
     if (!conversation) {
       return (
-        <section className="flex h-full min-h-[620px] items-center justify-center rounded-[32px] border border-emerald-100 bg-[#f1faf2] shadow-[0_26px_70px_-45px_rgba(15,23,42,0.38)] backdrop-blur-sm">
+        <section className="flex h-full min-h-0 items-center justify-center rounded-[24px] border border-emerald-100 bg-[#f1faf2] shadow-[0_26px_70px_-45px_rgba(15,23,42,0.38)] backdrop-blur-sm lg:min-h-[620px] lg:rounded-[32px]">
           <div className="max-w-sm px-6 text-center">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[24px] border border-blue-100 bg-blue-50 text-blue-600">
               <MessageCircle className="h-6 w-6" />
@@ -94,13 +94,20 @@ const ChatWindow = memo(
             <p className="mt-2 text-sm font-medium leading-6 text-slate-500">
               Search for a teammate or choose a project channel to start messaging.
             </p>
+            <Button
+              type="button"
+              className="mt-4 lg:hidden"
+              onClick={onToggleSidebar}
+            >
+              Open chats
+            </Button>
           </div>
         </section>
       );
     }
 
     return (
-      <section className="flex h-[calc(100vh-7.5rem)] min-h-[620px] flex-col overflow-hidden rounded-[32px] border border-emerald-100/90 bg-[#e8f5e9] shadow-[0_28px_74px_-46px_rgba(15,23,42,0.42)] backdrop-blur-sm">
+      <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-[24px] border border-emerald-100/90 bg-[#e8f5e9] shadow-[0_28px_74px_-46px_rgba(15,23,42,0.42)] backdrop-blur-sm lg:h-[calc(100vh-7.5rem)] lg:min-h-[620px] lg:rounded-[32px]">
         <ChatHeader
           conversation={conversation}
           currentUserId={currentUserId}
@@ -110,7 +117,7 @@ const ChatWindow = memo(
 
         <div
           ref={scrollRef}
-          className="dashboard-scrollbar flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.74),transparent_34%),linear-gradient(180deg,_#eef8f0_0%,_#f1faf2_48%,_#e8f5e9_100%)] px-4 py-5 shadow-inner sm:px-6"
+          className="dashboard-scrollbar flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.74),transparent_34%),linear-gradient(180deg,_#eef8f0_0%,_#f1faf2_48%,_#e8f5e9_100%)] px-3 py-4 shadow-inner sm:px-6 sm:py-5"
         >
           {hasMore ? (
             <div className="mb-4 flex justify-center">

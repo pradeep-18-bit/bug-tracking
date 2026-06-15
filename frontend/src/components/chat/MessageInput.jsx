@@ -280,24 +280,24 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
 
   return (
     <form
-      className="border-t border-emerald-100/80 bg-[#f1faf2]/95 px-4 py-3 shadow-[0_-18px_46px_-36px_rgba(15,23,42,0.36)] backdrop-blur-md sm:px-5"
+      className="shrink-0 border-t border-emerald-100/80 bg-[#f1faf2]/95 px-2 py-2 shadow-[0_-18px_46px_-36px_rgba(15,23,42,0.36)] backdrop-blur-md sm:px-5 sm:py-3"
       onSubmit={handleSubmit}
     >
       {attachments.length || uploadError ? (
-        <div className="mb-3 space-y-2">
+        <div className="dashboard-scrollbar mb-2 max-h-[34dvh] space-y-2 overflow-y-auto pr-1 sm:mb-3 sm:max-h-64">
           {attachments.map((attachment) => (
             <div
               key={attachment.id}
-              className="flex items-center gap-3 rounded-[18px] border border-emerald-100 bg-white/88 px-3 py-2 shadow-sm"
+              className="flex items-start gap-3 rounded-[18px] border border-emerald-100 bg-white/88 px-3 py-2 shadow-sm sm:items-center"
             >
               {attachment.previewUrl ? (
                 <img
                   src={attachment.previewUrl}
                   alt=""
-                  className="h-10 w-10 rounded-2xl object-cover"
+                  className="h-16 w-16 shrink-0 rounded-2xl object-cover sm:h-12 sm:w-12"
                 />
               ) : (
-                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 sm:h-12 sm:w-12">
                   <FileText className="h-4 w-4" />
                 </span>
               )}
@@ -335,7 +335,7 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 rounded-xl"
+                className="h-8 w-8 shrink-0 rounded-xl"
                 onClick={() => removeAttachment(attachment.id)}
                 aria-label="Remove attachment"
                 title="Remove"
@@ -350,7 +350,7 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
         </div>
       ) : null}
 
-      <div className="relative flex items-end gap-2 rounded-[24px] border border-emerald-100 bg-white/92 p-2 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.34)]">
+      <div className="relative flex items-end gap-1.5 rounded-[22px] border border-emerald-100 bg-white/92 p-1.5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.34)] sm:gap-2 sm:rounded-[24px] sm:p-2">
         <input
           ref={fileInputRef}
           type="file"
@@ -363,7 +363,7 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
           type="button"
           variant="ghost"
           size="icon"
-          className="hover:bg-emerald-50 hover:text-emerald-700"
+          className="h-9 w-9 shrink-0 hover:bg-emerald-50 hover:text-emerald-700 sm:h-10 sm:w-10"
           aria-label="Attach file"
           title="Attach file"
           onClick={() => fileInputRef.current?.click()}
@@ -379,7 +379,7 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
               handleSubmit(event);
             }
           }}
-          className="max-h-36 min-h-[44px] resize-none border-0 bg-transparent px-2 py-3 text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:ring-0"
+          className="max-h-32 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-2.5 text-sm text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:ring-0 sm:max-h-36 sm:min-h-[44px] sm:px-2 sm:py-3"
           placeholder="Message the team"
           rows={1}
         />
@@ -388,7 +388,7 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
             type="button"
             variant="ghost"
             size="icon"
-            className="hover:bg-amber-50 hover:text-amber-600"
+            className="h-9 w-9 shrink-0 hover:bg-amber-50 hover:text-amber-600 sm:h-10 sm:w-10"
             aria-label="Add emoji"
             title="Add emoji"
             onClick={() => setIsEmojiOpen((current) => !current)}
@@ -432,7 +432,7 @@ const MessageInput = memo(({ conversationId, currentUser, onSend }) => {
             title="Send"
             disabled={!canSend || isUploading}
             className={cn(
-              "bg-gradient-to-r from-blue-600 to-sky-500 shadow-[0_14px_30px_-18px_rgba(37,99,235,0.75)] hover:from-blue-700 hover:to-sky-600",
+              "h-9 w-9 shrink-0 bg-gradient-to-r from-blue-600 to-sky-500 shadow-[0_14px_30px_-18px_rgba(37,99,235,0.75)] hover:from-blue-700 hover:to-sky-600 sm:h-10 sm:w-10",
               (!canSend || isUploading) && "from-slate-300 to-slate-300 shadow-none"
             )}
           >
