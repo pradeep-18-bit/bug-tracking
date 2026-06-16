@@ -17,10 +17,28 @@ const callLogSchema = new Schema(
       required: true,
       index: true,
     },
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
     receiverId: {
       type: Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      default: null,
+      index: true,
+    },
+    channelId: {
+      type: Schema.Types.ObjectId,
+      ref: "Conversation",
+      default: null,
+      index: true,
+    },
+    scope: {
+      type: String,
+      enum: ["direct", "group"],
+      default: "direct",
       index: true,
     },
     participants: {
@@ -60,9 +78,27 @@ const callLogSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["Ringing", "Answered", "Rejected", "Missed", "Ended"],
+      enum: ["Ringing", "Answered", "Rejected", "Missed", "Ended", "Active"],
       default: "Ringing",
       index: true,
+    },
+    activeParticipantIds: {
+      type: [
+        {
+          type: Schema.Types.ObjectId,
+          ref: "User",
+        },
+      ],
+      default: [],
+    },
+    invitedParticipantIds: {
+      type: [
+        {
+          type: Schema.Types.ObjectId,
+          ref: "User",
+        },
+      ],
+      default: [],
     },
   },
   {

@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
 const CallLog = require("./models/CallLog.model");
+const CallParticipant = require("./models/CallParticipant.model");
 const Conversation = require("./models/Conversation.model");
 const User = require("./models/User");
 const {
@@ -34,6 +35,7 @@ const getAllowedOrigins = () => {
 
 const roomName = (conversationId) => `conversation:${objectIdString(conversationId)}`;
 const userRoomName = (userId) => `user:${objectIdString(userId)}`;
+const callRoomName = (callId) => `call:${objectIdString(callId)}`;
 const workspaceRoomName = (workspaceId) =>
   `workspace:${normalizeWorkspaceId(workspaceId)}`;
 
@@ -161,11 +163,59 @@ const serializeCall = (call, extras = {}) => ({
   conversationId: objectIdString(call.conversationId),
   callerId: objectIdString(call.callerId),
   receiverId: objectIdString(call.receiverId),
+  createdBy: objectIdString(call.createdBy || call.callerId),
+  scope: call.scope || "direct",
   callType: call.callType,
   status: call.status,
   startTime: call.startTime,
+  activeParticipantIds: (call.activeParticipantIds || []).map(objectIdString),
+  invitedParticipantIds: (call.invitedParticipantIds || call.participants || []).map(
+    objectIdString
+  ),
   ...extras,
 });
+
+const serializeSocketUser = (user) => ({
+  _id: user?._id,
+  id: objectIdString(user),
+  name: user?.name || "",
+  email: user?.email || "",
+  role: user?.role || "",
+});
+
+const getParticipantUsers = async (userIds = []) =>
+  User.find({
+    _id: {
+      $in: userIds,
+    },
+  })
+    .select("_id name email role designation")
+    .lean();
+
+const emitCallParticipants = async (io, callId) => {
+  const call = await CallLog.findById(callId).lean();
+
+  if (!call) {
+    return;
+  }
+
+  const participantRecords = await CallParticipant.find({ callId })
+    .populate("userId", "_id name email role designation")
+    .lean();
+  const payload = {
+    call: serializeCall(call),
+    participants: participantRecords.map((record) => ({
+      user: serializeSocketUser(record.userId),
+      role: record.role,
+      status: record.status,
+      joinedAt: record.joinedAt,
+      leftAt: record.leftAt,
+    })),
+  };
+
+  io.to(callRoomName(callId)).emit("call:participants", payload);
+  io.to(roomName(call.conversationId)).emit("call:participants", payload);
+};
 
 const authenticateSocket = async (socket, next) => {
   try {
@@ -259,6 +309,25 @@ const setupChatSocket = (server) => {
       }
 
       socket.join(roomName(conversation._id));
+      const activeConversationCall = await CallLog.findOne({
+        conversationId: conversation._id,
+        scope: "group",
+        status: "Active",
+      }).lean();
+
+      if (activeConversationCall) {
+        socket.emit("call:channel-active", {
+          call: serializeCall(activeConversationCall, {
+            channelName:
+              conversation.name ||
+              conversation.projectId?.name ||
+              conversation.teamId?.name ||
+              "Group channel",
+            participants: conversation.participants || [],
+          }),
+        });
+      }
+
       callback?.({
         ok: true,
         conversationId: String(conversation._id),
@@ -407,33 +476,65 @@ const setupChatSocket = (server) => {
           { lean: true }
         );
 
-        if (!conversation || conversation.type !== "direct") {
-          throw new Error("Calls are available for direct conversations");
+        if (!conversation) {
+          throw new Error("Conversation not found or inaccessible");
         }
 
-        const receiverId = objectIdString(payload.receiverId);
+        const isGroupCall = conversation.type !== "direct";
+        const receiverId = isGroupCall ? "" : objectIdString(payload.receiverId);
         const participantIds = (conversation.participants || []).map(objectIdString);
 
-        if (
+        if (!isGroupCall && (
           !receiverId ||
           receiverId === objectIdString(socket.user._id) ||
           !participantIds.includes(receiverId)
-        ) {
+        )) {
           throw new Error("Call receiver is not part of this conversation");
         }
 
         const receiver = (conversation.participants || []).find(
           (participant) => objectIdString(participant) === receiverId
         );
+        const invitedParticipantIds = isGroupCall
+          ? participantIds
+          : [objectIdString(socket.user._id), receiverId];
+        const onlineParticipantIds = invitedParticipantIds.filter(
+          (participantId) => participantId !== objectIdString(socket.user._id)
+        );
         const call = await CallLog.create({
           conversationId: conversation._id,
+          channelId: conversation._id,
           callerId: socket.user._id,
-          receiverId,
-          participants: [socket.user._id, receiverId],
+          createdBy: socket.user._id,
+          receiverId: receiverId || null,
+          scope: isGroupCall ? "group" : "direct",
+          participants: invitedParticipantIds,
+          invitedParticipantIds,
+          activeParticipantIds: isGroupCall ? [socket.user._id] : [],
           workspaceId: socket.user.workspaceId,
           callType,
-          status: "Ringing",
+          status: isGroupCall ? "Active" : "Ringing",
+          startTime: isGroupCall ? new Date() : null,
         });
+        await CallParticipant.insertMany(
+          invitedParticipantIds.map((participantId) => ({
+            callId: call._id,
+            userId: participantId,
+            role:
+              participantId === objectIdString(socket.user._id)
+                ? "host"
+                : "participant",
+            status:
+              isGroupCall && participantId === objectIdString(socket.user._id)
+                ? "Joined"
+                : "Invited",
+            joinedAt:
+              isGroupCall && participantId === objectIdString(socket.user._id)
+                ? call.startTime
+                : null,
+          })),
+          { ordered: false }
+        ).catch(() => {});
         const timeoutId = setTimeout(async () => {
           const currentCall = activeCalls.get(objectIdString(call._id));
 
@@ -470,11 +571,20 @@ const setupChatSocket = (server) => {
           callerId: objectIdString(socket.user._id),
           receiverId,
           workspaceId: socket.user.workspaceId,
-          status: "Ringing",
-          timeoutId,
+          conversationId: objectIdString(conversation._id),
+          scope: isGroupCall ? "group" : "direct",
+          status: isGroupCall ? "Active" : "Ringing",
+          participants: new Set(isGroupCall ? [objectIdString(socket.user._id)] : []),
+          timeoutId: isGroupCall ? null : timeoutId,
         });
-        setCallPresence(io, socket.user.workspaceId, [socket.user._id], "ringing");
-        setCallPresence(io, socket.user.workspaceId, [receiverId], "ringing");
+        socket.join(callRoomName(call._id));
+        setCallPresence(
+          io,
+          socket.user.workspaceId,
+          [socket.user._id],
+          isGroupCall ? "in-group-call" : "ringing"
+        );
+        setCallPresence(io, socket.user.workspaceId, onlineParticipantIds, isGroupCall ? "ringing" : "ringing");
 
         const caller = {
           _id: socket.user._id,
@@ -485,17 +595,32 @@ const setupChatSocket = (server) => {
         const basePayload = serializeCall(call, {
           caller,
           receiver,
+          channelName:
+            conversation.name ||
+            conversation.projectId?.name ||
+            conversation.teamId?.name ||
+            "Group channel",
+          participants: conversation.participants || [],
           createdAt: call.createdAt,
         });
 
-        io.to(userRoomName(receiverId)).emit("call:incoming", basePayload);
+        if (isGroupCall) {
+          onlineParticipantIds.forEach((participantId) => {
+            io.to(userRoomName(participantId)).emit("call:incoming", basePayload);
+          });
+        } else {
+          io.to(userRoomName(receiverId)).emit("call:incoming", basePayload);
+        }
         io.to(userRoomName(socket.user._id)).emit("call:outgoing", basePayload);
         await emitCallMessage({
           io,
           call,
           actor: socket.user,
-          message: `${callType === "video" ? "Video" : "Audio"} call started`,
+          message: isGroupCall
+            ? `${basePayload.channelName} group call started`
+            : `${callType === "video" ? "Video" : "Audio"} call started`,
         });
+        await emitCallParticipants(io, call._id);
         callback?.({ ok: true, call: basePayload });
       } catch (error) {
         callback?.({
@@ -545,8 +670,129 @@ const setupChatSocket = (server) => {
       }
     });
 
+    socket.on("call:join", async (payload = {}, callback) => {
+      try {
+        const call = await CallLog.findOne({
+          _id: payload.callId,
+          workspaceId: socket.user.workspaceId,
+          participants: socket.user._id,
+          scope: "group",
+          status: {
+            $in: ["Active", "Answered"],
+          },
+        });
+
+        if (!call) {
+          throw new Error("Group call is no longer available");
+        }
+
+        const userId = objectIdString(socket.user._id);
+        const joinedAt = new Date();
+        const activeParticipantIds = new Set(
+          (call.activeParticipantIds || []).map(objectIdString)
+        );
+        const existingParticipantIds = Array.from(activeParticipantIds);
+        activeParticipantIds.add(userId);
+        call.activeParticipantIds = Array.from(activeParticipantIds);
+        call.status = "Active";
+        call.startTime = call.startTime || joinedAt;
+        await call.save();
+        await CallParticipant.findOneAndUpdate(
+          {
+            callId: call._id,
+            userId: socket.user._id,
+          },
+          {
+            $set: {
+              status: "Joined",
+              joinedAt,
+              leftAt: null,
+            },
+            $setOnInsert: {
+              role: objectIdString(call.createdBy || call.callerId) === userId
+                ? "host"
+                : "participant",
+            },
+          },
+          {
+            upsert: true,
+            new: true,
+          }
+        );
+
+        socket.join(callRoomName(call._id));
+        const activeCall = activeCalls.get(objectIdString(call._id)) || {
+          scope: "group",
+          workspaceId: call.workspaceId,
+          conversationId: objectIdString(call.conversationId),
+          participants: new Set(),
+          status: "Active",
+        };
+        activeCall.participants = new Set([
+          ...Array.from(activeCall.participants || []),
+          userId,
+        ]);
+        activeCalls.set(objectIdString(call._id), activeCall);
+        setCallPresence(io, call.workspaceId, [socket.user._id], "in-group-call");
+
+        socket.to(callRoomName(call._id)).emit("call:participant-joined", {
+          call: serializeCall(call),
+          user: serializeSocketUser(socket.user),
+          existingParticipantIds,
+        });
+        io.to(userRoomName(socket.user._id)).emit("call:joined", {
+          call: serializeCall(call),
+          existingParticipantIds,
+        });
+        await emitCallMessage({
+          io,
+          call,
+          actor: socket.user,
+          message: `${socket.user.name || "A participant"} joined the call`,
+        });
+        await emitCallParticipants(io, call._id);
+        callback?.({
+          ok: true,
+          call: serializeCall(call),
+          existingParticipantIds,
+        });
+      } catch (error) {
+        callback?.({
+          ok: false,
+          error: error?.message || "Unable to join group call",
+        });
+      }
+    });
+
     socket.on("call:reject", async (payload = {}, callback) => {
       try {
+        const groupCall = await CallLog.findOne({
+          _id: payload.callId,
+          workspaceId: socket.user.workspaceId,
+          participants: socket.user._id,
+          scope: "group",
+          status: "Active",
+        });
+
+        if (groupCall) {
+          await CallParticipant.findOneAndUpdate(
+            {
+              callId: groupCall._id,
+              userId: socket.user._id,
+            },
+            {
+              $set: {
+                status: "Declined",
+                leftAt: new Date(),
+              },
+            }
+          );
+          setCallPresence(io, groupCall.workspaceId, [socket.user._id], "online");
+          await emitCallParticipants(io, groupCall._id);
+          callback?.({ ok: true });
+          return;
+        }
+
         const call = await CallLog.findOne({
           _id: payload.callId,
           receiverId: socket.user._id,
@@ -582,6 +828,59 @@ const setupChatSocket = (server) => {
       }
     });
 
+    socket.on("call:leave", async (payload = {}, callback) => {
+      try {
+        const call = await CallLog.findOne({
+          _id: payload.callId,
+          workspaceId: socket.user.workspaceId,
+          participants: socket.user._id,
+          scope: "group",
+          status: "Active",
+        });
+
+        if (!call) {
+          return callback?.({ ok: false, error: "Call not found" });
+        }
+
+        const userId = objectIdString(socket.user._id);
+        call.activeParticipantIds = (call.activeParticipantIds || []).filter(
+          (participantId) => objectIdString(participantId) !== userId
+        );
+        await call.save();
+        await CallParticipant.findOneAndUpdate(
+          {
+            callId: call._id,
+            userId: socket.user._id,
+          },
+          {
+            $set: {
+              status: "Left",
+              leftAt: new Date(),
+            },
+          }
+        );
+        socket.leave(callRoomName(call._id));
+        const activeCall = activeCalls.get(objectIdString(call._id));
+        activeCall?.participants?.delete(userId);
+        setCallPresence(io, call.workspaceId, [socket.user._id], "online");
+        io.to(callRoomName(call._id)).emit("call:participant-left", {
+          call: serializeCall(call),
+          userId,
+        });
+        io.to(userRoomName(socket.user._id)).emit("call:left", serializeCall(call));
+        await emitCallMessage({
+          io,
+          call,
+          actor: socket.user,
+          message: `${socket.user.name || "A participant"} left the call`,
+        });
+        await emitCallParticipants(io, call._id);
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ ok: false, error: error?.message || "Unable to leave call" });
+      }
+    });
+
     socket.on("call:end", async (payload = {}, callback) => {
       try {
         const call = await CallLog.findOne({
@@ -595,20 +894,69 @@ const setupChatSocket = (server) => {
         }
 
         const activeCall = activeCalls.get(objectIdString(call._id));
+        const isGroupCall = call.scope === "group";
+        const isHost =
+          objectIdString(call.createdBy || call.callerId) === objectIdString(socket.user._id);
+        const isAdmin = ["Admin", "Manager"].includes(socket.user.role);
+
+        if (isGroupCall && !isHost && !isAdmin) {
+          return callback?.({
+            ok: false,
+            error: "Only the host or an admin can end the group call for everyone",
+          });
+        }
+
         clearTimeout(activeCall?.timeoutId);
         const endTime = new Date();
         const startTime = call.startTime || call.createdAt;
         const duration =
-          call.status === "Answered"
+          call.status === "Answered" || call.status === "Active"
             ? Math.max(1, Math.round((endTime - startTime) / 1000))
             : 0;
         call.endTime = endTime;
         call.duration = duration;
         call.status = call.status === "Answered" ? "Ended" : "Missed";
+        if (isGroupCall) {
+          call.status = "Ended";
+          await CallParticipant.updateMany(
+            {
+              callId: call._id,
+              status: "Joined",
+            },
+            {
+              $set: {
+                status: "Left",
+                leftAt: endTime,
+              },
+            }
+          );
+          await CallParticipant.updateMany(
+            {
+              callId: call._id,
+              status: "Invited",
+            },
+            {
+              $set: {
+                status: "Missed",
+                leftAt: endTime,
+              },
+            }
+          );
+        }
         await call.save();
         activeCalls.delete(objectIdString(call._id));
-        setCallPresence(io, call.workspaceId, [call.callerId, call.receiverId], "online");
-        io.to([userRoomName(call.callerId), userRoomName(call.receiverId)]).emit(
+        setCallPresence(
+          io,
+          call.workspaceId,
+          call.participants || [call.callerId, call.receiverId],
+          "online"
+        );
+        io.to([
+          userRoomName(call.callerId),
+          userRoomName(call.receiverId),
+          callRoomName(call._id),
+          roomName(call.conversationId),
+        ]).emit(
           "call:ended",
           serializeCall(call, { duration })
         );
@@ -618,7 +966,7 @@ const setupChatSocket = (server) => {
           actor: socket.user,
           message:
             call.status === "Ended"
-              ? `${call.callType === "video" ? "Video" : "Audio"} call ended - ${formatCallDuration(duration)}`
+              ? `${call.callType === "video" ? "Video" : "Audio"} call ended (Duration: ${formatCallDuration(duration)})`
               : `${call.callType === "video" ? "Video" : "Audio"} missed call`,
         });
         callback?.({ ok: true, call: serializeCall(call, { duration }) });
@@ -653,6 +1001,28 @@ const setupChatSocket = (server) => {
           fromUserId: objectIdString(socket.user._id),
           startTime: call.startTime,
         });
+      });
+    });
+
+    socket.on("call:raise-hand", async (payload = {}) => {
+      const call = await CallLog.findOne({
+        _id: payload.callId,
+        workspaceId: socket.user.workspaceId,
+        participants: socket.user._id,
+        scope: "group",
+        status: "Active",
+      })
+        .select("_id")
+        .lean();
+
+      if (!call) {
+        return;
+      }
+
+      socket.to(callRoomName(call._id)).emit("call:raise-hand", {
+        callId: objectIdString(call._id),
+        userId: objectIdString(socket.user._id),
+        raised: Boolean(payload.raised),
       });
     });
 

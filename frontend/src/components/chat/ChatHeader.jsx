@@ -24,6 +24,10 @@ const getConversationName = (conversation, currentUserId) => {
 };
 
 const presenceLabel = (status, isOnline) => {
+  if (status === "in-group-call") {
+    return "In Group Call";
+  }
+
   if (status === "in-call") {
     return "In Call";
   }
@@ -36,6 +40,10 @@ const presenceLabel = (status, isOnline) => {
 };
 
 const presenceDotClass = (status, isOnline) => {
+  if (status === "in-group-call") {
+    return "bg-violet-500";
+  }
+
   if (status === "in-call") {
     return "bg-amber-500";
   }
@@ -48,7 +56,7 @@ const presenceDotClass = (status, isOnline) => {
 };
 
 const ChatHeader = memo(({ conversation, currentUserId, onlineUsers, onToggleSidebar }) => {
-  const { activeCall, callPresence, startCall } = useCall();
+  const { activeCall, callPresence, channelCalls, joinCall, startCall } = useCall();
   const participants = conversation?.participants || [];
   const title = getConversationName(conversation, currentUserId);
   const directUser = participants.find(
@@ -60,6 +68,10 @@ const ChatHeader = memo(({ conversation, currentUserId, onlineUsers, onToggleSid
   const currentUserPresence = callPresence[String(currentUserId)] || "";
   const isDirectCallAvailable =
     conversation?.type === "direct" && directUser && !activeCall && currentUserPresence !== "in-call";
+  const activeChannelCall = channelCalls[getId(conversation)] || null;
+  const groupJoinedCount = activeChannelCall?.activeParticipantIds?.length || 0;
+  const isGroupCallAvailable =
+    conversation?.type !== "direct" && conversation && !activeCall && !activeChannelCall;
 
   return (
     <header className="flex min-h-[68px] shrink-0 items-center gap-2 border-b border-white/55 bg-white/52 px-3 py-2.5 backdrop-blur-2xl sm:min-h-[76px] sm:gap-3 sm:px-5 sm:py-3">
@@ -110,7 +122,14 @@ const ChatHeader = memo(({ conversation, currentUserId, onlineUsers, onToggleSid
           {conversation?.type !== "direct" ? (
             <span className="inline-flex items-center gap-1">
               <UsersRound className="h-3.5 w-3.5" />
-              Workspace channel
+              {activeChannelCall
+                ? `${groupJoinedCount} in call`
+                : "Workspace channel"}
+            </span>
+          ) : null}
+          {activeChannelCall ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-extrabold text-amber-700">
+              Live call
             </span>
           ) : null}
         </div>
@@ -139,6 +158,74 @@ const ChatHeader = memo(({ conversation, currentUserId, onlineUsers, onToggleSid
             disabled={!isDirectCallAvailable}
             title="Video call"
             aria-label="Video call"
+          >
+            <Camera className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : null}
+
+      {conversation?.type !== "direct" ? (
+        <div className="flex shrink-0 items-center gap-2">
+          {activeChannelCall && !activeCall ? (
+            <Button
+              type="button"
+              size="sm"
+              className="text-white"
+              onClick={() => joinCall(activeChannelCall)}
+              title="Join group call"
+              aria-label="Join group call"
+            >
+              <Phone className="h-4 w-4" />
+              Join
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="hidden text-blue-600 hover:bg-blue-50 hover:text-blue-700 sm:inline-flex"
+            onClick={() => startCall({ conversation, callType: "audio" })}
+            disabled={!isGroupCallAvailable}
+            title="Start group audio call"
+            aria-label="Start group audio call"
+          >
+            <Phone className="h-4 w-4" />
+            Audio
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="hidden text-blue-600 hover:bg-blue-50 hover:text-blue-700 sm:inline-flex"
+            onClick={() => startCall({ conversation, callType: "video" })}
+            disabled={!isGroupCallAvailable}
+            title="Start group video call"
+            aria-label="Start group video call"
+          >
+            <Camera className="h-4 w-4" />
+            Video
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="text-blue-600 hover:bg-blue-50 hover:text-blue-700 sm:hidden"
+            onClick={() => startCall({ conversation, callType: "audio" })}
+            disabled={!isGroupCallAvailable}
+            title="Start group audio call"
+            aria-label="Start group audio call"
+          >
+            <Phone className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="text-blue-600 hover:bg-blue-50 hover:text-blue-700 sm:hidden"
+            onClick={() => startCall({ conversation, callType: "video" })}
+            disabled={!isGroupCallAvailable}
+            title="Start group video call"
+            aria-label="Start group video call"
           >
             <Camera className="h-4 w-4" />
           </Button>
