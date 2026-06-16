@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
+  KeyRound,
   LoaderCircle,
   LockKeyhole,
   Mail,
@@ -527,129 +528,306 @@ const AuthPage = () => {
               </h1>
             </div>
 
-            <form className="mt-7 space-y-[18px]" onSubmit={handleSubmit}>
-              {successMessage ? (
-                <div className="flex items-start gap-3 rounded-[10px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
-                  <span>{successMessage}</span>
-                </div>
-              ) : null}
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-200" htmlFor="email">
-                  Email
-                </label>
-                <div className="relative">
-                  <Mail className="auth-field-icon pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
-                  <Input
-                    aria-invalid={Boolean(fieldErrors.email)}
-                    autoComplete="email"
-                    className={cn(
-                      inputClassName,
-                      fieldErrors.email &&
-                        "border-rose-400/60 focus-visible:border-rose-400 focus-visible:ring-rose-500/25"
-                    )}
-                    disabled={authMutation.isPending}
-                    id="email"
-                    name="email"
-                    type="email"
-                    placeholder="name@company.com"
-                    value={formData.email}
-                    onChange={handleChange}
-                  />
-                </div>
-                {fieldErrors.email ? (
-                  <p className="text-sm text-rose-300">{fieldErrors.email}</p>
+            {mode === "forgot" ? (
+              <form className="mt-7 space-y-[18px]" onSubmit={handlePasswordResetSubmit}>
+                {successMessage ? (
+                  <div className="flex items-start gap-3 rounded-[10px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                    <span>{successMessage}</span>
+                  </div>
                 ) : null}
-              </div>
 
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-200" htmlFor="password">
-                  Password
-                </label>
-                <div className="relative">
-                  <LockKeyhole className="auth-field-icon pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
-                  <Input
-                    aria-invalid={Boolean(fieldErrors.password)}
-                    autoComplete={mode === "login" ? "current-password" : "new-password"}
-                    className={cn(
-                      passwordInputClassName,
-                      fieldErrors.password &&
-                        "border-rose-400/60 focus-visible:border-rose-400 focus-visible:ring-rose-500/25"
-                    )}
-                    disabled={authMutation.isPending}
-                    id="password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter your password"
-                    value={formData.password}
-                    onChange={handleChange}
-                  />
-                  <button
-                    type="button"
-                    className="auth-field-action absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                    disabled={authMutation.isPending}
-                    onClick={() => setShowPassword((current) => !current)}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" strokeWidth={2} />
-                    ) : (
-                      <Eye className="h-4 w-4" strokeWidth={2} />
-                    )}
-                  </button>
-                </div>
-                {fieldErrors.password ? (
-                  <p className="text-sm text-rose-300">{fieldErrors.password}</p>
-                ) : null}
-              </div>
-
-              {mode === "login" ? (
-                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.05] px-3.5 py-3 text-sm text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08]">
-                  <span className="flex min-w-0 items-center gap-3">
-                    <input
-                      checked={rememberMe}
-                      className="h-4 w-4 rounded border-white/30 bg-slate-950 text-sky-500 focus:ring-2 focus:ring-sky-400/30"
-                      disabled={authMutation.isPending}
-                      type="checkbox"
-                      onChange={(event) => setRememberMe(event.target.checked)}
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-slate-200" htmlFor="reset-email">
+                    Email
+                  </label>
+                  <div className="relative">
+                    <Mail className="auth-field-icon pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
+                    <Input
+                      aria-invalid={Boolean(resetErrors.email)}
+                      autoComplete="email"
+                      className={cn(
+                        inputClassName,
+                        resetErrors.email &&
+                          "border-rose-400/60 focus-visible:border-rose-400 focus-visible:ring-rose-500/25"
+                      )}
+                      disabled={isResetPending}
+                      id="reset-email"
+                      name="email"
+                      type="email"
+                      placeholder="name@company.com"
+                      value={resetForm.email}
+                      onChange={handleResetChange}
                     />
-                    <span className="font-medium">Remember me</span>
-                  </span>
-                  <span className="shrink-0 text-xs text-slate-300">30 days</span>
-                </label>
-              ) : null}
-
-              {canUseDefaultPassword ? (
-                <button
-                  className="mt-3 w-fit rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-left text-[13px] text-[#93C5FD] transition-all duration-200 hover:border-[#3B82F6]/40 hover:bg-[#3B82F6]/20 disabled:cursor-wait disabled:opacity-70"
-                  disabled={authMutation.isPending}
-                  type="button"
-                  onClick={handleUseDefaultPassword}
-                >
-                  Use Default Password
-                </button>
-              ) : null}
-
-              {authMutation.error ? (
-                <div className="rounded-[10px] border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-                  {getAuthErrorMessage(authMutation.error)}
+                  </div>
+                  {resetErrors.email ? (
+                    <p className="text-sm text-rose-300">{resetErrors.email}</p>
+                  ) : null}
                 </div>
-              ) : null}
 
-              <Button
-                className="group mt-2 h-[48px] w-full rounded-xl border border-cyan-200/24 bg-[linear-gradient(100deg,#2563EB_0%,#0891B2_52%,#F97316_150%)] text-sm font-bold text-white shadow-[0_20px_45px_-16px_rgba(14,165,233,0.68)] transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:border-cyan-100/36 hover:shadow-[0_26px_58px_-14px_rgba(14,165,233,0.78)] active:translate-y-0 active:scale-[0.99]"
-                disabled={authMutation.isPending}
-                type="submit"
-              >
-                {submitLabel}
-                {authMutation.isPending ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-                )}
-              </Button>
-            </form>
+                {resetStep === "reset" ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-slate-200" htmlFor="otp">
+                        OTP
+                      </label>
+                      <div className="relative">
+                        <KeyRound className="auth-field-icon pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
+                        <Input
+                          aria-invalid={Boolean(resetErrors.otp)}
+                          autoComplete="one-time-code"
+                          className={cn(
+                            inputClassName,
+                            "tracking-[0.32em]",
+                            resetErrors.otp &&
+                              "border-rose-400/60 focus-visible:border-rose-400 focus-visible:ring-rose-500/25"
+                          )}
+                          disabled={isResetPending}
+                          id="otp"
+                          inputMode="numeric"
+                          name="otp"
+                          placeholder="000000"
+                          value={resetForm.otp}
+                          onChange={handleResetChange}
+                        />
+                      </div>
+                      {resetErrors.otp ? (
+                        <p className="text-sm text-rose-300">{resetErrors.otp}</p>
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-slate-200" htmlFor="newPassword">
+                        New password
+                      </label>
+                      <div className="relative">
+                        <LockKeyhole className="auth-field-icon pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
+                        <Input
+                          aria-invalid={Boolean(resetErrors.newPassword)}
+                          autoComplete="new-password"
+                          className={cn(
+                            passwordInputClassName,
+                            resetErrors.newPassword &&
+                              "border-rose-400/60 focus-visible:border-rose-400 focus-visible:ring-rose-500/25"
+                          )}
+                          disabled={isResetPending}
+                          id="newPassword"
+                          name="newPassword"
+                          type={showResetPassword ? "text" : "password"}
+                          placeholder="Create a new password"
+                          value={resetForm.newPassword}
+                          onChange={handleResetChange}
+                        />
+                        <button
+                          type="button"
+                          className="auth-field-action absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full"
+                          aria-label={showResetPassword ? "Hide password" : "Show password"}
+                          disabled={isResetPending}
+                          onClick={() => setShowResetPassword((current) => !current)}
+                        >
+                          {showResetPassword ? (
+                            <EyeOff className="h-4 w-4" strokeWidth={2} />
+                          ) : (
+                            <Eye className="h-4 w-4" strokeWidth={2} />
+                          )}
+                        </button>
+                      </div>
+                      {resetErrors.newPassword ? (
+                        <p className="text-sm text-rose-300">{resetErrors.newPassword}</p>
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-slate-200" htmlFor="confirmPassword">
+                        Confirm password
+                      </label>
+                      <div className="relative">
+                        <LockKeyhole className="auth-field-icon pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
+                        <Input
+                          aria-invalid={Boolean(resetErrors.confirmPassword)}
+                          autoComplete="new-password"
+                          className={cn(
+                            passwordInputClassName,
+                            resetErrors.confirmPassword &&
+                              "border-rose-400/60 focus-visible:border-rose-400 focus-visible:ring-rose-500/25"
+                          )}
+                          disabled={isResetPending}
+                          id="confirmPassword"
+                          name="confirmPassword"
+                          type={showResetPassword ? "text" : "password"}
+                          placeholder="Confirm new password"
+                          value={resetForm.confirmPassword}
+                          onChange={handleResetChange}
+                        />
+                      </div>
+                      {resetErrors.confirmPassword ? (
+                        <p className="text-sm text-rose-300">{resetErrors.confirmPassword}</p>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
+
+                {resetError ? (
+                  <div className="rounded-[10px] border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+                    {getAuthErrorMessage(resetError)}
+                  </div>
+                ) : null}
+
+                <Button
+                  className="group mt-2 h-[48px] w-full rounded-xl border border-cyan-200/24 bg-[linear-gradient(100deg,#2563EB_0%,#0891B2_52%,#F97316_150%)] text-sm font-bold text-white shadow-[0_20px_45px_-16px_rgba(14,165,233,0.68)] transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:border-cyan-100/36 hover:shadow-[0_26px_58px_-14px_rgba(14,165,233,0.78)] active:translate-y-0 active:scale-[0.99]"
+                  disabled={isResetPending}
+                  type="submit"
+                >
+                  {resetSubmitLabel}
+                  {isResetPending ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+                  )}
+                </Button>
+
+                <button
+                  type="button"
+                  className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-sky-200 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-70"
+                  disabled={isResetPending}
+                  onClick={backToLogin}
+                >
+                  Back to login
+                </button>
+              </form>
+            ) : (
+              <form className="mt-7 space-y-[18px]" onSubmit={handleSubmit}>
+                {successMessage ? (
+                  <div className="flex items-start gap-3 rounded-[10px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                    <span>{successMessage}</span>
+                  </div>
+                ) : null}
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-slate-200" htmlFor="email">
+                    Email
+                  </label>
+                  <div className="relative">
+                    <Mail className="auth-field-icon pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
+                    <Input
+                      aria-invalid={Boolean(fieldErrors.email)}
+                      autoComplete="email"
+                      className={cn(
+                        inputClassName,
+                        fieldErrors.email &&
+                          "border-rose-400/60 focus-visible:border-rose-400 focus-visible:ring-rose-500/25"
+                      )}
+                      disabled={authMutation.isPending}
+                      id="email"
+                      name="email"
+                      type="email"
+                      placeholder="name@company.com"
+                      value={formData.email}
+                      onChange={handleChange}
+                    />
+                  </div>
+                  {fieldErrors.email ? (
+                    <p className="text-sm text-rose-300">{fieldErrors.email}</p>
+                  ) : null}
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-slate-200" htmlFor="password">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <LockKeyhole className="auth-field-icon pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
+                    <Input
+                      aria-invalid={Boolean(fieldErrors.password)}
+                      autoComplete={mode === "login" ? "current-password" : "new-password"}
+                      className={cn(
+                        passwordInputClassName,
+                        fieldErrors.password &&
+                          "border-rose-400/60 focus-visible:border-rose-400 focus-visible:ring-rose-500/25"
+                      )}
+                      disabled={authMutation.isPending}
+                      id="password"
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Enter your password"
+                      value={formData.password}
+                      onChange={handleChange}
+                    />
+                    <button
+                      type="button"
+                      className="auth-field-action absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      disabled={authMutation.isPending}
+                      onClick={() => setShowPassword((current) => !current)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" strokeWidth={2} />
+                      ) : (
+                        <Eye className="h-4 w-4" strokeWidth={2} />
+                      )}
+                    </button>
+                  </div>
+                  {fieldErrors.password ? (
+                    <p className="text-sm text-rose-300">{fieldErrors.password}</p>
+                  ) : null}
+                </div>
+
+                {mode === "login" ? (
+                  <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/[0.05] px-3.5 py-3 text-sm text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] sm:flex-row sm:items-center sm:justify-between">
+                    <label className="flex min-w-0 cursor-pointer items-center gap-3">
+                      <input
+                        checked={rememberMe}
+                        className="h-4 w-4 rounded border-white/30 bg-slate-950 text-sky-500 focus:ring-2 focus:ring-sky-400/30"
+                        disabled={authMutation.isPending}
+                        type="checkbox"
+                        onChange={(event) => setRememberMe(event.target.checked)}
+                      />
+                      <span className="font-medium">Remember me</span>
+                      <span className="text-xs text-slate-300">30 days</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="shrink-0 text-left text-sm font-semibold text-sky-200 transition hover:text-white disabled:opacity-70 sm:text-right"
+                      disabled={authMutation.isPending}
+                      onClick={openForgotPassword}
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                ) : null}
+
+                {canUseDefaultPassword ? (
+                  <button
+                    className="mt-3 w-fit rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-left text-[13px] text-[#93C5FD] transition-all duration-200 hover:border-[#3B82F6]/40 hover:bg-[#3B82F6]/20 disabled:cursor-wait disabled:opacity-70"
+                    disabled={authMutation.isPending}
+                    type="button"
+                    onClick={handleUseDefaultPassword}
+                  >
+                    Use Default Password
+                  </button>
+                ) : null}
+
+                {authMutation.error ? (
+                  <div className="rounded-[10px] border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+                    {getAuthErrorMessage(authMutation.error)}
+                  </div>
+                ) : null}
+
+                <Button
+                  className="group mt-2 h-[48px] w-full rounded-xl border border-cyan-200/24 bg-[linear-gradient(100deg,#2563EB_0%,#0891B2_52%,#F97316_150%)] text-sm font-bold text-white shadow-[0_20px_45px_-16px_rgba(14,165,233,0.68)] transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:border-cyan-100/36 hover:shadow-[0_26px_58px_-14px_rgba(14,165,233,0.78)] active:translate-y-0 active:scale-[0.99]"
+                  disabled={authMutation.isPending}
+                  type="submit"
+                >
+                  {submitLabel}
+                  {authMutation.isPending ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+                  )}
+                </Button>
+              </form>
+            )}
             </div>
           </div>
         </div>
