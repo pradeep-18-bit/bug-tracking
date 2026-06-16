@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Settings2,
   Trash2,
+  UserPlus,
   Users,
   Video,
 } from "lucide-react";
@@ -47,6 +48,33 @@ const buildTeamOption = (team) => ({
   description: team.description || "",
   memberCount: team.memberCount || team.members?.length || 0,
 });
+
+const buildUserOption = (user) => ({
+  value: user._id,
+  label: user.name || user.email || "Unnamed user",
+  email: user.email || "",
+  role: user.role || "Developer",
+});
+
+const formatUserOptionLabel = (option, { context }) => {
+  if (context !== "menu") {
+    return option.label;
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700">
+        {getInitials(option.label)}
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-slate-900">{option.label}</p>
+        <p className="truncate text-xs text-slate-500">
+          {option.role}{option.email ? ` - ${option.email}` : ""}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 const formatTeamOptionLabel = (option, { context }) => {
   if (context !== "menu") {
@@ -127,6 +155,8 @@ const ProjectCard = ({
   onUpdateProject,
   onUpdateStatus,
   onDeleteProject,
+  onAddProjectMember,
+  onRemoveProjectMember,
   onCreateEpic,
   onUpdateEpic,
   onDeleteEpic,
@@ -135,6 +165,8 @@ const ProjectCard = ({
   isUpdatingProject = false,
   isUpdatingStatus = false,
   isDeletingProject = false,
+  isAddingProjectMember = false,
+  removingProjectMemberUserId = "",
   isSavingEpic = false,
   deletingEpicId = "",
   detachingTeamId = "",
@@ -148,8 +180,11 @@ const ProjectCard = ({
   const [isMembersDialogOpen, setIsMembersDialogOpen] = useState(false);
   const [isTeamsDialogOpen, setIsTeamsDialogOpen] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState("");
+  const [selectedProjectMemberId, setSelectedProjectMemberId] = useState("");
+  const [memberToRemove, setMemberToRemove] = useState(null);
   const [deleteConfirmationValue, setDeleteConfirmationValue] = useState("");
   const [teamError, setTeamError] = useState("");
+  const [memberError, setMemberError] = useState("");
   const [statusError, setStatusError] = useState("");
   const [teamsActionError, setTeamsActionError] = useState("");
   const managerName = getProjectAssignmentName(project?.projectManager || project?.manager);
@@ -208,6 +243,38 @@ const ProjectCard = ({
       (left.name || left.email || "").localeCompare(right.name || right.email || "")
     );
   }, [attachedTeams, project?.members]);
+  const directProjectMembers = useMemo(
+    () =>
+      (project?.projectMembers || [])
+        .map((member) => ({
+          ...(member.user || member.userId || {}),
+          projectRole: member.role || member.user?.role || member.userId?.role || "Developer",
+          membershipSource: "project",
+          membershipId: member._id,
+        }))
+        .filter((member) => resolveUserId(member))
+        .sort((left, right) =>
+          (left.name || left.email || "").localeCompare(right.name || right.email || "")
+        ),
+    [project?.projectMembers]
+  );
+  const directProjectMemberIds = useMemo(
+    () => new Set(directProjectMembers.map((member) => resolveUserId(member))),
+    [directProjectMembers]
+  );
+  const memberUserOptions = useMemo(
+    () =>
+      users
+        .filter((candidate) => candidate?._id && !directProjectMemberIds.has(String(candidate._id)))
+        .map(buildUserOption)
+        .sort((left, right) => left.label.localeCompare(right.label)),
+    [directProjectMemberIds, users]
+  );
+  const selectedProjectMemberOption = useMemo(
+    () =>
+      memberUserOptions.find((option) => option.value === selectedProjectMemberId) || null,
+    [memberUserOptions, selectedProjectMemberId]
+  );
   const attachedTeamIds = useMemo(
     () =>
       new Set(
@@ -256,6 +323,9 @@ const ProjectCard = ({
 
   useEffect(() => {
     setTeamsActionError("");
+    setMemberError("");
+    setMemberToRemove(null);
+    setSelectedProjectMemberId("");
   }, [project?._id]);
 
   useEffect(() => {
@@ -365,6 +435,45 @@ const ProjectCard = ({
     }
 
     navigate(`/issues?${params.toString()}`);
+  };
+
+  const handleAddProjectMember = async () => {
+    if (!selectedProjectMemberId) {
+      setMemberError("Search and select a user to add.");
+      return;
+    }
+
+    const selectedUser = users.find((candidate) => candidate._id === selectedProjectMemberId);
+
+    try {
+      setMemberError("");
+      await onAddProjectMember?.({
+        projectId: project._id,
+        userId: selectedProjectMemberId,
+        role: selectedUser?.role || "Developer",
+      });
+      setSelectedProjectMemberId("");
+    } catch (error) {
+      setMemberError(error.response?.data?.message || "Unable to add this member.");
+    }
+  };
+
+  const handleConfirmRemoveProjectMember = async () => {
+    if (!memberToRemove) {
+      return;
+    }
+
+    try {
+      setMemberError("");
+      await onRemoveProjectMember?.({
+        projectId: project._id,
+        userId: resolveUserId(memberToRemove),
+      });
+      setMemberToRemove(null);
+    } catch (error) {
+      setMemberError(error.response?.data?.message || "Unable to remove this member.");
+      setMemberToRemove(null);
+    }
   };
 
   const handleMetricKeyDown = (event, action) => {
@@ -599,24 +708,84 @@ const ProjectCard = ({
           </DialogHeader>
 
           <div className={projectDialogBodyClass("space-y-3")}>
+            {canManageProject ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <Select
+                    options={memberUserOptions}
+                    value={selectedProjectMemberOption}
+                    styles={memberSelectStyles}
+                    formatOptionLabel={formatUserOptionLabel}
+                    placeholder="Search users to add"
+                    noOptionsMessage={() => "No available users."}
+                    isDisabled={isAddingProjectMember || Boolean(usersErrorMessage)}
+                    onChange={(option) => setSelectedProjectMemberId(option?.value || "")}
+                  />
+                  <Button
+                    className="h-10 rounded-xl"
+                    disabled={
+                      isAddingProjectMember ||
+                      Boolean(usersErrorMessage) ||
+                      !selectedProjectMemberId
+                    }
+                    type="button"
+                    onClick={handleAddProjectMember}
+                  >
+                    {isAddingProjectMember ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <UserPlus className="h-4 w-4" />
+                    )}
+                    Add Member
+                  </Button>
+                </div>
+                {memberError || usersErrorMessage ? (
+                  <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                    {memberError || usersErrorMessage}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {projectMembers.length ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 {projectMembers.map((member) => (
                   <div
                     key={resolveUserId(member)}
-                    className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm"
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                      {getInitials(member.name || member.email || "Member")}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold text-slate-900">
-                        {member.name || member.email || "Unnamed member"}
+                    <span className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                        {getInitials(member.name || member.email || "Member")}
                       </span>
-                      <span className="block truncate text-xs text-slate-500">
-                        {member.role || member.email || "Project member"}
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-slate-900">
+                          {member.name || member.email || "Unnamed member"}
+                        </span>
+                        <span className="block truncate text-xs text-slate-500">
+                          {member.projectRole || member.role || "Project member"}
+                          {member.membershipSource === "project" ? " - direct" : " - team"}
+                        </span>
                       </span>
                     </span>
+                    {canManageProject && directProjectMemberIds.has(resolveUserId(member)) ? (
+                      <Button
+                        aria-label="Remove member"
+                        className="h-8 w-8 shrink-0 rounded-lg p-0"
+                        disabled={removingProjectMemberUserId === resolveUserId(member)}
+                        size="icon"
+                        title="Remove member"
+                        type="button"
+                        variant="outline"
+                        onClick={() => setMemberToRemove(member)}
+                      >
+                        {removingProjectMemberUserId === resolveUserId(member) ? (
+                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -647,6 +816,42 @@ const ProjectCard = ({
                 Manage Members
               </Button>
             ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(memberToRemove)} onOpenChange={(nextOpen) => !nextOpen && setMemberToRemove(null)}>
+        <DialogContent
+          className={projectDialogContentClass(
+            "grid max-h-[calc(100svh-6.25rem)] w-[calc(100%-2rem)] max-w-md grid-rows-[auto_auto] rounded-[24px] sm:max-h-[calc(100vh-7.5rem)]"
+          )}
+        >
+          <DialogHeader className={projectDialogHeaderClass()}>
+            <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <DialogTitle>Remove Member</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove this member from the project?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className={projectDialogFooterClass()}>
+            <Button type="button" variant="ghost" onClick={() => setMemberToRemove(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={removingProjectMemberUserId === resolveUserId(memberToRemove)}
+              onClick={handleConfirmRemoveProjectMember}
+            >
+              {removingProjectMemberUserId === resolveUserId(memberToRemove) ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Remove
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

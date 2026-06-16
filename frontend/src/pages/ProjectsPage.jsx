@@ -4,16 +4,19 @@ import { FolderKanban, Plus, UserRoundPlus, Users2 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   attachProjectTeam,
+  addProjectMember,
   createEpic,
   createProject,
   createTeam,
   deleteEpic,
   deleteProject,
+  deleteTeam,
   fetchProjects,
   fetchTeams,
   fetchWorkspaceUsers,
   fetchUsers,
   detachProjectTeam,
+  removeProjectMember,
   updateEpic,
   updateProject,
   updateProjectStatus,
@@ -245,6 +248,47 @@ const ProjectsPage = () => {
     },
   });
 
+  const deleteTeamMutation = useMutation({
+    mutationFn: deleteTeam,
+    onSuccess: async (data) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["teams"] }),
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-teams"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+      ]);
+      showToast("success", data?.message || "Team deleted successfully.");
+    },
+    onError: (error) => {
+      showToast(
+        "error",
+        error.response?.data?.message || "Unable to delete this team right now."
+      );
+    },
+  });
+
+  const addProjectMemberMutation = useMutation({
+    mutationFn: addProjectMember,
+    onSuccess: async (data) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+      ]);
+      showToast("success", data?.message || "Member added to the project.");
+    },
+  });
+
+  const removeProjectMemberMutation = useMutation({
+    mutationFn: removeProjectMember,
+    onSuccess: async (data) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+      ]);
+      showToast("success", data?.message || "Member removed from the project.");
+    },
+  });
+
   const teamsErrorMessage =
     teamsError?.response?.data?.message ||
     (teamsError ? "Couldn't load workspace teams right now." : "");
@@ -411,6 +455,12 @@ const ProjectsPage = () => {
                   onDeleteProject={(projectId) =>
                     deleteProjectMutation.mutateAsync(projectId)
                   }
+                  onAddProjectMember={(payload) =>
+                    addProjectMemberMutation.mutateAsync(payload)
+                  }
+                  onRemoveProjectMember={(payload) =>
+                    removeProjectMemberMutation.mutateAsync(payload)
+                  }
                   onCreateEpic={(payload) =>
                     createEpicMutation.mutateAsync(payload)
                   }
@@ -426,6 +476,16 @@ const ProjectsPage = () => {
                   isDeletingProject={
                     deleteProjectMutation.isPending &&
                     deleteProjectMutation.variables === project._id
+                  }
+                  isAddingProjectMember={
+                    addProjectMemberMutation.isPending &&
+                    addProjectMemberMutation.variables?.projectId === project._id
+                  }
+                  removingProjectMemberUserId={
+                    removeProjectMemberMutation.isPending &&
+                    removeProjectMemberMutation.variables?.projectId === project._id
+                      ? removeProjectMemberMutation.variables?.userId
+                      : ""
                   }
                   isSavingEpic={createEpicMutation.isPending || updateEpicMutation.isPending}
                   deletingEpicId={
@@ -523,7 +583,18 @@ const ProjectsPage = () => {
                 />
               ))
             ) : teams.length ? (
-              teams.map((team) => <TeamCard key={team._id} team={team} />)
+              teams.map((team) => (
+                <TeamCard
+                  key={team._id}
+                  canManageTeam={hasAdminPanelAccess(user?.role)}
+                  isDeleting={
+                    deleteTeamMutation.isPending &&
+                    deleteTeamMutation.variables === team._id
+                  }
+                  onDeleteTeam={(teamId) => deleteTeamMutation.mutateAsync(teamId)}
+                  team={team}
+                />
+              ))
             ) : (
               <div className="md:col-span-2 xl:col-span-3">
                 <EmptyState

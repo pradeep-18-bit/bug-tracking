@@ -1291,9 +1291,9 @@ const AdminBugsPage = () => {
         <MetricTile icon={CheckCircle2} label="Closed" value={metrics.closed} tone="bg-emerald-50 text-emerald-700" />
       </section>
 
-      <Card className="overflow-visible rounded-[14px] border border-slate-200/90 bg-white shadow-[0_18px_48px_-32px_rgba(15,23,42,0.46)]">
-        <CardContent className="p-0">
-          <div className="sticky top-[var(--app-content-spacing)] z-20 rounded-t-[14px] border-b border-slate-300/80 bg-white/92 px-3 py-2 backdrop-blur-xl sm:px-4">
+      <Card className="flex max-h-[calc(100svh-7rem)] min-h-[520px] flex-col overflow-hidden rounded-[14px] border border-slate-200/90 bg-white shadow-[0_18px_48px_-32px_rgba(15,23,42,0.46)] md:max-h-[calc(100vh-7.5rem)]">
+        <CardContent className="flex min-h-0 flex-col p-0">
+          <div className="sticky top-0 z-30 shrink-0 rounded-t-[14px] border-b border-slate-300/80 bg-white/95 px-3 py-2 backdrop-blur-xl sm:px-4">
             <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
               <div className="min-w-0">
                 <h2 className="flex items-center gap-2 text-[15px] font-semibold text-slate-950">
@@ -1398,7 +1398,7 @@ const AdminBugsPage = () => {
           </div>
 
           {selectedTriageIds.length ? (
-            <div className="sticky top-[150px] z-10 flex flex-col gap-2 border-b border-blue-100 bg-blue-50/95 px-3 py-2 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-4">
+            <div className="z-20 shrink-0 flex flex-col gap-2 border-b border-blue-100 bg-blue-50/95 px-3 py-2 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-4">
               <p className="text-[12px] font-bold text-blue-800">{selectedTriageIds.length} Bugs Selected</p>
               <div className="flex flex-wrap items-center gap-2">
                 <CompactSelect className="h-8 w-[150px]" value={bulkDeveloperId} onChange={(event) => setBulkDeveloperId(event.target.value)}>
@@ -1420,7 +1420,7 @@ const AdminBugsPage = () => {
             </div>
           ) : null}
 
-          <div className="bg-slate-100/80 p-2">
+          <div className="min-h-0 flex-1 overflow-auto bg-slate-100/80 p-2 [scrollbar-gutter:stable]">
             {isLoading ? (
               <div className="space-y-1.5">
                 {Array.from({ length: 8 }).map((_, index) => (
@@ -1430,7 +1430,7 @@ const AdminBugsPage = () => {
             ) : triageBugs.length ? (
               <>
                 <div className="hidden md:block">
-                  <div className="max-h-[430px] overflow-auto pr-1">
+                  <div className="pr-1">
                     <div className="min-w-[900px] space-y-1.5 lg:min-w-0">
                       <div className="grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(130px,0.65fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]">
                         <div className="flex justify-center">
@@ -1637,7 +1637,7 @@ const AdminBugsPage = () => {
         </CardContent>
       </Card>
 
-      <Card className="sticky top-20 z-20 overflow-hidden rounded-[16px] border-white/70 bg-white/94 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl">
+      <Card className="sticky top-20 z-30 overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl">
         <CardContent className="space-y-3 p-3.5 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
@@ -1812,9 +1812,9 @@ const AdminBugsPage = () => {
               ))}
             </div>
           ) : filteredBugs.length ? (
-            <div className="max-h-[620px] overflow-auto">
+            <div className="max-h-[calc(100svh-18rem)] min-h-[360px] overflow-auto [scrollbar-gutter:stable] md:max-h-[calc(100vh-19rem)]">
               <table className="w-full min-w-[1280px] border-separate border-spacing-0 text-left">
-                <thead className="sticky top-0 z-10 bg-white/95 backdrop-blur">
+                <thead className="sticky top-0 z-20 bg-white/95 backdrop-blur">
                   <tr className="border-b border-slate-200 text-xs uppercase tracking-[0.16em] text-slate-500">
                     {["Bug ID", "Title", "Project", "Tester", "Severity", "Priority", "Developer", "Status", "Reopens", "Updated", "Resolution ETA", "Actions"].map((header) => (
                       <th key={header} className="border-b border-slate-200 px-3 py-3 font-semibold">
