@@ -4,16 +4,19 @@ import { FolderKanban, Plus, UserRoundPlus, Users2 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   attachProjectTeam,
+  addProjectMember,
   createEpic,
   createProject,
   createTeam,
   deleteEpic,
   deleteProject,
+  deleteTeam,
   fetchProjects,
   fetchTeams,
   fetchWorkspaceUsers,
   fetchUsers,
   detachProjectTeam,
+  removeProjectMember,
   updateEpic,
   updateProject,
   updateProjectStatus,
@@ -245,6 +248,47 @@ const ProjectsPage = () => {
     },
   });
 
+  const deleteTeamMutation = useMutation({
+    mutationFn: deleteTeam,
+    onSuccess: async (data) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["teams"] }),
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-teams"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+      ]);
+      showToast("success", data?.message || "Team deleted successfully.");
+    },
+    onError: (error) => {
+      showToast(
+        "error",
+        error.response?.data?.message || "Unable to delete this team right now."
+      );
+    },
+  });
+
+  const addProjectMemberMutation = useMutation({
+    mutationFn: addProjectMember,
+    onSuccess: async (data) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+      ]);
+      showToast("success", data?.message || "Member added to the project.");
+    },
+  });
+
+  const removeProjectMemberMutation = useMutation({
+    mutationFn: removeProjectMember,
+    onSuccess: async (data) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+      ]);
+      showToast("success", data?.message || "Member removed from the project.");
+    },
+  });
+
   const teamsErrorMessage =
     teamsError?.response?.data?.message ||
     (teamsError ? "Couldn't load workspace teams right now." : "");
@@ -299,11 +343,11 @@ const ProjectsPage = () => {
       <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
 
       <section className="w-full">
-        <Card className="overflow-hidden border-white/70 bg-white/82 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.32)] backdrop-blur-xl">
-          <CardContent className="flex flex-col gap-2 p-1.5 sm:flex-row sm:items-center sm:justify-between sm:p-2">
+        <Card className="overflow-hidden border-white/70 bg-white/82 shadow-[0_16px_44px_-34px_rgba(15,23,42,0.32)] backdrop-blur-xl">
+          <CardContent className="flex flex-col gap-2 p-1 sm:flex-row sm:items-center sm:justify-between">
             <div
               aria-label="Projects and teams"
-              className="grid grid-cols-2 gap-2 rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-1 sm:inline-grid"
+              className="grid grid-cols-2 gap-1 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-1 sm:inline-grid"
               role="tablist"
             >
               {[
@@ -317,9 +361,9 @@ const ProjectsPage = () => {
                     key={id}
                     aria-controls={`${id}-panel`}
                     aria-selected={isSelected}
-                    className={`interactive-button inline-flex h-10 items-center justify-center gap-2 rounded-[18px] px-4 text-sm font-semibold transition ${
+                    className={`interactive-button inline-flex h-8 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold transition ${
                       isSelected
-                        ? "bg-slate-950 text-white shadow-[0_14px_30px_-20px_rgba(15,23,42,0.8)]"
+                        ? "bg-slate-950 text-white shadow-[0_10px_24px_-18px_rgba(15,23,42,0.8)]"
                         : "border border-transparent bg-white/70 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-950"
                     }`}
                     id={`${id}-tab`}
@@ -327,7 +371,7 @@ const ProjectsPage = () => {
                     type="button"
                     onClick={() => setActiveTab(id)}
                   >
-                    <Icon className="h-4 w-4" />
+                    <Icon className="h-3.5 w-3.5" />
                     {label}
                   </button>
                 );
@@ -336,20 +380,20 @@ const ProjectsPage = () => {
 
             {activeTab === "projects" ? (
               <Button
-                className="interactive-button h-10 w-full rounded-2xl border border-indigo-300/30 bg-[linear-gradient(90deg,#2563EB_0%,#6366F1_55%,#8B5CF6_100%)] px-5 text-white shadow-[0_14px_28px_-18px_rgba(99,102,241,0.82)] hover:brightness-105 sm:w-auto"
+                className="interactive-button h-8 w-full rounded-xl border border-indigo-300/30 bg-[linear-gradient(90deg,#2563EB_0%,#6366F1_55%,#8B5CF6_100%)] px-3 text-xs text-white shadow-[0_10px_24px_-18px_rgba(99,102,241,0.82)] hover:brightness-105 sm:w-auto"
                 onClick={() => setIsCreateDialogOpen(true)}
                 type="button"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-3.5 w-3.5" />
                 Create Project
               </Button>
             ) : (
               <Button
-                className="interactive-button h-10 w-full rounded-2xl border border-emerald-300/40 bg-[linear-gradient(90deg,#059669_0%,#0891B2_100%)] px-5 text-white shadow-[0_14px_28px_-18px_rgba(16,185,129,0.72)] hover:brightness-105 sm:w-auto"
+                className="interactive-button h-8 w-full rounded-xl border border-emerald-300/40 bg-[linear-gradient(90deg,#059669_0%,#0891B2_100%)] px-3 text-xs text-white shadow-[0_10px_24px_-18px_rgba(16,185,129,0.72)] hover:brightness-105 sm:w-auto"
                 onClick={() => setIsCreateTeamDialogOpen(true)}
                 type="button"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-3.5 w-3.5" />
                 Create Team
               </Button>
             )}
@@ -364,12 +408,12 @@ const ProjectsPage = () => {
           id="projects-panel"
           role="tabpanel"
         >
-          <div className="grid min-w-0 w-full grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+          <div className="grid min-w-0 w-full grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {isProjectsLoading ? (
               Array.from({ length: PROJECT_GRID_SKELETON_COUNT }).map((_, index) => (
                 <Skeleton
                   key={`project-skeleton-${index}`}
-                  className="h-[300px] w-full rounded-2xl"
+                  className="h-[286px] w-full rounded-2xl"
                 />
               ))
             ) : projects.length ? (
@@ -411,6 +455,12 @@ const ProjectsPage = () => {
                   onDeleteProject={(projectId) =>
                     deleteProjectMutation.mutateAsync(projectId)
                   }
+                  onAddProjectMember={(payload) =>
+                    addProjectMemberMutation.mutateAsync(payload)
+                  }
+                  onRemoveProjectMember={(payload) =>
+                    removeProjectMemberMutation.mutateAsync(payload)
+                  }
                   onCreateEpic={(payload) =>
                     createEpicMutation.mutateAsync(payload)
                   }
@@ -427,6 +477,16 @@ const ProjectsPage = () => {
                     deleteProjectMutation.isPending &&
                     deleteProjectMutation.variables === project._id
                   }
+                  isAddingProjectMember={
+                    addProjectMemberMutation.isPending &&
+                    addProjectMemberMutation.variables?.projectId === project._id
+                  }
+                  removingProjectMemberUserId={
+                    removeProjectMemberMutation.isPending &&
+                    removeProjectMemberMutation.variables?.projectId === project._id
+                      ? removeProjectMemberMutation.variables?.userId
+                      : ""
+                  }
                   isSavingEpic={createEpicMutation.isPending || updateEpicMutation.isPending}
                   deletingEpicId={
                     deleteEpicMutation.isPending ? deleteEpicMutation.variables?.id : ""
@@ -439,7 +499,7 @@ const ProjectsPage = () => {
                 />
               ))
             ) : (
-              <div className="lg:col-span-2">
+              <div className="md:col-span-2 xl:col-span-3 2xl:col-span-4">
                 <EmptyState
                   title="No projects yet"
                   description="Create a project, attach a team, and start organizing work in a tighter project space."
@@ -454,50 +514,50 @@ const ProjectsPage = () => {
       {activeTab === "teams" ? (
         <section
           aria-labelledby="teams-tab"
-          className="min-w-0 w-full space-y-5"
+          className="min-w-0 w-full space-y-3"
           id="teams-panel"
           role="tabpanel"
         >
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-3">
             {isTeamsLoading ? (
               <>
-                <Skeleton className="h-28 w-full rounded-[28px]" />
-                <Skeleton className="h-28 w-full rounded-[28px]" />
-                <Skeleton className="h-28 w-full rounded-[28px]" />
+                <Skeleton className="h-[110px] w-full rounded-2xl" />
+                <Skeleton className="h-[110px] w-full rounded-2xl" />
+                <Skeleton className="h-[110px] w-full rounded-2xl" />
               </>
             ) : (
               <>
-                <Card className="stats-tile">
-                  <CardContent className="p-5">
-                    <div className="flex items-center gap-3 text-slate-600">
-                      <Users2 className="h-5 w-5 text-emerald-600" />
+                <Card className="stats-card stats-tile">
+                  <CardContent className="flex h-full flex-col justify-between p-4">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                      <Users2 className="h-4 w-4 text-emerald-600" />
                       <span>Total teams</span>
                     </div>
-                    <p className="mt-4 text-4xl font-semibold text-slate-950">
+                    <p className="text-3xl font-semibold leading-none text-slate-950">
                       {teamStats.totalTeams}
                     </p>
                   </CardContent>
                 </Card>
 
-                <Card className="stats-tile">
-                  <CardContent className="p-5">
-                    <div className="flex items-center gap-3 text-slate-600">
-                      <UserRoundPlus className="h-5 w-5 text-sky-600" />
+                <Card className="stats-card stats-tile">
+                  <CardContent className="flex h-full flex-col justify-between p-4">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                      <UserRoundPlus className="h-4 w-4 text-sky-600" />
                       <span>Members assigned</span>
                     </div>
-                    <p className="mt-4 text-4xl font-semibold text-slate-950">
+                    <p className="text-3xl font-semibold leading-none text-slate-950">
                       {teamStats.totalMembersAssigned}
                     </p>
                   </CardContent>
                 </Card>
 
-                <Card className="stats-tile">
-                  <CardContent className="p-5">
-                    <div className="flex items-center gap-3 text-slate-600">
-                      <Users2 className="h-5 w-5 text-amber-600" />
+                <Card className="stats-card stats-tile">
+                  <CardContent className="flex h-full flex-col justify-between p-4">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                      <Users2 className="h-4 w-4 text-amber-600" />
                       <span>Empty teams</span>
                     </div>
-                    <p className="mt-4 text-4xl font-semibold text-slate-950">
+                    <p className="text-3xl font-semibold leading-none text-slate-950">
                       {teamStats.emptyTeams}
                     </p>
                   </CardContent>
@@ -514,18 +574,29 @@ const ProjectsPage = () => {
             </Card>
           ) : null}
 
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {isTeamsLoading ? (
               Array.from({ length: TEAM_PANEL_SKELETON_COUNT }).map((_, index) => (
                 <Skeleton
                   key={`team-skeleton-${index}`}
-                  className="h-[290px] w-full rounded-[32px]"
+                  className="h-[170px] w-full rounded-2xl"
                 />
               ))
             ) : teams.length ? (
-              teams.map((team) => <TeamCard key={team._id} team={team} />)
+              teams.map((team) => (
+                <TeamCard
+                  key={team._id}
+                  canManageTeam={hasAdminPanelAccess(user?.role)}
+                  isDeleting={
+                    deleteTeamMutation.isPending &&
+                    deleteTeamMutation.variables === team._id
+                  }
+                  onDeleteTeam={(teamId) => deleteTeamMutation.mutateAsync(teamId)}
+                  team={team}
+                />
+              ))
             ) : (
-              <div className="lg:col-span-2">
+              <div className="md:col-span-2 xl:col-span-3">
                 <EmptyState
                   title="No teams yet. Create your first team."
                   description="Build workspace-specific teams to keep ownership, planning, and delivery clearer across projects."

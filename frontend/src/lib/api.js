@@ -325,6 +325,19 @@ export const deleteProject = async (projectId) => {
   return response.data;
 };
 
+export const addProjectMember = async ({ projectId, userId, role }) => {
+  const response = await api.post(`/projects/${projectId}/members`, {
+    userId,
+    role,
+  });
+  return response.data;
+};
+
+export const removeProjectMember = async ({ projectId, userId }) => {
+  const response = await api.delete(`/projects/${projectId}/members/${userId}`);
+  return response.data;
+};
+
 export const attachProjectTeam = async ({ projectId, teamId }) => {
   const response = await api.post(`/projects/${projectId}/teams`, {
     teamId,
@@ -387,6 +400,11 @@ export const fetchTeam = async (id) => {
 
 export const createTeam = async (payload) => {
   const response = await api.post("/teams", payload);
+  return response.data;
+};
+
+export const deleteTeam = async (teamId) => {
+  const response = await api.delete(`/teams/${teamId}`);
   return response.data;
 };
 

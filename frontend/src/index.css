@@ -213,6 +213,34 @@
     @apply app-panel p-5 transition duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg;
   }
 
+  .stats-card {
+    min-height: 110px;
+    padding: 0;
+  }
+
+  .team-card {
+    min-height: auto;
+    padding: 0;
+  }
+
+  .team-card-header,
+  .team-card-body,
+  .team-card-footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .team-card-header,
+  .team-card-body {
+    padding-bottom: 12px;
+    padding-top: 12px;
+  }
+
+  .team-card-footer {
+    padding-bottom: 12px;
+    padding-top: 12px;
+  }
+
   .surface-highlight {
     @apply border border-blue-200 bg-blue-50;
   }

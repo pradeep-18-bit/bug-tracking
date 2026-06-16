@@ -6,8 +6,6 @@ import {
   AlertTriangle,
   Bug,
   CheckCircle2,
-  ClipboardList,
-  FolderTree,
   Layers3,
   Link2,
   ListChecks,
@@ -15,6 +13,7 @@ import {
   RotateCcw,
   Settings2,
   Trash2,
+  UserPlus,
   Users,
   Video,
 } from "lucide-react";
@@ -30,8 +29,8 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { formatDate, getInitials } from "@/lib/utils";
-import { getProjectTeams } from "@/lib/project-teams";
+import { getInitials } from "@/lib/utils";
+import { getProjectTeams, resolveUserId } from "@/lib/project-teams";
 import { fetchEpics } from "@/lib/api";
 import { memberSelectStyles } from "@/components/projects/memberSelectTheme";
 import ProjectManageDialog from "@/components/projects/ProjectManageDialog";
@@ -43,45 +42,39 @@ import {
 } from "@/components/projects/projectDialogStyles";
 
 const TEAMS_NEW_MEETING_BASE_URL = "https://teams.microsoft.com/l/meeting/new";
-const PROJECT_CARD_PALETTES = [
-  {
-    headerGradient: "linear-gradient(135deg, #1d4ed8 0%, #0f766e 100%)",
-    accentGradient: "linear-gradient(90deg, #dbeafe 0%, #ccfbf1 100%)",
-    glowColor: "rgba(219, 234, 254, 0.28)",
-  },
-  {
-    headerGradient: "linear-gradient(135deg, #be123c 0%, #7c3aed 100%)",
-    accentGradient: "linear-gradient(90deg, #ffe4e6 0%, #ede9fe 100%)",
-    glowColor: "rgba(244, 114, 182, 0.18)",
-  },
-  {
-    headerGradient: "linear-gradient(135deg, #047857 0%, #0369a1 100%)",
-    accentGradient: "linear-gradient(90deg, #d1fae5 0%, #e0f2fe 100%)",
-    glowColor: "rgba(125, 211, 252, 0.18)",
-  },
-  {
-    headerGradient: "linear-gradient(135deg, #334155 0%, #2563eb 100%)",
-    accentGradient: "linear-gradient(90deg, #e2e8f0 0%, #dbeafe 100%)",
-    glowColor: "rgba(191, 219, 254, 0.2)",
-  },
-  {
-    headerGradient: "linear-gradient(135deg, #0e7490 0%, #4338ca 100%)",
-    accentGradient: "linear-gradient(90deg, #cffafe 0%, #e0e7ff 100%)",
-    glowColor: "rgba(103, 232, 249, 0.18)",
-  },
-  {
-    headerGradient: "linear-gradient(135deg, #4d7c0f 0%, #0f766e 100%)",
-    accentGradient: "linear-gradient(90deg, #ecfccb 0%, #ccfbf1 100%)",
-    glowColor: "rgba(190, 242, 100, 0.16)",
-  },
-];
-
 const buildTeamOption = (team) => ({
   value: team._id,
   label: team.name,
   description: team.description || "",
   memberCount: team.memberCount || team.members?.length || 0,
 });
+
+const buildUserOption = (user) => ({
+  value: user._id,
+  label: user.name || user.email || "Unnamed user",
+  email: user.email || "",
+  role: user.role || "Developer",
+});
+
+const formatUserOptionLabel = (option, { context }) => {
+  if (context !== "menu") {
+    return option.label;
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700">
+        {getInitials(option.label)}
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-slate-900">{option.label}</p>
+        <p className="truncate text-xs text-slate-500">
+          {option.role}{option.email ? ` - ${option.email}` : ""}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 const formatTeamOptionLabel = (option, { context }) => {
   if (context !== "menu") {
@@ -115,19 +108,19 @@ const StatusBadge = ({ status = "Active" }) => (
   <span
     className={
       status === "Completed"
-        ? "inline-flex h-7 items-center gap-1.5 rounded-full bg-emerald-400/20 px-2.5 text-xs font-semibold text-emerald-50 ring-1 ring-emerald-200/30 backdrop-blur"
+        ? "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-semibold text-emerald-700"
         : status === "On Hold"
-          ? "inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-400/20 px-2.5 text-xs font-semibold text-amber-50 ring-1 ring-amber-200/30 backdrop-blur"
-        : "inline-flex h-7 items-center gap-1.5 rounded-full bg-white/10 px-2.5 text-xs font-semibold text-white ring-1 ring-white/20 backdrop-blur"
+          ? "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 text-[11px] font-semibold text-amber-700"
+        : "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2 text-[11px] font-semibold text-blue-700"
     }
   >
     <span
       className={
         status === "Completed"
-          ? "h-2 w-2 rounded-full bg-emerald-300"
+          ? "h-1.5 w-1.5 rounded-full bg-emerald-500"
           : status === "On Hold"
-            ? "h-2 w-2 rounded-full bg-amber-300"
-          : "h-2 w-2 rounded-full bg-white"
+            ? "h-1.5 w-1.5 rounded-full bg-amber-500"
+          : "h-1.5 w-1.5 rounded-full bg-blue-500"
       }
     />
     {status}
@@ -145,106 +138,11 @@ const getProjectAssignmentName = (value) => {
   return name || email || "Unassigned";
 };
 
-const ProjectAssignmentsSummary = ({ managerName, teamLeadName }) => (
-  <p
-    className="mt-3 max-w-full truncate text-xs font-medium leading-5 text-white/90"
-    title={`${managerName} \u2022 ${teamLeadName}`}
-  >
-    <span>{managerName}</span>
-    <span className="mx-2 text-white/45">{"\u2022"}</span>
-    <span>{teamLeadName}</span>
-  </p>
+const CompactBadge = ({ children }) => (
+  <span className="inline-flex h-6 min-w-0 max-w-full items-center rounded-full border border-slate-200 bg-slate-50 px-2 text-[11px] font-semibold text-slate-600">
+    <span className="truncate">{children}</span>
+  </span>
 );
-
-const ProjectTeamsPreview = ({ teams = [] }) => {
-  const visibleTeams = teams.slice(0, 2);
-  const overflowTeams = Math.max(teams.length - visibleTeams.length, 0);
-
-  return (
-    <div className="flex w-full max-w-full flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase text-white/70">
-        <span>Attached Teams</span>
-        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/10 px-2 text-[10px] font-semibold text-white/90 ring-1 ring-white/10">
-          {teams.length}
-        </span>
-      </div>
-
-      <div className="flex max-w-full flex-wrap items-center justify-start gap-2">
-        {visibleTeams.length ? (
-          visibleTeams.map((team) => (
-            <span
-              key={team._id}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-white/10 px-2 py-1 text-xs font-medium text-white/90 ring-1 ring-white/10 backdrop-blur"
-            >
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold text-white ring-1 ring-white/20">
-                {getInitials(team.name)}
-              </span>
-              <span className="max-w-[8.5rem] truncate">
-                {team.name}
-              </span>
-              <span className="text-white/55">
-                {team.memberCount || team.members?.length || 0}
-              </span>
-            </span>
-          ))
-        ) : (
-          <span className="text-xs text-white/75">No teams attached</span>
-        )}
-        {overflowTeams ? (
-          <span className="inline-flex h-7 items-center rounded-full bg-white/20 px-2.5 text-xs font-semibold text-white ring-1 ring-white/10 backdrop-blur">
-            +{overflowTeams} more
-          </span>
-        ) : null}
-      </div>
-    </div>
-  );
-};
-
-const ProjectEpicsPreview = ({ epics = [], onSelectEpic }) => {
-  const visibleEpics = epics.slice(0, 4);
-  const overflowEpics = Math.max(epics.length - visibleEpics.length, 0);
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-          <FolderTree className="h-3.5 w-3.5 text-violet-600" />
-          <span>Epics</span>
-        </div>
-        <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-violet-50 px-2 text-xs font-semibold text-violet-700 ring-1 ring-violet-100">
-          {epics.length}
-        </span>
-      </div>
-
-      <div className="mt-2 flex min-h-[28px] flex-wrap gap-1.5">
-        {visibleEpics.length ? (
-          visibleEpics.map((epic) => (
-            <button
-              key={epic._id || epic.name}
-              type="button"
-              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 transition hover:-translate-y-0.5 hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
-              onClick={() => onSelectEpic?.(epic)}
-              title={epic.name}
-            >
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: epic.color || "#7C3AED" }}
-              />
-              <span className="max-w-[10rem] truncate">{epic.name}</span>
-            </button>
-          ))
-        ) : (
-          <span className="text-sm text-slate-500">No epics yet</span>
-        )}
-        {overflowEpics ? (
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-500">
-            +{overflowEpics}
-          </span>
-        ) : null}
-      </div>
-    </div>
-  );
-};
 
 const ProjectCard = ({
   project,
@@ -257,6 +155,8 @@ const ProjectCard = ({
   onUpdateProject,
   onUpdateStatus,
   onDeleteProject,
+  onAddProjectMember,
+  onRemoveProjectMember,
   onCreateEpic,
   onUpdateEpic,
   onDeleteEpic,
@@ -265,6 +165,8 @@ const ProjectCard = ({
   isUpdatingProject = false,
   isUpdatingStatus = false,
   isDeletingProject = false,
+  isAddingProjectMember = false,
+  removingProjectMemberUserId = "",
   isSavingEpic = false,
   deletingEpicId = "",
   detachingTeamId = "",
@@ -275,17 +177,20 @@ const ProjectCard = ({
   const [isTeamDialogOpen, setIsTeamDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isManageDialogOpen, setIsManageDialogOpen] = useState(false);
+  const [isMembersDialogOpen, setIsMembersDialogOpen] = useState(false);
+  const [isTeamsDialogOpen, setIsTeamsDialogOpen] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState("");
+  const [selectedProjectMemberId, setSelectedProjectMemberId] = useState("");
+  const [memberToRemove, setMemberToRemove] = useState(null);
   const [deleteConfirmationValue, setDeleteConfirmationValue] = useState("");
   const [teamError, setTeamError] = useState("");
+  const [memberError, setMemberError] = useState("");
   const [statusError, setStatusError] = useState("");
   const [teamsActionError, setTeamsActionError] = useState("");
   const managerName = getProjectAssignmentName(project?.projectManager || project?.manager);
   const teamLeadName = getProjectAssignmentName(project?.teamLead);
   const projectStatus = getProjectStatus(project);
-  const palette = PROJECT_CARD_PALETTES[index % PROJECT_CARD_PALETTES.length];
   const projectTitle = String(project?.name || "").trim() || "Untitled project";
-  const projectCreatedAt = project?.createdAt ? formatDate(project.createdAt) : "Unknown";
   const projectShortCode = String(project?.shortCode || "").trim().toUpperCase();
 
   const attachedTeams = useMemo(() => getProjectTeams(project), [project]);
@@ -318,6 +223,57 @@ const ProjectCard = ({
         ? projectEpicsData
         : fallbackEpics,
     [fallbackEpics, projectEpicsData]
+  );
+  const projectMembers = useMemo(() => {
+    const uniqueMembers = new Map();
+    const collectMember = (member) => {
+      const memberId = resolveUserId(member);
+
+      if (!memberId || uniqueMembers.has(memberId)) {
+        return;
+      }
+
+      uniqueMembers.set(memberId, member);
+    };
+
+    (project?.members || []).forEach(collectMember);
+    attachedTeams.forEach((team) => (team?.members || []).forEach(collectMember));
+
+    return Array.from(uniqueMembers.values()).sort((left, right) =>
+      (left.name || left.email || "").localeCompare(right.name || right.email || "")
+    );
+  }, [attachedTeams, project?.members]);
+  const directProjectMembers = useMemo(
+    () =>
+      (project?.projectMembers || [])
+        .map((member) => ({
+          ...(member.user || member.userId || {}),
+          projectRole: member.role || member.user?.role || member.userId?.role || "Developer",
+          membershipSource: "project",
+          membershipId: member._id,
+        }))
+        .filter((member) => resolveUserId(member))
+        .sort((left, right) =>
+          (left.name || left.email || "").localeCompare(right.name || right.email || "")
+        ),
+    [project?.projectMembers]
+  );
+  const directProjectMemberIds = useMemo(
+    () => new Set(directProjectMembers.map((member) => resolveUserId(member))),
+    [directProjectMembers]
+  );
+  const memberUserOptions = useMemo(
+    () =>
+      users
+        .filter((candidate) => candidate?._id && !directProjectMemberIds.has(String(candidate._id)))
+        .map(buildUserOption)
+        .sort((left, right) => left.label.localeCompare(right.label)),
+    [directProjectMemberIds, users]
+  );
+  const selectedProjectMemberOption = useMemo(
+    () =>
+      memberUserOptions.find((option) => option.value === selectedProjectMemberId) || null,
+    [memberUserOptions, selectedProjectMemberId]
   );
   const attachedTeamIds = useMemo(
     () =>
@@ -367,6 +323,9 @@ const ProjectCard = ({
 
   useEffect(() => {
     setTeamsActionError("");
+    setMemberError("");
+    setMemberToRemove(null);
+    setSelectedProjectMemberId("");
   }, [project?._id]);
 
   useEffect(() => {
@@ -478,97 +437,131 @@ const ProjectCard = ({
     navigate(`/issues?${params.toString()}`);
   };
 
+  const handleAddProjectMember = async () => {
+    if (!selectedProjectMemberId) {
+      setMemberError("Search and select a user to add.");
+      return;
+    }
+
+    const selectedUser = users.find((candidate) => candidate._id === selectedProjectMemberId);
+
+    try {
+      setMemberError("");
+      await onAddProjectMember?.({
+        projectId: project._id,
+        userId: selectedProjectMemberId,
+        role: selectedUser?.role || "Developer",
+      });
+      setSelectedProjectMemberId("");
+    } catch (error) {
+      setMemberError(error.response?.data?.message || "Unable to add this member.");
+    }
+  };
+
+  const handleConfirmRemoveProjectMember = async () => {
+    if (!memberToRemove) {
+      return;
+    }
+
+    try {
+      setMemberError("");
+      await onRemoveProjectMember?.({
+        projectId: project._id,
+        userId: resolveUserId(memberToRemove),
+      });
+      setMemberToRemove(null);
+    } catch (error) {
+      setMemberError(error.response?.data?.message || "Unable to remove this member.");
+      setMemberToRemove(null);
+    }
+  };
+
+  const handleMetricKeyDown = (event, action) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      action();
+    }
+  };
+
   const actionButtonClass =
-    "interactive-button h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-800 shadow-sm hover:border-blue-200 hover:bg-blue-50 sm:w-auto";
+    "interactive-button h-9 flex-1 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700";
   const isDeleteConfirmationValid =
     deleteConfirmationValue.trim() === String(project.name || "").trim();
   const metricItems = [
-    { label: "Issues", value: project.issueCount || 0, icon: ListChecks },
-    { label: "Members", value: project.memberCount || 0, icon: Users },
-    { label: "Teams", value: project.teamCount || 0, icon: Layers3 },
+    {
+      label: "Issues",
+      value: project.issueCount || 0,
+      icon: ListChecks,
+      action: () => navigate(`/issues?projectId=${project._id}`),
+    },
+    {
+      label: "Members",
+      value: project.memberCount || projectMembers.length || 0,
+      icon: Users,
+      action: () => setIsMembersDialogOpen(true),
+    },
+    {
+      label: "Teams",
+      value: project.teamCount || attachedTeams.length || 0,
+      icon: Layers3,
+      action: () => setIsTeamsDialogOpen(true),
+    },
   ];
 
   return (
     <>
       <Card
-        className="page-shell-enter interactive-card flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_18px_42px_-32px_rgba(15,23,42,0.36)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_24px_54px_-36px_rgba(15,23,42,0.46)]"
+        className="page-shell-enter interactive-card flex h-[286px] min-w-0 flex-col justify-between overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_16px_38px_-32px_rgba(15,23,42,0.42)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_48px_-36px_rgba(15,23,42,0.5)]"
         style={{ animationDelay: `${index * 45}ms` }}
       >
-        <div
-          className="relative min-h-[180px] overflow-hidden px-4 py-4 text-white sm:px-5"
-          style={{ backgroundImage: palette.headerGradient }}
-        >
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.13)_0%,rgba(255,255,255,0)_44%,rgba(15,23,42,0.13)_100%)]" />
-
-          <div className="relative flex h-full min-w-0 flex-col gap-3.5">
+        <CardContent className="flex h-full flex-col justify-between gap-3 p-4">
+          <div className="min-w-0 space-y-2.5">
             <div className="flex min-w-0 items-start justify-between gap-3">
-              <div className="flex min-w-0 flex-1 flex-col">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase text-white/70">
-                  <span>Project</span>
-                  {projectShortCode ? (
-                    <>
-                      <span className="h-1 w-1 rounded-full bg-white/60" />
-                      <span>{projectShortCode}</span>
-                    </>
-                  ) : null}
-                  <span className="h-1 w-1 rounded-full bg-white/60" />
-                  <span>Created {projectCreatedAt}</span>
+              <div className="min-w-0 flex-1">
+                <div className="mb-1.5 flex min-w-0 items-center gap-1.5">
+                  {projectShortCode ? <CompactBadge>{projectShortCode}</CompactBadge> : null}
+                  <CompactBadge>{projectEpics.length} epics</CompactBadge>
+                  <CompactBadge>{attachedTeams.length} teams</CompactBadge>
                 </div>
                 <h3
-                  className="mt-2 line-clamp-2 max-w-[32rem] text-xl font-semibold leading-tight text-white sm:text-2xl"
+                  className="truncate text-base font-semibold leading-6 text-slate-950"
                   title={projectTitle}
                 >
                   {projectTitle}
                 </h3>
-                <span
-                  aria-hidden="true"
-                  className="mt-2.5 h-[3px] w-20 max-w-[45%] rounded-full opacity-95"
-                  style={{
-                    backgroundImage: palette.accentGradient,
-                    boxShadow: `0 0 0 1px rgba(255, 255, 255, 0.24), 0 0 18px ${palette.glowColor}`,
-                  }}
-                />
-                <ProjectAssignmentsSummary
-                  managerName={managerName}
-                  teamLeadName={teamLeadName}
-                />
+                <p
+                  className="mt-0.5 truncate text-xs font-medium text-slate-500"
+                  title={`Owner: ${managerName}`}
+                >
+                  Owner: {managerName}
+                </p>
               </div>
 
-              <div className="flex shrink-0 flex-col items-end gap-2">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <StatusBadge status={projectStatus} />
                 {canManageProject ? (
-                  <div className="flex items-center gap-1 rounded-2xl bg-white/10 p-1 ring-1 ring-white/20 backdrop-blur">
-                    <Button
-                      aria-label="Manage Project"
-                      className="interactive-button h-8 w-8 rounded-xl bg-white/10 p-0 text-white ring-1 ring-white/10 hover:bg-white/20"
-                      title="Manage Project"
-                      type="button"
-                      onClick={() => setIsManageDialogOpen(true)}
-                    >
-                      <Settings2 className="h-4 w-4" />
-                      <span className="sr-only">Manage Project</span>
-                    </Button>
+                  <>
                     <Button
                       aria-label={project.isCompleted ? "Reopen Project" : "Mark as Completed"}
-                      className="interactive-button h-8 w-8 rounded-xl bg-white/10 p-0 text-white ring-1 ring-white/10 hover:bg-white/20"
+                      className="interactive-button h-7 w-7 rounded-lg border border-slate-200 bg-white p-0 text-slate-500 shadow-sm hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
                       disabled={isUpdatingStatus}
                       title={project.isCompleted ? "Reopen Project" : "Mark as Completed"}
                       type="button"
                       onClick={handleStatusToggle}
                     >
                       {isUpdatingStatus ? (
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                       ) : project.isCompleted ? (
-                        <RotateCcw className="h-4 w-4" />
+                        <RotateCcw className="h-3.5 w-3.5" />
                       ) : (
-                        <CheckCircle2 className="h-4 w-4" />
+                        <CheckCircle2 className="h-3.5 w-3.5" />
                       )}
                       <span className="sr-only">
                         {project.isCompleted ? "Reopen Project" : "Mark as Completed"}
                       </span>
                     </Button>
                     <Button
-                      className="interactive-button h-8 w-8 rounded-xl bg-rose-500/20 p-0 text-rose-50 ring-1 ring-rose-200/30 shadow-[0_18px_36px_-24px_rgba(244,63,94,0.95)] backdrop-blur hover:bg-rose-500/30"
+                      className="interactive-button h-7 w-7 rounded-lg border border-rose-100 bg-white p-0 text-rose-500 shadow-sm hover:border-rose-200 hover:bg-rose-50"
                       disabled={isDeletingProject}
                       size="icon"
                       title="Delete Project"
@@ -576,94 +569,64 @@ const ProjectCard = ({
                       onClick={() => handleDeleteDialogChange(true)}
                     >
                       {isDeletingProject ? (
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                       ) : (
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       )}
                       <span className="sr-only">Delete Project</span>
                     </Button>
-                  </div>
+                  </>
                 ) : null}
               </div>
             </div>
 
-            <ProjectTeamsPreview teams={attachedTeams} />
+            <p
+              className="h-5 truncate text-sm leading-5 text-slate-600"
+              title={project.description || "No description added yet."}
+            >
+              {project.description || "No description added yet."}
+            </p>
           </div>
-        </div>
-
-        <CardContent className="flex flex-1 flex-col gap-3 p-4 sm:p-5">
-          {project.description ? (
-            <p className="line-clamp-2 text-sm leading-5 text-slate-600">
-              {project.description}
-            </p>
-          ) : (
-            <p className="text-sm leading-5 text-slate-500">
-              No description added yet.
-            </p>
-          )}
-
-          <ProjectEpicsPreview epics={projectEpics} onSelectEpic={handleSelectEpic} />
 
           {statusError ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {statusError}
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+          <div className="grid h-[76px] grid-cols-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/70">
             {metricItems.map((item) => {
               const MetricIcon = item.icon;
 
               return (
-                <div
+                <button
                   key={item.label}
-                  className="interactive-card min-h-[72px] rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 shadow-sm transition duration-200 hover:border-blue-200 hover:bg-white hover:shadow-md"
+                  className="group flex h-full min-w-0 cursor-pointer flex-col items-center justify-center gap-1 border-r border-slate-200 px-2 text-center transition duration-200 last:border-r-0 hover:z-10 hover:scale-[1.025] hover:bg-white hover:shadow-[0_12px_24px_-20px_rgba(37,99,235,0.7)] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35"
+                  type="button"
+                  onClick={item.action}
+                  onKeyDown={(event) => handleMetricKeyDown(event, item.action)}
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[11px] font-semibold uppercase text-slate-500">
-                      {item.label}
-                    </p>
-                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-blue-600 shadow-sm ring-1 ring-slate-200">
-                      <MetricIcon className="h-4 w-4" />
-                    </span>
-                  </div>
-                  <p className="mt-1.5 text-xl font-semibold text-slate-950">
+                  <span className="flex items-center gap-1 text-[11px] font-semibold uppercase text-slate-500 group-hover:text-blue-700">
+                    <MetricIcon className="h-3.5 w-3.5" />
+                    {item.label}
+                  </span>
+                  <span className="text-xl font-semibold leading-none text-slate-950">
                     {item.value}
-                  </p>
-                </div>
+                  </span>
+                </button>
               );
             })}
           </div>
 
-          <div className="mt-auto flex flex-wrap gap-2 pt-1">
-            <Button
-              className={`${actionButtonClass} border-blue-500/20 bg-blue-600 text-white shadow-[0_18px_32px_-24px_rgba(37,99,235,0.95)] hover:border-blue-500/30 hover:bg-blue-700`}
-              type="button"
-              onClick={() => navigate(`/issues?projectId=${project._id}&compose=1`)}
-            >
-              <Bug className="h-4 w-4" />
-              Create Issue
-            </Button>
-
-            <Button
-              className={actionButtonClass}
-              type="button"
-              onClick={() =>
-                navigate(`/issues?projectId=${project._id}&compose=1&type=Task`)
-              }
-            >
-              <ClipboardList className="h-4 w-4" />
-              Create Task
-            </Button>
-
+          <div className="flex gap-2">
             {canManageProject ? (
               <Button
                 className={actionButtonClass}
                 type="button"
                 onClick={() => setIsManageDialogOpen(true)}
               >
-                <Settings2 className="h-4 w-4" />
-                Manage Project
+                <Settings2 className="h-3.5 w-3.5" />
+                Manage
               </Button>
             ) : null}
 
@@ -674,31 +637,35 @@ const ProjectCard = ({
                 type="button"
                 onClick={() => handleTeamDialogChange(true)}
               >
-                <Link2 className="h-4 w-4" />
-                Attach Team
+                <Link2 className="h-3.5 w-3.5" />
+                Team
               </Button>
             ) : null}
 
-            <Button className={actionButtonClass} type="button" onClick={handleOpenTeams}>
-              <Video className="h-4 w-4" />
-              Open in Teams
+            <Button
+              className={`${actionButtonClass} border-blue-500/20 bg-blue-600 text-white shadow-[0_18px_32px_-24px_rgba(37,99,235,0.95)] hover:border-blue-500/30 hover:bg-blue-700`}
+              type="button"
+              onClick={() => navigate(`/issues?projectId=${project._id}&compose=1`)}
+            >
+              <Bug className="h-3.5 w-3.5" />
+              Issue
             </Button>
           </div>
 
           {teamError && !isTeamDialogOpen ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {teamError}
             </div>
           ) : null}
 
           {teamsActionError ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {teamsActionError}
             </div>
           ) : null}
 
           {teamsErrorMessage ? (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
               {teamsErrorMessage}
             </div>
           ) : null}
@@ -728,6 +695,247 @@ const ProjectCard = ({
         teamsErrorMessage={teamsErrorMessage}
         usersErrorMessage={usersErrorMessage}
       />
+
+      <Dialog open={isMembersDialogOpen} onOpenChange={setIsMembersDialogOpen}>
+        <DialogContent
+          className={projectDialogContentClass(
+            "grid max-h-[calc(100svh-6.25rem)] w-[calc(100%-2rem)] max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] rounded-[24px] sm:max-h-[calc(100vh-7.5rem)]"
+          )}
+        >
+          <DialogHeader className={projectDialogHeaderClass()}>
+            <DialogTitle>Project Members</DialogTitle>
+            <DialogDescription>{project.name}</DialogDescription>
+          </DialogHeader>
+
+          <div className={projectDialogBodyClass("space-y-3")}>
+            {canManageProject ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <Select
+                    options={memberUserOptions}
+                    value={selectedProjectMemberOption}
+                    styles={memberSelectStyles}
+                    formatOptionLabel={formatUserOptionLabel}
+                    placeholder="Search users to add"
+                    noOptionsMessage={() => "No available users."}
+                    isDisabled={isAddingProjectMember || Boolean(usersErrorMessage)}
+                    onChange={(option) => setSelectedProjectMemberId(option?.value || "")}
+                  />
+                  <Button
+                    className="h-10 rounded-xl"
+                    disabled={
+                      isAddingProjectMember ||
+                      Boolean(usersErrorMessage) ||
+                      !selectedProjectMemberId
+                    }
+                    type="button"
+                    onClick={handleAddProjectMember}
+                  >
+                    {isAddingProjectMember ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <UserPlus className="h-4 w-4" />
+                    )}
+                    Add Member
+                  </Button>
+                </div>
+                {memberError || usersErrorMessage ? (
+                  <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                    {memberError || usersErrorMessage}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {projectMembers.length ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {projectMembers.map((member) => (
+                  <div
+                    key={resolveUserId(member)}
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm"
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                        {getInitials(member.name || member.email || "Member")}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-slate-900">
+                          {member.name || member.email || "Unnamed member"}
+                        </span>
+                        <span className="block truncate text-xs text-slate-500">
+                          {member.projectRole || member.role || "Project member"}
+                          {member.membershipSource === "project" ? " - direct" : " - team"}
+                        </span>
+                      </span>
+                    </span>
+                    {canManageProject && directProjectMemberIds.has(resolveUserId(member)) ? (
+                      <Button
+                        aria-label="Remove member"
+                        className="h-8 w-8 shrink-0 rounded-lg p-0"
+                        disabled={removingProjectMemberUserId === resolveUserId(member)}
+                        size="icon"
+                        title="Remove member"
+                        type="button"
+                        variant="outline"
+                        onClick={() => setMemberToRemove(member)}
+                      >
+                        {removingProjectMemberUserId === resolveUserId(member) ? (
+                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-sm text-slate-500">
+                No members are assigned to this project yet.
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className={projectDialogFooterClass()}>
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => setIsMembersDialogOpen(false)}
+            >
+              Close
+            </Button>
+            {canManageProject ? (
+              <Button
+                type="button"
+                onClick={() => {
+                  setIsMembersDialogOpen(false);
+                  setIsManageDialogOpen(true);
+                }}
+              >
+                <Settings2 className="h-4 w-4" />
+                Manage Members
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(memberToRemove)} onOpenChange={(nextOpen) => !nextOpen && setMemberToRemove(null)}>
+        <DialogContent
+          className={projectDialogContentClass(
+            "grid max-h-[calc(100svh-6.25rem)] w-[calc(100%-2rem)] max-w-md grid-rows-[auto_auto] rounded-[24px] sm:max-h-[calc(100vh-7.5rem)]"
+          )}
+        >
+          <DialogHeader className={projectDialogHeaderClass()}>
+            <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <DialogTitle>Remove Member</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove this member from the project?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className={projectDialogFooterClass()}>
+            <Button type="button" variant="ghost" onClick={() => setMemberToRemove(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={removingProjectMemberUserId === resolveUserId(memberToRemove)}
+              onClick={handleConfirmRemoveProjectMember}
+            >
+              {removingProjectMemberUserId === resolveUserId(memberToRemove) ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isTeamsDialogOpen} onOpenChange={setIsTeamsDialogOpen}>
+        <DialogContent
+          className={projectDialogContentClass(
+            "grid max-h-[calc(100svh-6.25rem)] w-[calc(100%-2rem)] max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] rounded-[24px] sm:max-h-[calc(100vh-7.5rem)]"
+          )}
+        >
+          <DialogHeader className={projectDialogHeaderClass()}>
+            <DialogTitle>Attached Teams</DialogTitle>
+            <DialogDescription>{project.name}</DialogDescription>
+          </DialogHeader>
+
+          <div className={projectDialogBodyClass("space-y-3")}>
+            {attachedTeams.length ? (
+              <div className="space-y-2">
+                {attachedTeams.map((team) => (
+                  <div
+                    key={team._id || team.name}
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
+                        {getInitials(team.name || "Team")}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-slate-900">
+                          {team.name || "Untitled team"}
+                        </span>
+                        <span className="block truncate text-xs text-slate-500">
+                          {team.memberCount || team.members?.length || 0} members
+                        </span>
+                      </span>
+                    </div>
+                    {team._id ? (
+                      <Button
+                        className="h-8 rounded-lg px-2.5 text-xs"
+                        variant="outline"
+                        type="button"
+                        onClick={() => navigate(`/teams/${team._id}`)}
+                      >
+                        Open
+                      </Button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-sm text-slate-500">
+                No teams are attached to this project yet.
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className={projectDialogFooterClass()}>
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => setIsTeamsDialogOpen(false)}
+            >
+              Close
+            </Button>
+            <Button type="button" variant="outline" onClick={handleOpenTeams}>
+              <Video className="h-4 w-4" />
+              Teams Meeting
+            </Button>
+            {canManageProject ? (
+              <Button
+                type="button"
+                disabled={Boolean(teamsErrorMessage) || !availableTeams.length}
+                onClick={() => {
+                  setIsTeamsDialogOpen(false);
+                  handleTeamDialogChange(true);
+                }}
+              >
+                <Link2 className="h-4 w-4" />
+                Attach Team
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isTeamDialogOpen} onOpenChange={handleTeamDialogChange}>
         <DialogContent
