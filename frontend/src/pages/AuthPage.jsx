@@ -15,7 +15,13 @@ import pirnavLogo from "@/assets/pirnav-logo.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
-import { adminLoginRequest, loginRequest, registerRequest } from "@/lib/api";
+import {
+  adminLoginRequest,
+  loginRequest,
+  registerRequest,
+  requestPasswordReset,
+  resetPassword,
+} from "@/lib/api";
 import { getDashboardPathByRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +30,13 @@ const initialForm = {
   email: "",
   password: "",
   role: "Developer",
+};
+
+const initialResetForm = {
+  email: "",
+  otp: "",
+  newPassword: "",
+  confirmPassword: "",
 };
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -131,9 +144,13 @@ const AuthPage = () => {
   const { setAuthSession } = useAuth();
   const [mode, setMode] = useState("login");
   const [formData, setFormData] = useState(initialForm);
+  const [resetForm, setResetForm] = useState(initialResetForm);
+  const [resetStep, setResetStep] = useState("request");
   const [fieldErrors, setFieldErrors] = useState({});
+  const [resetErrors, setResetErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isBackgroundLoaded, setIsBackgroundLoaded] = useState(false);
   const [hasBackgroundError, setHasBackgroundError] = useState(false);
@@ -175,6 +192,36 @@ const AuthPage = () => {
             data?.message || "Account created successfully. Please sign in.",
         },
       });
+    },
+  });
+
+  const passwordResetRequestMutation = useMutation({
+    mutationFn: requestPasswordReset,
+    onSuccess: (data) => {
+      setResetStep("reset");
+      setResetErrors({});
+      setSuccessMessage(
+        data?.message || "If an account exists for this email, an OTP has been sent."
+      );
+    },
+  });
+
+  const passwordResetMutation = useMutation({
+    mutationFn: resetPassword,
+    onSuccess: (data) => {
+      setMode("login");
+      setResetStep("request");
+      setShowResetPassword(false);
+      setResetErrors({});
+      setFormData((current) => ({
+        ...current,
+        email: resetForm.email,
+        password: "",
+      }));
+      setResetForm(initialResetForm);
+      setSuccessMessage(
+        data?.message || "Password updated successfully. Please sign in."
+      );
     },
   });
 
@@ -245,6 +292,56 @@ const AuthPage = () => {
     }));
   };
 
+  const handleResetChange = (event) => {
+    const { name, value } = event.target;
+    passwordResetRequestMutation.reset();
+    passwordResetMutation.reset();
+    setSuccessMessage("");
+    setResetErrors((current) => {
+      if (!current[name]) {
+        return current;
+      }
+
+      const nextErrors = { ...current };
+      delete nextErrors[name];
+      return nextErrors;
+    });
+
+    setResetForm((current) => ({
+      ...current,
+      [name]: name === "otp" ? value.replace(/\D/g, "").slice(0, 6) : value,
+    }));
+  };
+
+  const openForgotPassword = () => {
+    authMutation.reset();
+    passwordResetRequestMutation.reset();
+    passwordResetMutation.reset();
+    setMode("forgot");
+    setResetStep("request");
+    setFieldErrors({});
+    setResetErrors({});
+    setSuccessMessage("");
+    setShowPassword(false);
+    setShowResetPassword(false);
+    setResetForm({
+      ...initialResetForm,
+      email: formData.email.trim().toLowerCase(),
+    });
+  };
+
+  const backToLogin = () => {
+    authMutation.reset();
+    passwordResetRequestMutation.reset();
+    passwordResetMutation.reset();
+    setMode("login");
+    setResetStep("request");
+    setFieldErrors({});
+    setResetErrors({});
+    setSuccessMessage("");
+    setShowResetPassword(false);
+  };
+
   const handleUseDefaultPassword = async () => {
     authMutation.reset();
     setSuccessMessage("");
@@ -294,6 +391,69 @@ const AuthPage = () => {
     });
   };
 
+  const handlePasswordResetSubmit = async (event) => {
+    event.preventDefault();
+    passwordResetRequestMutation.reset();
+    passwordResetMutation.reset();
+    setSuccessMessage("");
+
+    const normalizedEmail = resetForm.email.trim().toLowerCase();
+    const errors = {};
+
+    if (!normalizedEmail) {
+      errors.email = "Email is required";
+    } else if (!emailRegex.test(normalizedEmail)) {
+      errors.email = "Please enter a valid email address";
+    }
+
+    if (resetStep === "reset") {
+      if (!resetForm.otp.trim()) {
+        errors.otp = "OTP is required";
+      } else if (!/^\d{6}$/.test(resetForm.otp.trim())) {
+        errors.otp = "Enter the 6 digit OTP";
+      }
+
+      if (!resetForm.newPassword) {
+        errors.newPassword = "New password is required";
+      } else if (resetForm.newPassword.length < 8) {
+        errors.newPassword = "Password must be at least 8 characters long";
+      } else if (
+        !passwordHasLetter.test(resetForm.newPassword) ||
+        !passwordHasNumber.test(resetForm.newPassword)
+      ) {
+        errors.newPassword = "Password must include at least one letter and one number";
+      }
+
+      if (resetForm.confirmPassword !== resetForm.newPassword) {
+        errors.confirmPassword = "Passwords do not match";
+      }
+    }
+
+    if (Object.keys(errors).length) {
+      setResetErrors(errors);
+      return;
+    }
+
+    setResetErrors({});
+
+    if (resetStep === "request") {
+      await passwordResetRequestMutation.mutateAsync({
+        email: normalizedEmail,
+      });
+      setResetForm((current) => ({
+        ...current,
+        email: normalizedEmail,
+      }));
+      return;
+    }
+
+    await passwordResetMutation.mutateAsync({
+      email: normalizedEmail,
+      otp: resetForm.otp.trim(),
+      newPassword: resetForm.newPassword,
+    });
+  };
+
   const submitLabel = useMemo(() => {
     if (authMutation.isPending) {
       return mode === "login" ? "Logging in..." : "Creating account...";
@@ -302,8 +462,26 @@ const AuthPage = () => {
     return mode === "login" ? "Login" : "Create account";
   }, [authMutation.isPending, mode]);
 
-  const eyebrowCopy = "Welcome Back";
-  const titleCopy = "Sign in to your workspace";
+  const resetSubmitLabel =
+    resetStep === "request"
+      ? passwordResetRequestMutation.isPending
+        ? "Sending OTP..."
+        : "Send OTP"
+      : passwordResetMutation.isPending
+        ? "Updating password..."
+        : "Change password";
+  const resetError =
+    passwordResetRequestMutation.error || passwordResetMutation.error;
+  const isResetPending =
+    passwordResetRequestMutation.isPending || passwordResetMutation.isPending;
+
+  const eyebrowCopy = mode === "forgot" ? "Password Help" : "Welcome Back";
+  const titleCopy =
+    mode === "forgot"
+      ? resetStep === "request"
+        ? "Reset your password"
+        : "Enter OTP and new password"
+      : "Sign in to your workspace";
 
   return (
     <main

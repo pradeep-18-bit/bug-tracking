@@ -5,6 +5,8 @@ const {
   register,
   getUsers,
   changePassword,
+  requestPasswordReset,
+  resetPasswordWithOtp,
 } = require("../controllers/authController");
 const { protect } = require("../middleware/authMiddleware");
 
@@ -13,6 +15,8 @@ const router = express.Router();
 router.post("/register", register);
 router.post("/login", login);
 router.post("/admin-login", adminLogin);
+router.post("/forgot-password", requestPasswordReset);
+router.post("/reset-password", resetPasswordWithOtp);
 router.get("/users", protect, getUsers);
 router.post("/change-password", protect, changePassword);
 
