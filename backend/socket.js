@@ -1,16 +1,20 @@
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
+const CallLog = require("./models/CallLog.model");
 const Conversation = require("./models/Conversation.model");
 const User = require("./models/User");
 const {
   CHAT_ACCESS_ROLES,
   createMessageDocument,
+  createSystemMessageDocument,
   loadConversationForUser,
   markConversationSeen,
 } = require("./controllers/chat.controller");
 const { normalizeWorkspaceId } = require("./utils/workspace");
 
 const onlineUsersByWorkspace = new Map();
+const callPresenceByWorkspace = new Map();
+const activeCalls = new Map();
 const socketUsers = new Map();
 let socketServer = null;
 
@@ -77,6 +81,9 @@ const removeOnlineUser = (socketId) => {
 const getOnlineUsers = (workspaceId) =>
   Array.from(onlineUsersByWorkspace.get(normalizeWorkspaceId(workspaceId))?.keys() || []);
 
+const getCallPresence = (workspaceId) =>
+  Object.fromEntries(callPresenceByWorkspace.get(normalizeWorkspaceId(workspaceId)) || []);
+
 const emitOnlineUsers = (io, workspaceId) => {
   const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
   const onlineUsers = getOnlineUsers(normalizedWorkspaceId);
@@ -87,6 +94,78 @@ const emitOnlineUsers = (io, workspaceId) => {
 
   io.to(workspaceRoomName(normalizedWorkspaceId)).emit("online_users", onlineUsers);
 };
+
+const setCallPresence = (io, workspaceId, userIds = [], status = "online") => {
+  const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
+  const workspacePresence =
+    callPresenceByWorkspace.get(normalizedWorkspaceId) || new Map();
+
+  userIds.filter(Boolean).forEach((userId) => {
+    const normalizedUserId = objectIdString(userId);
+
+    if (status === "online") {
+      workspacePresence.delete(normalizedUserId);
+    } else {
+      workspacePresence.set(normalizedUserId, status);
+    }
+  });
+
+  if (workspacePresence.size) {
+    callPresenceByWorkspace.set(normalizedWorkspaceId, workspacePresence);
+  } else {
+    callPresenceByWorkspace.delete(normalizedWorkspaceId);
+  }
+
+  io.to(workspaceRoomName(normalizedWorkspaceId)).emit("call:presence", {
+    presence: getCallPresence(normalizedWorkspaceId),
+  });
+};
+
+const emitCallMessage = async ({ io, call, actor, message }) => {
+  const createdMessage = await createSystemMessageDocument({
+    conversationId: call.conversationId,
+    sender: actor,
+    message,
+  });
+  const conversation = await loadConversationForUser(call.conversationId, actor, {
+    lean: true,
+  });
+  const participantRooms = (conversation?.participants || [])
+    .map((participant) => userRoomName(objectIdString(participant)))
+    .filter(Boolean);
+
+  io.to([roomName(call.conversationId), ...participantRooms]).emit(
+    "receive_message",
+    {
+      message: createdMessage,
+      conversationId: objectIdString(call.conversationId),
+      conversation,
+    }
+  );
+};
+
+const formatCallDuration = (seconds = 0) => {
+  const safeSeconds = Math.max(0, Number(seconds) || 0);
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+
+  if (minutes <= 0) {
+    return `${remainingSeconds}s`;
+  }
+
+  return `${minutes}m ${remainingSeconds}s`;
+};
+
+const serializeCall = (call, extras = {}) => ({
+  callId: objectIdString(call._id),
+  conversationId: objectIdString(call.conversationId),
+  callerId: objectIdString(call.callerId),
+  receiverId: objectIdString(call.receiverId),
+  callType: call.callType,
+  status: call.status,
+  startTime: call.startTime,
+  ...extras,
+});
 
 const authenticateSocket = async (socket, next) => {
   try {
@@ -317,6 +396,264 @@ const setupChatSocket = (server) => {
           error: error?.message || "Unable to mark messages as seen",
         });
       }
+    });
+
+    socket.on("call:start", async (payload = {}, callback) => {
+      try {
+        const callType = payload.callType === "video" ? "video" : "audio";
+        const conversation = await loadConversationForUser(
+          payload.conversationId,
+          socket.user,
+          { lean: true }
+        );
+
+        if (!conversation || conversation.type !== "direct") {
+          throw new Error("Calls are available for direct conversations");
+        }
+
+        const receiverId = objectIdString(payload.receiverId);
+        const participantIds = (conversation.participants || []).map(objectIdString);
+
+        if (
+          !receiverId ||
+          receiverId === objectIdString(socket.user._id) ||
+          !participantIds.includes(receiverId)
+        ) {
+          throw new Error("Call receiver is not part of this conversation");
+        }
+
+        const receiver = (conversation.participants || []).find(
+          (participant) => objectIdString(participant) === receiverId
+        );
+        const call = await CallLog.create({
+          conversationId: conversation._id,
+          callerId: socket.user._id,
+          receiverId,
+          participants: [socket.user._id, receiverId],
+          workspaceId: socket.user.workspaceId,
+          callType,
+          status: "Ringing",
+        });
+        const timeoutId = setTimeout(async () => {
+          const currentCall = activeCalls.get(objectIdString(call._id));
+
+          if (!currentCall || currentCall.status !== "Ringing") {
+            return;
+          }
+
+          const endedAt = new Date();
+          const missedCall = await CallLog.findByIdAndUpdate(
+            call._id,
+            {
+              status: "Missed",
+              endTime: endedAt,
+              duration: 0,
+            },
+            { new: true }
+          ).lean();
+
+          activeCalls.delete(objectIdString(call._id));
+          setCallPresence(io, socket.user.workspaceId, [socket.user._id, receiverId], "online");
+          io.to([userRoomName(socket.user._id), userRoomName(receiverId)]).emit(
+            "call:missed",
+            serializeCall(missedCall)
+          );
+          await emitCallMessage({
+            io,
+            call: missedCall,
+            actor: socket.user,
+            message: `${callType === "video" ? "Video" : "Audio"} missed call`,
+          });
+        }, 30000);
+
+        activeCalls.set(objectIdString(call._id), {
+          callerId: objectIdString(socket.user._id),
+          receiverId,
+          workspaceId: socket.user.workspaceId,
+          status: "Ringing",
+          timeoutId,
+        });
+        setCallPresence(io, socket.user.workspaceId, [socket.user._id], "ringing");
+        setCallPresence(io, socket.user.workspaceId, [receiverId], "ringing");
+
+        const caller = {
+          _id: socket.user._id,
+          name: socket.user.name,
+          email: socket.user.email,
+          role: socket.user.role,
+        };
+        const basePayload = serializeCall(call, {
+          caller,
+          receiver,
+          createdAt: call.createdAt,
+        });
+
+        io.to(userRoomName(receiverId)).emit("call:incoming", basePayload);
+        io.to(userRoomName(socket.user._id)).emit("call:outgoing", basePayload);
+        await emitCallMessage({
+          io,
+          call,
+          actor: socket.user,
+          message: `${callType === "video" ? "Video" : "Audio"} call started`,
+        });
+        callback?.({ ok: true, call: basePayload });
+      } catch (error) {
+        callback?.({
+          ok: false,
+          error: error?.message || "Unable to start call",
+        });
+      }
+    });
+
+    socket.on("call:accept", async (payload = {}, callback) => {
+      try {
+        const call = await CallLog.findOne({
+          _id: payload.callId,
+          receiverId: socket.user._id,
+          workspaceId: socket.user.workspaceId,
+          status: "Ringing",
+        });
+
+        if (!call) {
+          throw new Error("Call is no longer available");
+        }
+
+        const activeCall = activeCalls.get(objectIdString(call._id));
+        clearTimeout(activeCall?.timeoutId);
+        const startTime = new Date();
+        call.status = "Answered";
+        call.startTime = startTime;
+        await call.save();
+        activeCalls.set(objectIdString(call._id), {
+          ...(activeCall || {}),
+          callerId: objectIdString(call.callerId),
+          receiverId: objectIdString(call.receiverId),
+          workspaceId: call.workspaceId,
+          status: "Answered",
+        });
+        setCallPresence(io, call.workspaceId, [call.callerId, call.receiverId], "in-call");
+        io.to([userRoomName(call.callerId), userRoomName(call.receiverId)]).emit(
+          "call:accepted",
+          serializeCall(call, { startTime })
+        );
+        callback?.({ ok: true, call: serializeCall(call, { startTime }) });
+      } catch (error) {
+        callback?.({
+          ok: false,
+          error: error?.message || "Unable to accept call",
+        });
+      }
+    });
+
+    socket.on("call:reject", async (payload = {}, callback) => {
+      try {
+        const call = await CallLog.findOne({
+          _id: payload.callId,
+          receiverId: socket.user._id,
+          workspaceId: socket.user.workspaceId,
+          status: "Ringing",
+        });
+
+        if (!call) {
+          return callback?.({ ok: false, error: "Call is no longer available" });
+        }
+
+        const activeCall = activeCalls.get(objectIdString(call._id));
+        clearTimeout(activeCall?.timeoutId);
+        call.status = "Rejected";
+        call.endTime = new Date();
+        call.duration = 0;
+        await call.save();
+        activeCalls.delete(objectIdString(call._id));
+        setCallPresence(io, call.workspaceId, [call.callerId, call.receiverId], "online");
+        io.to([userRoomName(call.callerId), userRoomName(call.receiverId)]).emit(
+          "call:rejected",
+          serializeCall(call)
+        );
+        await emitCallMessage({
+          io,
+          call,
+          actor: socket.user,
+          message: `${call.callType === "video" ? "Video" : "Audio"} call rejected`,
+        });
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ ok: false, error: error?.message || "Unable to reject call" });
+      }
+    });
+
+    socket.on("call:end", async (payload = {}, callback) => {
+      try {
+        const call = await CallLog.findOne({
+          _id: payload.callId,
+          workspaceId: socket.user.workspaceId,
+          participants: socket.user._id,
+        });
+
+        if (!call) {
+          return callback?.({ ok: false, error: "Call not found" });
+        }
+
+        const activeCall = activeCalls.get(objectIdString(call._id));
+        clearTimeout(activeCall?.timeoutId);
+        const endTime = new Date();
+        const startTime = call.startTime || call.createdAt;
+        const duration =
+          call.status === "Answered"
+            ? Math.max(1, Math.round((endTime - startTime) / 1000))
+            : 0;
+        call.endTime = endTime;
+        call.duration = duration;
+        call.status = call.status === "Answered" ? "Ended" : "Missed";
+        await call.save();
+        activeCalls.delete(objectIdString(call._id));
+        setCallPresence(io, call.workspaceId, [call.callerId, call.receiverId], "online");
+        io.to([userRoomName(call.callerId), userRoomName(call.receiverId)]).emit(
+          "call:ended",
+          serializeCall(call, { duration })
+        );
+        await emitCallMessage({
+          io,
+          call,
+          actor: socket.user,
+          message:
+            call.status === "Ended"
+              ? `${call.callType === "video" ? "Video" : "Audio"} call ended - ${formatCallDuration(duration)}`
+              : `${call.callType === "video" ? "Video" : "Audio"} missed call`,
+        });
+        callback?.({ ok: true, call: serializeCall(call, { duration }) });
+      } catch (error) {
+        callback?.({ ok: false, error: error?.message || "Unable to end call" });
+      }
+    });
+
+    ["offer", "answer", "ice-candidate"].forEach((eventName) => {
+      socket.on(`call:${eventName}`, async (payload = {}) => {
+        const call = await CallLog.findOne({
+          _id: payload.callId,
+          workspaceId: socket.user.workspaceId,
+          participants: socket.user._id,
+        })
+          .select("_id participants workspaceId startTime")
+          .lean();
+
+        if (!call) {
+          return;
+        }
+
+        const targetUserId = objectIdString(payload.targetUserId);
+        const participantIds = (call.participants || []).map(objectIdString);
+
+        if (!participantIds.includes(targetUserId)) {
+          return;
+        }
+
+        socket.to(userRoomName(targetUserId)).emit(`call:${eventName}`, {
+          ...payload,
+          fromUserId: objectIdString(socket.user._id),
+          startTime: call.startTime,
+        });
+      });
     });
 
     socket.on("disconnect", (reason) => {

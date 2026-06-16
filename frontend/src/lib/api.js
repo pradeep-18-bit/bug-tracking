@@ -1015,6 +1015,15 @@ export const sendChatMessage = async (payload) => {
   return response.data?.message || response.data;
 };
 
+export const fetchChatCallLogs = async (conversationId) => {
+  const response = await api.get("/chat/calls", {
+    params: buildParams({
+      conversationId,
+    }),
+  });
+  return response.data?.calls || [];
+};
+
 export const uploadChatAttachment = async (file, onUploadProgress) => {
   const formData = new FormData();
   formData.append("file", file);
