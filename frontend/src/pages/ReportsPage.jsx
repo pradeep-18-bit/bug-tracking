@@ -233,22 +233,166 @@ const buildGroupedBugRows = (issues = [], groups = [], valueAccessor, fallback) 
   return rows;
 };
 
-const ChartLegend = ({ rows = [] }) => (
-  <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
-    {rows.map((row) => (
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full bg-white/72 px-2 py-1 font-semibold shadow-sm"
-        key={row.key}
-      >
-        <span
-          className="h-2.5 w-2.5 rounded-full"
-          style={{ backgroundColor: row.color }}
+const BugDistributionWidget = ({
+  emptyDescription,
+  priorityRows = [],
+  severityRows = [],
+  title = "Bug Risk Distribution",
+  total = 0,
+}) => {
+  const hasRows = severityRows.length || priorityRows.length;
+  const renderRows = (rows, tone) => (
+    <div className="space-y-2">
+      {rows.map((row) => (
+        <div
+          className="rounded-xl border border-white/60 bg-white/62 px-3 py-2 shadow-sm"
+          key={row.key}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: row.color }}
+              />
+              <span className="truncate text-sm font-semibold text-slate-800">
+                {row.name}
+              </span>
+            </div>
+            <span className="shrink-0 text-sm font-semibold text-slate-700">
+              {row.count}
+            </span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200/80">
+            <div
+              className={cn("h-full rounded-full", tone)}
+              style={{ width: `${Math.max(percent(row.count, total), row.count ? 4 : 0)}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="rounded-[16px] border border-white/55 bg-white/50 p-3 lg:col-span-2">
+      <SectionTitle kicker="Risk" title={title} />
+      {hasRows ? (
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                Severity
+              </p>
+              <span className="text-xs font-semibold text-slate-500">
+                {sumChartValues(severityRows)} bugs
+              </span>
+            </div>
+            {renderRows(severityRows, "bg-rose-500")}
+          </div>
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                Priority
+              </p>
+              <span className="text-xs font-semibold text-slate-500">
+                {sumChartValues(priorityRows)} bugs
+              </span>
+            </div>
+            {renderRows(priorityRows, "bg-blue-500")}
+          </div>
+        </div>
+      ) : (
+        <AnalyticsEmptyState
+          className="mt-4 min-h-[220px]"
+          icon={Bug}
+          title="No bug risk data"
+          description={emptyDescription}
         />
-        {row.name}: {row.count}
-      </span>
-    ))}
-  </div>
-);
+      )}
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <MiniStat label="Total Bugs" tone="rose" value={formatCompactNumber(total)} />
+        <MiniStat
+          label="Severity Groups"
+          tone="amber"
+          value={severityRows.length}
+        />
+        <MiniStat
+          label="Priority Groups"
+          tone="blue"
+          value={priorityRows.length}
+        />
+      </div>
+    </div>
+  );
+};
+
+const DeveloperDistributionWidget = ({
+  emptyDescription,
+  icon: Icon = BarChart3,
+  rows = [],
+  title,
+  total = 0,
+}) => {
+  const normalizedRows = asArray(rows)
+    .map((row, index) => ({
+      color: row.color || CHART_COLORS[index % CHART_COLORS.length],
+      key: row.key || row.name || `row-${index}`,
+      name: row.name || row.label || "Unknown",
+      value: toNumber(row.value ?? row.count),
+    }))
+    .filter((row) => row.name && row.value > 0);
+  const rowTotal = total || sumChartValues(normalizedRows);
+
+  return (
+    <AnalyticsPanel title={title}>
+      {normalizedRows.length ? (
+        <div className="space-y-3">
+          {normalizedRows.map((row) => (
+            <div
+              className="rounded-xl border border-white/60 bg-white/62 p-3 shadow-sm"
+              key={row.key}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: row.color }}
+                  />
+                  <span className="truncate text-sm font-semibold text-slate-900">
+                    {row.name}
+                  </span>
+                </div>
+                <span className="shrink-0 text-sm font-semibold text-slate-700">
+                  {row.value}
+                </span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80">
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    backgroundColor: row.color,
+                    width: `${Math.max(percent(row.value, rowTotal), 4)}%`,
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <MiniStat label="Total" tone="blue" value={formatCompactNumber(rowTotal)} />
+            <MiniStat label="Groups" tone="slate" value={normalizedRows.length} />
+          </div>
+        </div>
+      ) : (
+        <AnalyticsEmptyState
+          className="min-h-[260px]"
+          icon={Icon}
+          title="No distribution data"
+          description={emptyDescription}
+        />
+      )}
+    </AnalyticsPanel>
+  );
+};
 
 const exportCsv = (rows) => {
   if (typeof document === "undefined") {
@@ -534,8 +678,6 @@ const TesterReportsDashboard = ({ user }) => {
     verified: toNumber(row.resolved || row.closed),
     reopened: toNumber(row.reopened),
   }));
-  const hasSeverityRows = hasChartValues(severityRows);
-  const hasPriorityRows = hasChartValues(priorityRows);
   const hasTimelineRows =
     sumChartValues(timelineRows, "reported") +
       sumChartValues(timelineRows, "verified") +
@@ -621,41 +763,13 @@ const TesterReportsDashboard = ({ user }) => {
       <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
         <AnalyticsPanel title="My Bug Analytics" description="Only bugs reported by you are included.">
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
-              <SectionTitle kicker="Severity" title="My Bugs by Severity" />
-              <ChartFrame height={230}>
-                {hasSeverityRows ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={severityRows} dataKey="value" nameKey="name" innerRadius={54} outerRadius={84} paddingAngle={3} isAnimationActive={false}>
-                        {severityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
-                      </Pie>
-                      <Tooltip contentStyle={chartTooltipStyle} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Bug} title="No reported bugs" description="Your bug analytics appear after you report bugs." />}
-              </ChartFrame>
-              {hasSeverityRows ? <ChartLegend rows={severityRows} /> : null}
-            </div>
-            <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
-              <SectionTitle kicker="Priority" title="My Bugs by Priority" />
-              <ChartFrame height={230}>
-                {hasPriorityRows ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={priorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
-                      <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
-                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                      <YAxis type="category" dataKey="name" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                      <Tooltip contentStyle={chartTooltipStyle} />
-                      <Bar dataKey="value" radius={[0, 8, 8, 0]} isAnimationActive={false}>
-                        {priorityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Gauge} title="No priority data" description="Priority analytics appear after you report bugs." />}
-              </ChartFrame>
-              {hasPriorityRows ? <ChartLegend rows={priorityRows} /> : null}
-            </div>
+            <BugDistributionWidget
+              emptyDescription="Your bug risk breakdown appears after you report bugs."
+              priorityRows={priorityRows}
+              severityRows={severityRows}
+              title="My Bug Risk Distribution"
+              total={bugIssues.length}
+            />
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3 lg:col-span-2">
               <SectionTitle kicker="Timeline" title="My Verification Timeline" />
               <ChartFrame height={300}>
@@ -751,14 +865,16 @@ const TesterReportsDashboard = ({ user }) => {
 
 const DeveloperReportsDashboard = ({ user }) => {
   const currentDeveloperId = user?._id || user?.id || "";
-  const [filters, setFilters] = useState({
+  const defaultFilters = {
     projectId: "all",
     sprintId: "all",
     priority: "all",
     severity: "all",
     dateFrom: "",
     dateTo: "",
-  });
+  };
+  const [draftFilters, setDraftFilters] = useState(defaultFilters);
+  const [filters, setFilters] = useState(defaultFilters);
 
   const {
     data: projects = [],
@@ -768,7 +884,7 @@ const DeveloperReportsDashboard = ({ user }) => {
     staleTime: 60_000,
   });
 
-  const selectedProjectId = filters.projectId !== "all" ? filters.projectId : "";
+  const selectedProjectId = draftFilters.projectId !== "all" ? draftFilters.projectId : "";
   const { data: sprints = [] } = useQuery({
     queryKey: ["developer-reports", "sprints", selectedProjectId],
     queryFn: () => fetchSprints({ projectId: selectedProjectId }),
@@ -780,26 +896,30 @@ const DeveloperReportsDashboard = ({ user }) => {
   });
 
   const updateFilter = (key, value) =>
-    setFilters((current) => ({
+    setDraftFilters((current) => ({
       ...current,
       [key]: value,
       ...(key === "projectId" ? { sprintId: "all" } : {}),
     }));
 
-  const resetFilters = () =>
-    setFilters({
-      projectId: "all",
-      sprintId: "all",
-      priority: "all",
-      severity: "all",
-      dateFrom: "",
-      dateTo: "",
-    });
+  const applyFilters = () => setFilters(draftFilters);
+  const resetFilters = () => {
+    setDraftFilters(defaultFilters);
+    setFilters(defaultFilters);
+  };
 
   const workDistributionData = useMemo(() => {
     const metricRows = [
-      { name: "Tasks", value: toNumber(data?.taskMetrics?.assigned) },
-      { name: "Bugs", value: toNumber(data?.bugMetrics?.assigned) },
+      {
+        color: DEVELOPER_WORK_DISTRIBUTION_COLORS.Tasks,
+        name: "Tasks",
+        value: toNumber(data?.taskMetrics?.assigned),
+      },
+      {
+        color: DEVELOPER_WORK_DISTRIBUTION_COLORS.Bugs,
+        name: "Bugs",
+        value: toNumber(data?.bugMetrics?.assigned),
+      },
     ].filter((item) => item.value > 0);
 
     if (metricRows.length) {
@@ -807,20 +927,39 @@ const DeveloperReportsDashboard = ({ user }) => {
     }
 
     return asArray(data?.charts?.workDistribution)
-      .map((item) => ({ ...item, value: toNumber(item?.value) }))
+      .map((item, index) => ({
+        ...item,
+        color:
+          DEVELOPER_WORK_DISTRIBUTION_COLORS[item?.name] ||
+          CHART_COLORS[index % CHART_COLORS.length],
+        value: toNumber(item?.value),
+      }))
       .filter((item) => item.name && item.value > 0);
   }, [data?.bugMetrics?.assigned, data?.charts?.workDistribution, data?.taskMetrics?.assigned]);
 
   const severityDistributionData = useMemo(() => {
     const knownRows = asArray(data?.charts?.severityDistribution)
-      .map((item) => ({ ...item, value: toNumber(item?.value) }))
+      .map((item, index) => ({
+        ...item,
+        color:
+          DEVELOPER_SEVERITY_COLORS[item?.name] ||
+          CHART_COLORS[index % CHART_COLORS.length],
+        value: toNumber(item?.value),
+      }))
       .filter((item) => item.name && item.value > 0);
     const knownTotal = sumChartValues(knownRows);
     const bugTotal = toNumber(data?.bugMetrics?.assigned);
     const unspecified = Math.max(bugTotal - knownTotal, 0);
 
     return unspecified > 0
-      ? [...knownRows, { name: "Unspecified", value: unspecified }]
+      ? [
+          ...knownRows,
+          {
+            color: DEVELOPER_SEVERITY_COLORS.Unspecified,
+            name: "Unspecified",
+            value: unspecified,
+          },
+        ]
       : knownRows;
   }, [data?.bugMetrics?.assigned, data?.charts?.severityDistribution]);
 
@@ -873,16 +1012,16 @@ const DeveloperReportsDashboard = ({ user }) => {
   };
 
   const health = getWorkloadHealth(summary.openWork);
+  const developerFilterControlClass =
+    "h-11 w-full rounded-2xl border border-white/70 bg-white/90 px-4 text-sm font-semibold text-slate-700 shadow-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-slate-950/70 dark:text-slate-100";
 
   return (
     <div className="space-y-6">
-      {/* Sticky Compact Toolbar */}
-      <div className="sticky top-0 z-30 -mx-4 mb-6 bg-slate-50/80 px-4 py-2 backdrop-blur-md dark:bg-slate-900/80 sm:-mx-6 sm:px-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-1 flex-wrap items-center gap-2">
+      <div className="sticky top-0 z-30 rounded-[18px] border border-white/65 bg-slate-50/95 p-3 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.45)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/92">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_0.8fr_0.8fr_auto]">
             <select
-              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950"
-              value={filters.projectId}
+              className={developerFilterControlClass}
+              value={draftFilters.projectId}
               onChange={(e) => updateFilter("projectId", e.target.value)}
             >
               <option value="all">All Projects</option>
@@ -892,8 +1031,8 @@ const DeveloperReportsDashboard = ({ user }) => {
             </select>
 
             <select
-              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950"
-              value={filters.sprintId}
+              className={developerFilterControlClass}
+              value={draftFilters.sprintId}
               disabled={!selectedProjectId}
               onChange={(e) => updateFilter("sprintId", e.target.value)}
             >
@@ -904,22 +1043,24 @@ const DeveloperReportsDashboard = ({ user }) => {
               ))}
             </select>
 
-            <div className="flex items-center gap-1">
-              <DateField
-                label="From"
-                value={filters.dateFrom}
-                onChange={(e) => updateFilter("dateFrom", e.target.value)}
-              />
-              <DateField
-                label="To"
-                value={filters.dateTo}
-                onChange={(e) => updateFilter("dateTo", e.target.value)}
-              />
-            </div>
+            <Input
+              aria-label="Date from"
+              className={developerFilterControlClass}
+              type="date"
+              value={draftFilters.dateFrom}
+              onChange={(e) => updateFilter("dateFrom", e.target.value)}
+            />
+            <Input
+              aria-label="Date to"
+              className={developerFilterControlClass}
+              type="date"
+              value={draftFilters.dateTo}
+              onChange={(e) => updateFilter("dateTo", e.target.value)}
+            />
 
             <select
-              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950"
-              value={filters.priority}
+              className={developerFilterControlClass}
+              value={draftFilters.priority}
               onChange={(e) => updateFilter("priority", e.target.value)}
             >
               <option value="all">Priority</option>
@@ -927,18 +1068,17 @@ const DeveloperReportsDashboard = ({ user }) => {
             </select>
 
             <select
-              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950"
-              value={filters.severity}
+              className={developerFilterControlClass}
+              value={draftFilters.severity}
               onChange={(e) => updateFilter("severity", e.target.value)}
             >
               <option value="all">Severity</option>
               {BUG_SEVERITY_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
-          </div>
 
-          <div className="flex items-center gap-2 border-l border-slate-200 pl-2 dark:border-slate-800">
-            <Button size="sm" onClick={() => {}} className="h-9 text-xs">Apply</Button>
-            <Button size="sm" variant="ghost" onClick={resetFilters} className="h-9 text-xs">Reset</Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={applyFilters} className="h-11 px-4 text-sm">Apply</Button>
+            <Button size="sm" variant="ghost" onClick={resetFilters} className="h-11 px-3 text-sm">Reset</Button>
           </div>
         </div>
       </div>
@@ -996,88 +1136,23 @@ const DeveloperReportsDashboard = ({ user }) => {
         </AnalyticsPanel>
       </div>
 
-      {/* Row 3: Donut Charts */}
+      {/* Row 3: Distribution Widgets */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <AnalyticsPanel title="Work Distribution">
-          <ChartFrame height={300}>
-            {hasWorkDistributionChart ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={workDistributionData}
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    isAnimationActive={false}
-                  >
-                    {workDistributionData.map((entry) => (
-                      <Cell
-                        key={entry.name}
-                        fill={DEVELOPER_WORK_DISTRIBUTION_COLORS[entry.name] || CHART_COLORS[0]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={chartTooltipStyle} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : <AnalyticsEmptyState className="min-h-[300px]" icon={PieChartIcon} title="No distribution data" description="Work distribution will appear here." />}
-          </ChartFrame>
-          <div className="mt-4 flex justify-center gap-6 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-blue-500" />
-              <span className="text-slate-600 font-medium">Tasks ({taskMetrics.assigned})</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-rose-500" />
-              <span className="text-slate-600 font-medium">Bugs ({bugMetrics.assigned})</span>
-            </div>
-          </div>
-        </AnalyticsPanel>
+        <DeveloperDistributionWidget
+          emptyDescription="Task and bug workload distribution will appear once work is assigned."
+          icon={Layers3}
+          rows={workDistributionData}
+          title="Work Distribution"
+          total={toNumber(taskMetrics.assigned) + toNumber(bugMetrics.assigned)}
+        />
 
-        <AnalyticsPanel title="Bug Severity Distribution">
-          <ChartFrame height={300}>
-            {hasSeverityDistributionChart ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={severityDistributionData}
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    isAnimationActive={false}
-                  >
-                    {severityDistributionData.map((entry, index) => (
-                      <Cell
-                        key={`${entry.name}-${index}`}
-                        fill={DEVELOPER_SEVERITY_COLORS[entry.name] || CHART_COLORS[index % CHART_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={chartTooltipStyle} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : <AnalyticsEmptyState className="min-h-[300px]" icon={Bug} title="No severity data" description="Bug severity distribution will appear here." />}
-          </ChartFrame>
-          <div className="mt-4 flex flex-wrap justify-center gap-4 text-xs">
-            {severityDistributionData.map((entry) => (
-              <div key={entry.name} className="flex items-center gap-1.5">
-                <div
-                  className="h-2.5 w-2.5 rounded-full"
-                  style={{ backgroundColor: DEVELOPER_SEVERITY_COLORS[entry.name] || CHART_COLORS[0] }}
-                />
-                <span className="text-slate-500 font-medium">{entry.name}: {entry.value}</span>
-              </div>
-            ))}
-          </div>
-        </AnalyticsPanel>
+        <DeveloperDistributionWidget
+          emptyDescription="Bug severity distribution will appear once assigned bugs have severity."
+          icon={Bug}
+          rows={severityDistributionData}
+          title="Bug Severity Distribution"
+          total={toNumber(bugMetrics.assigned)}
+        />
       </div>
 
       {/* Row 4: Sprint Trend */}
@@ -1485,8 +1560,6 @@ const OrganizationReportsDashboard = () => {
       })),
     [bugTrend]
   );
-  const hasBugSeverityRows = hasChartValues(bugSeverityRows);
-  const hasBugPriorityRows = hasChartValues(bugPriorityRows);
   const hasBugTimelineRows =
     sumChartValues(bugTimelineRows, "created") +
       sumChartValues(bugTimelineRows, "fixed") +
@@ -1975,41 +2048,12 @@ const OrganizationReportsDashboard = () => {
       <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
         <AnalyticsPanel title="Bug Analytics" description="Bug lifecycle only: tester report, developer fix, QA verification, close.">
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
-              <SectionTitle kicker="Severity" title="Bugs By Severity" />
-              <ChartFrame height={230}>
-                {hasBugSeverityRows ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={bugSeverityRows} dataKey="value" nameKey="name" innerRadius={54} outerRadius={84} paddingAngle={3} isAnimationActive={false}>
-                        {bugSeverityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
-                      </Pie>
-                      <Tooltip contentStyle={chartTooltipStyle} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Bug} title="No severity data" description="Bug severity appears when bugs exist in scope." />}
-              </ChartFrame>
-              {hasBugSeverityRows ? <ChartLegend rows={bugSeverityRows} /> : null}
-            </div>
-            <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
-              <SectionTitle kicker="Priority" title="Bugs By Priority" />
-              <ChartFrame height={230}>
-                {hasBugPriorityRows ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={bugPriorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
-                      <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
-                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                      <YAxis type="category" dataKey="name" width={86} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                      <Tooltip contentStyle={chartTooltipStyle} />
-                      <Bar dataKey="value" radius={[0, 8, 8, 0]} isAnimationActive={false}>
-                        {bugPriorityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Gauge} title="No priority data" description="Bug priority appears when bugs exist in scope." />}
-              </ChartFrame>
-              {hasBugPriorityRows ? <ChartLegend rows={bugPriorityRows} /> : null}
-            </div>
+            <BugDistributionWidget
+              emptyDescription="Bug risk distribution appears when bugs exist in scope."
+              priorityRows={bugPriorityRows}
+              severityRows={bugSeverityRows}
+              total={bugMetrics.total || bugIssues.length}
+            />
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Reopen Heatmap" title="Weekly Reopen Trends" />
               <div className="mt-4 grid grid-cols-7 gap-1.5">
