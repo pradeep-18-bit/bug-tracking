@@ -1320,6 +1320,7 @@ const OrganizationReportsDashboard = () => {
     overdue: taskIssues.filter(isOverdue).length,
     sprintCompletion: percent(taskIssues.filter(isClosed).length, taskIssues.length),
   };
+  const taskScopeTotal = Math.max(taskMetrics.total, taskIssues.length);
   const bugMetrics = {
     total: toNumber(bugSummary.totalIssues),
     open: bugIssues.filter((issue) => !isClosed(issue)).length,
@@ -1354,6 +1355,60 @@ const OrganizationReportsDashboard = () => {
     { key: "Unspecified", label: "Unspecified", color: "#64748b" }
   );
   const taskTypeRows = buildRows(taskIssues, (issue) => issue.type, (issue) => issue.type);
+  const taskLifecycleRows = [
+    {
+      key: "open",
+      label: "Open tasks",
+      count: taskMetrics.open,
+      value: percent(taskMetrics.open, taskScopeTotal),
+      tone: "bg-blue-500",
+    },
+    {
+      key: "active",
+      label: "Active work",
+      count: taskMetrics.active,
+      value: percent(taskMetrics.active, taskScopeTotal),
+      tone: "bg-violet-500",
+    },
+    {
+      key: "completed",
+      label: "Completed",
+      count: taskMetrics.completed,
+      value: percent(taskMetrics.completed, taskScopeTotal),
+      tone: "bg-emerald-500",
+    },
+    {
+      key: "overdue",
+      label: "Overdue",
+      count: taskMetrics.overdue,
+      value: percent(taskMetrics.overdue, taskScopeTotal),
+      tone: "bg-amber-500",
+    },
+  ];
+  const taskAttentionRows = useMemo(
+    () =>
+      [...taskIssues]
+        .sort((left, right) => {
+          const leftOverdue = isOverdue(left) ? 1 : 0;
+          const rightOverdue = isOverdue(right) ? 1 : 0;
+
+          if (leftOverdue !== rightOverdue) {
+            return rightOverdue - leftOverdue;
+          }
+
+          const priorityRank = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+          const priorityDelta =
+            (priorityRank[left.priority] ?? 4) - (priorityRank[right.priority] ?? 4);
+
+          if (priorityDelta !== 0) {
+            return priorityDelta;
+          }
+
+          return new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
+        })
+        .slice(0, 6),
+    [taskIssues]
+  );
   const trendRows = useMemo(() => {
     const rows = new Map();
     taskTrend.forEach((row) => {
@@ -1792,54 +1847,83 @@ const OrganizationReportsDashboard = () => {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-        <AnalyticsPanel title="Task Analytics" description="Task, story, epic, and sub-task workflow only. Bugs are excluded from this section.">
-          <div className="grid gap-4 lg:grid-cols-2">
+        <AnalyticsPanel title="Task Delivery Control" description="Task, story, epic, and sub-task workload, ownership, risk, and completion health. Bugs are excluded.">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MiniStat label="Open Tasks" tone="blue" value={formatCompactNumber(taskMetrics.open)} />
+            <MiniStat label="Active Work" tone="violet" value={formatCompactNumber(taskMetrics.active)} />
+            <MiniStat label="Completed" tone="emerald" value={formatCompactNumber(taskMetrics.completed)} />
+            <MiniStat label="Overdue" tone="amber" value={formatCompactNumber(taskMetrics.overdue)} />
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <div>
-              <SectionTitle kicker="Task Metrics" title="Task Status Distribution" />
-              <ChartFrame height={350}>
-                {taskStatusRows.length ? (
-                  <ResponsiveContainer width="100%" height={350}>
-                    <PieChart>
-                      <Pie data={taskStatusRows} dataKey="value" nameKey="name" innerRadius={58} outerRadius={90} isAnimationActive={false}>
-                        {taskStatusRows.map((row, index) => <Cell key={row.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip contentStyle={chartTooltipStyle} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : <AnalyticsEmptyState icon={Layers3} title="No task data" description="Task analytics appear when non-bug work exists." />}
-              </ChartFrame>
+              <SectionTitle kicker="Flow" title="Task Lifecycle Health" />
+              <div className="mt-4 space-y-3">
+                {taskLifecycleRows.map((row) => (
+                  <ProgressRow
+                    key={row.key}
+                    label={row.label}
+                    meta={`${row.count} tasks`}
+                    tone={row.tone}
+                    value={row.value}
+                  />
+                ))}
+              </div>
             </div>
+
             <div>
-              <SectionTitle kicker="Sprint Burndown" title="Created vs Resolved Trend" />
-              <ChartFrame height={350}>
-                {trendRows.length ? (
-                  <ResponsiveContainer width="100%" height={350}>
-                    <AreaChart data={trendRows}>
-                      <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
-                      <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                      <Tooltip contentStyle={chartTooltipStyle} />
-                      <Area type="monotone" dataKey="tasks" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.75} isAnimationActive={false} />
-                      <Area type="monotone" dataKey="resolved" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} isAnimationActive={false} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                ) : <AnalyticsEmptyState icon={TrendingUp} title="No trend data" description="Task resolution trends will appear here." />}
-              </ChartFrame>
+              <SectionTitle kicker="Queue" title="Needs Attention" />
+              <div className="mt-4 max-h-[315px] space-y-2 overflow-y-auto pr-2 dashboard-scrollbar">
+                {taskAttentionRows.length ? taskAttentionRows.map((task) => (
+                  <div key={task._id} className="rounded-[14px] border border-white/60 bg-white/62 p-3 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-950">{task.title}</p>
+                        <p className="mt-1 truncate text-xs text-slate-500">
+                          {task.project?.name || "Unknown project"} · {resolveUserLabel(task.assignee)}
+                        </p>
+                      </div>
+                      <Badge variant={getIssuePriorityVariant(task.priority)}>
+                        {task.priority || "Medium"}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <Badge variant={getIssueStatusVariant(task.status)}>
+                        {getIssueStatusLabel(task.status)}
+                      </Badge>
+                      <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
+                        {task.type || "Task"}
+                      </span>
+                      <span>{task.dueAt ? `Due ${formatDateTime(task.dueAt)}` : formatDateTime(task.createdAt)}</span>
+                    </div>
+                  </div>
+                )) : (
+                  <AnalyticsEmptyState className="min-h-[240px]" icon={Layers3} title="No tasks in scope" description="Task workload details will appear after tasks match the current filters." />
+                )}
+              </div>
             </div>
+
             <div>
               <SectionTitle kicker="Ownership" title="Tasks By Assignee" />
               <div className="mt-4 space-y-3">
                 {taskAssigneeRows.slice(0, 6).map((row) => (
-                  <ProgressRow key={row.key} label={row.label} value={percent(row.count, taskMetrics.total)} meta={`${row.count} tasks`} tone="bg-blue-500" />
+                  <ProgressRow key={row.key} label={row.label} value={percent(row.count, taskScopeTotal)} meta={`${row.count} tasks`} tone="bg-blue-500" />
                 ))}
+                {!taskAssigneeRows.length ? (
+                  <AnalyticsEmptyState className="min-h-[180px]" icon={UserCheck} title="No assignee data" description="Task ownership appears once tasks are assigned." />
+                ) : null}
               </div>
             </div>
+
             <div>
               <SectionTitle kicker="Breakdown" title="Story vs Task Mix" />
               <div className="mt-4 space-y-3">
                 {taskTypeRows.map((row) => (
-                  <ProgressRow key={row.key} label={row.label} value={percent(row.count, taskMetrics.total)} meta={`${row.count} items`} tone="bg-violet-500" />
+                  <ProgressRow key={row.key} label={row.label} value={percent(row.count, taskScopeTotal)} meta={`${row.count} items`} tone="bg-violet-500" />
                 ))}
+                {!taskTypeRows.length ? (
+                  <AnalyticsEmptyState className="min-h-[180px]" icon={Layers3} title="No type data" description="Task type mix appears once non-bug work exists." />
+                ) : null}
               </div>
             </div>
           </div>
