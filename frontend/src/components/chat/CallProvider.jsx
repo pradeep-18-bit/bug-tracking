@@ -41,6 +41,9 @@ const rtcConfig = {
         ]
       : []),
   ],
+  bundlePolicy: "max-bundle",
+  iceCandidatePoolSize: 8,
+  iceTransportPolicy: import.meta.env.VITE_ICE_TRANSPORT_POLICY || "all",
 };
 
 const formatDuration = (seconds = 0) => {
@@ -80,19 +83,38 @@ const playRingtone = () => {
 const RemoteMedia = ({ stream, muted }) => {
   const videoRef = useRef(null);
   const audioRef = useRef(null);
+  const [hasVideo, setHasVideo] = useState(false);
 
   useEffect(() => {
+    const updateHasVideo = () =>
+      setHasVideo(stream?.getVideoTracks().some((track) => track.readyState === "live"));
+
     if (videoRef.current) {
       videoRef.current.srcObject = stream;
+      videoRef.current.play?.().catch(() => {});
     }
     if (audioRef.current) {
       audioRef.current.srcObject = stream;
       audioRef.current.muted = muted;
+      audioRef.current.play?.().catch(() => {});
     }
+    updateHasVideo();
+    stream?.addEventListener?.("addtrack", updateHasVideo);
+    stream?.addEventListener?.("removetrack", updateHasVideo);
+
+    return () => {
+      stream?.removeEventListener?.("addtrack", updateHasVideo);
+      stream?.removeEventListener?.("removetrack", updateHasVideo);
+    };
   }, [muted, stream]);
 
   return (
     <>
+      {!hasVideo ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-800 text-xs font-bold text-white/45">
+          Connecting video
+        </div>
+      ) : null}
       <video ref={videoRef} autoPlay playsInline className="h-full w-full object-cover" />
       <audio ref={audioRef} autoPlay playsInline />
     </>
@@ -105,6 +127,7 @@ const LocalVideo = ({ stream }) => {
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.srcObject = stream;
+      videoRef.current.play?.().catch(() => {});
     }
   }, [stream]);
 
@@ -117,6 +140,18 @@ const LocalVideo = ({ stream }) => {
       className="h-full w-full object-cover"
     />
   );
+};
+
+const getPeerUiStatus = (state = "") => {
+  if (["connected", "completed"].includes(state)) {
+    return "Connected";
+  }
+
+  if (["disconnected", "failed"].includes(state)) {
+    return "Reconnecting";
+  }
+
+  return "Connecting";
 };
 
 export const CallProvider = ({ children }) => {
@@ -134,9 +169,11 @@ export const CallProvider = ({ children }) => {
   const [duration, setDuration] = useState(0);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
+  const [peerStatuses, setPeerStatuses] = useState({});
   const peersRef = useRef(new Map());
   const pendingCandidatesRef = useRef(new Map());
   const localStreamRef = useRef(null);
+  const outboundVideoTrackRef = useRef(null);
   const stopRingtoneRef = useRef(null);
   const activeCallRef = useRef(null);
   const screenRef = useRef(null);
@@ -158,6 +195,11 @@ export const CallProvider = ({ children }) => {
     peer?.close();
     peersRef.current.delete(userId);
     pendingCandidatesRef.current.delete(userId);
+    setPeerStatuses((current) => {
+      const next = { ...current };
+      delete next[userId];
+      return next;
+    });
     setRemoteStreams((current) => {
       const next = { ...current };
       delete next[userId];
@@ -170,12 +212,14 @@ export const CallProvider = ({ children }) => {
     peersRef.current.clear();
     pendingCandidatesRef.current.clear();
     setRemoteStreams({});
+    setPeerStatuses({});
   }, []);
 
   const stopStreams = useCallback(() => {
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     screenRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
+    outboundVideoTrackRef.current = null;
     screenRef.current = null;
     setLocalStream(null);
   }, []);
@@ -223,10 +267,22 @@ export const CallProvider = ({ children }) => {
   const getMedia = useCallback(async (callType) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: callType === "video",
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video:
+          callType === "video"
+            ? {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                frameRate: { ideal: 24, max: 30 },
+              }
+            : false,
       });
       localStreamRef.current = stream;
+      outboundVideoTrackRef.current = stream.getVideoTracks()[0] || null;
       setLocalStream(stream);
       return stream;
     } catch (mediaError) {
@@ -249,7 +305,11 @@ export const CallProvider = ({ children }) => {
       const peer = new RTCPeerConnection(rtcConfig);
       const nextRemoteStream = new MediaStream();
       updateRemoteStream(normalizedTargetId, nextRemoteStream);
-      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+      stream.getTracks().forEach((track) => {
+        const outboundTrack =
+          track.kind === "video" ? outboundVideoTrackRef.current || track : track;
+        peer.addTrack(outboundTrack, stream);
+      });
       peer.ontrack = (event) => {
         event.streams?.[0]?.getTracks().forEach((track) => {
           nextRemoteStream.addTrack(track);
@@ -264,11 +324,65 @@ export const CallProvider = ({ children }) => {
           });
         }
       };
-      peer.onconnectionstatechange = () => {
-        if (["closed", "failed", "disconnected"].includes(peer.connectionState)) {
+      const restartIce = async () => {
+        const currentCall = activeCallRef.current;
+
+        if (
+          !currentCall?.callId ||
+          peer.signalingState !== "stable" ||
+          peer.connectionState === "closed"
+        ) {
+          return;
+        }
+
+        try {
+          peer.restartIce?.();
+          const offer = await peer.createOffer({ iceRestart: true });
+          await peer.setLocalDescription(offer);
+          getChatSocket(token)?.emit("call:offer", {
+            callId: currentCall.callId,
+            targetUserId: normalizedTargetId,
+            description: offer,
+            iceRestart: true,
+          });
+        } catch {
           cleanupPeer(normalizedTargetId);
         }
       };
+      peer.oniceconnectionstatechange = () => {
+        const state = peer.iceConnectionState;
+        setPeerStatuses((current) => ({
+          ...current,
+          [normalizedTargetId]: state,
+        }));
+
+        if (state === "failed") {
+          restartIce();
+        }
+      };
+      peer.onconnectionstatechange = () => {
+        const state = peer.connectionState;
+        setPeerStatuses((current) => ({
+          ...current,
+          [normalizedTargetId]: state,
+        }));
+
+        if (state === "failed") {
+          restartIce();
+        } else if (state === "disconnected") {
+          window.setTimeout(() => {
+            if (peer.connectionState === "disconnected") {
+              restartIce();
+            }
+          }, 1200);
+        } else if (state === "closed") {
+          cleanupPeer(normalizedTargetId);
+        }
+      };
+      setPeerStatuses((current) => ({
+        ...current,
+        [normalizedTargetId]: "connecting",
+      }));
       peersRef.current.set(normalizedTargetId, peer);
       return peer;
     },
@@ -411,9 +525,17 @@ export const CallProvider = ({ children }) => {
       return;
     }
 
-    const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    const displayStream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        frameRate: { ideal: 15, max: 24 },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
+      audio: false,
+    });
     screenRef.current = displayStream;
     const screenTrack = displayStream.getVideoTracks()[0];
+    outboundVideoTrackRef.current = screenTrack || outboundVideoTrackRef.current;
 
     peersRef.current.forEach((peer) => {
       const sender = peer.getSenders().find((item) => item.track?.kind === "video");
@@ -426,6 +548,7 @@ export const CallProvider = ({ children }) => {
       if (!cameraTrack) {
         return;
       }
+      outboundVideoTrackRef.current = cameraTrack;
       peersRef.current.forEach((peer) => {
         const sender = peer.getSenders().find((item) => item.track?.kind === "video");
         sender?.replaceTrack(cameraTrack);
@@ -500,7 +623,19 @@ export const CallProvider = ({ children }) => {
         }));
       }
       if (payload.call?.callId === activeCallRef.current?.callId) {
-        setParticipants(payload.participants || []);
+        const nextParticipants = payload.participants || [];
+        const joinedIds = new Set(
+          nextParticipants
+            .filter((participant) => participant.status === "Joined")
+            .map((participant) => getId(participant.user))
+        );
+
+        peersRef.current.forEach((_peer, userId) => {
+          if (!joinedIds.has(userId)) {
+            cleanupPeer(userId);
+          }
+        });
+        setParticipants(nextParticipants);
       }
     };
     const handleAccepted = async (payload) => {
@@ -580,6 +715,11 @@ export const CallProvider = ({ children }) => {
         targetUserId: fromUserId,
         stream,
       });
+      if (peer.signalingState !== "stable") {
+        await Promise.all([
+          peer.setLocalDescription({ type: "rollback" }).catch(() => {}),
+        ]);
+      }
       await peer.setRemoteDescription(payload.description);
       const pendingCandidates = pendingCandidatesRef.current.get(fromUserId) || [];
       await Promise.all(

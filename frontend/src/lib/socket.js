@@ -44,11 +44,14 @@ export const getChatSocket = (token) => {
       token: authToken,
     },
     autoConnect: false,
+    transports: ["websocket", "polling"],
+    upgrade: true,
     reconnection: true,
     reconnectionAttempts: Infinity,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    randomizationFactor: 0.5,
+    reconnectionDelay: 300,
+    reconnectionDelayMax: 2500,
+    randomizationFactor: 0.25,
+    timeout: 12000,
     withCredentials: true,
   });
 

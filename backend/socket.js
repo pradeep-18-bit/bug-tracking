@@ -83,6 +83,11 @@ const removeOnlineUser = (socketId) => {
 const getOnlineUsers = (workspaceId) =>
   Array.from(onlineUsersByWorkspace.get(normalizeWorkspaceId(workspaceId))?.keys() || []);
 
+const isUserOnline = (workspaceId, userId) =>
+  onlineUsersByWorkspace
+    .get(normalizeWorkspaceId(workspaceId))
+    ?.has(objectIdString(userId)) || false;
+
 const getCallPresence = (workspaceId) =>
   Object.fromEntries(callPresenceByWorkspace.get(normalizeWorkspaceId(workspaceId)) || []);
 
@@ -182,15 +187,6 @@ const serializeSocketUser = (user) => ({
   email: user?.email || "",
   role: user?.role || "",
 });
-
-const getParticipantUsers = async (userIds = []) =>
-  User.find({
-    _id: {
-      $in: userIds,
-    },
-  })
-    .select("_id name email role designation")
-    .lean();
 
 const emitCallParticipants = async (io, callId) => {
   const call = await CallLog.findById(callId).lean();
@@ -499,7 +495,9 @@ const setupChatSocket = (server) => {
           ? participantIds
           : [objectIdString(socket.user._id), receiverId];
         const onlineParticipantIds = invitedParticipantIds.filter(
-          (participantId) => participantId !== objectIdString(socket.user._id)
+          (participantId) =>
+            participantId !== objectIdString(socket.user._id) &&
+            isUserOnline(socket.user.workspaceId, participantId)
         );
         const call = await CallLog.create({
           conversationId: conversation._id,
@@ -584,7 +582,7 @@ const setupChatSocket = (server) => {
           [socket.user._id],
           isGroupCall ? "in-group-call" : "ringing"
         );
-        setCallPresence(io, socket.user.workspaceId, onlineParticipantIds, isGroupCall ? "ringing" : "ringing");
+        setCallPresence(io, socket.user.workspaceId, onlineParticipantIds, "ringing");
 
         const caller = {
           _id: socket.user._id,
@@ -982,7 +980,7 @@ const setupChatSocket = (server) => {
           workspaceId: socket.user.workspaceId,
           participants: socket.user._id,
         })
-          .select("_id participants workspaceId startTime")
+          .select("_id participants activeParticipantIds scope workspaceId startTime status")
           .lean();
 
         if (!call) {
@@ -991,8 +989,18 @@ const setupChatSocket = (server) => {
 
         const targetUserId = objectIdString(payload.targetUserId);
         const participantIds = (call.participants || []).map(objectIdString);
+        const activeParticipantIds = (call.activeParticipantIds || []).map(objectIdString);
 
         if (!participantIds.includes(targetUserId)) {
+          return;
+        }
+
+        if (
+          call.scope === "group" &&
+          (!activeParticipantIds.includes(objectIdString(socket.user._id)) ||
+            !activeParticipantIds.includes(targetUserId) ||
+            call.status !== "Active")
+        ) {
           return;
         }
 
