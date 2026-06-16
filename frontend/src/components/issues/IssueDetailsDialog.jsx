@@ -1532,8 +1532,11 @@ const IssueDetailsDialog = ({
                 type="button"
                 disabled={deletingId === issue._id}
                 onClick={async () => {
-                  await onDeleteIssue(issue._id);
-                  onOpenChange(false);
+                  const result = await onDeleteIssue(issue._id);
+
+                  if (result !== false) {
+                    onOpenChange(false);
+                  }
                 }}
               >
                 {deletingId === issue._id ? (
@@ -1541,7 +1544,7 @@ const IssueDetailsDialog = ({
                 ) : (
                   <Trash2 className="h-4 w-4" />
                 )}
-                Delete Issue
+                {isBugIssue(issue) ? "Delete Bug" : "Delete Issue"}
               </Button>
             ) : null}
           </section>

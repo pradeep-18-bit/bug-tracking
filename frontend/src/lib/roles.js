@@ -33,7 +33,7 @@ export const getRoleNavigation = (role) => {
       { label: "Dashboard", href: dashboardPathByRole[ROLE_ADMIN], icon: "dashboard" },
       { label: "Projects", href: "/projects", icon: "projects" },
       { label: "Backlog", href: "/backlog", icon: "backlog" },
-      { label: "Issues", href: "/issues", icon: "issues" },
+      { label: "Tasks", href: "/issues", icon: "issues" },
       { label: "Bugs", href: "/admin/bugs", icon: "bugs" },
       { label: "Reports", href: "/reports", icon: "reports" },
       { label: "Chat", href: "/chat", icon: "chat" },

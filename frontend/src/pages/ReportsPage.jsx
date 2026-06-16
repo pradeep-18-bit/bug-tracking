@@ -380,6 +380,7 @@ const MiniStat = ({ label, tone = "slate", value }) => {
     emerald: "bg-emerald-50 text-emerald-700",
     rose: "bg-rose-50 text-rose-700",
     amber: "bg-amber-50 text-amber-700",
+    violet: "bg-violet-50 text-violet-700",
     slate: "bg-slate-50 text-slate-600",
   };
 
@@ -1406,6 +1407,52 @@ const OrganizationReportsDashboard = () => {
       sumChartValues(bugTimelineRows, "reopened") +
       sumChartValues(bugTimelineRows, "pending") >
     0;
+  const bugLifecycleRows = [
+    {
+      key: "open",
+      label: "Open bugs",
+      count: bugMetrics.open,
+      value: percent(bugMetrics.open, bugMetrics.total),
+      tone: "bg-blue-500",
+    },
+    {
+      key: "ready",
+      label: "Ready for QA",
+      count: bugMetrics.readyForQa,
+      value: percent(bugMetrics.readyForQa, bugMetrics.total),
+      tone: "bg-violet-500",
+    },
+    {
+      key: "reopened",
+      label: "Reopened",
+      count: bugMetrics.reopened,
+      value: teamMetrics.reopenRate,
+      tone: "bg-rose-500",
+    },
+    {
+      key: "closed",
+      label: "Closed",
+      count: bugMetrics.closed,
+      value: percent(bugMetrics.closed, bugMetrics.total),
+      tone: "bg-emerald-500",
+    },
+  ];
+  const bugAttentionRows = useMemo(
+    () =>
+      [...bugIssues]
+        .sort((left, right) => {
+          const leftCritical = isCriticalBug(left) ? 1 : 0;
+          const rightCritical = isCriticalBug(right) ? 1 : 0;
+
+          if (leftCritical !== rightCritical) {
+            return rightCritical - leftCritical;
+          }
+
+          return new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
+        })
+        .slice(0, 6),
+    [bugIssues]
+  );
 
   if (import.meta.env.DEV) {
     console.log("Organization Task Analytics Overview:", taskAnalytics.results.overview?.data);
@@ -1877,23 +1924,60 @@ const OrganizationReportsDashboard = () => {
           </div>
         </AnalyticsPanel>
 
-        <AnalyticsPanel title="Bug Resolution Timeline" description="Created vs fixed bugs, throughput, reopen spikes, and QA verification flow.">
-          <ChartFrame height={430}>
-            {hasBugTimelineRows ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={bugTimelineRows}>
-                  <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={chartTooltipStyle} />
-                  <Area type="monotone" dataKey="created" name="Created" stroke="#ef4444" fill="#fecdd3" fillOpacity={0.72} isAnimationActive={false} />
-                  <Area type="monotone" dataKey="fixed" name="Fixed" stroke="#10b981" fill="#bbf7d0" fillOpacity={0.55} isAnimationActive={false} />
-                  <Line type="monotone" dataKey="reopened" name="Reopen spikes" stroke="#f97316" strokeWidth={2} dot={false} isAnimationActive={false} />
-                  <Line type="monotone" dataKey="pending" name="Pending QA flow" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : <AnalyticsEmptyState icon={AreaChartIcon} title="No bug timeline" description="Created, fixed, and reopened bug trends appear after bug activity." />}
-          </ChartFrame>
+        <AnalyticsPanel title="Bug Lifecycle Control" description="Operational bug queue, QA handoff, reopen risk, and the issues that need attention now.">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MiniStat label="Open Bugs" tone="blue" value={formatCompactNumber(bugMetrics.open)} />
+            <MiniStat label="Ready for QA" tone="violet" value={formatCompactNumber(bugMetrics.readyForQa)} />
+            <MiniStat label="Reopen Rate" tone="rose" value={`${teamMetrics.reopenRate}%`} />
+            <MiniStat label="Close Rate" tone="emerald" value={`${percent(bugMetrics.closed, bugMetrics.total)}%`} />
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="space-y-3">
+              <SectionTitle kicker="Flow" title="Lifecycle Health" />
+              {bugLifecycleRows.map((row) => (
+                <ProgressRow
+                  key={row.key}
+                  label={row.label}
+                  meta={`${row.count} bugs`}
+                  tone={row.tone}
+                  value={row.value}
+                />
+              ))}
+            </div>
+
+            <div>
+              <SectionTitle kicker="Queue" title="Needs Attention" />
+              <div className="mt-4 max-h-[330px] space-y-2 overflow-y-auto pr-2 dashboard-scrollbar">
+                {bugAttentionRows.length ? bugAttentionRows.map((bug) => (
+                  <div key={bug._id} className="rounded-[14px] border border-white/60 bg-white/62 p-3 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-950">{bug.title}</p>
+                        <p className="mt-1 truncate text-xs text-slate-500">
+                          {bug.project?.name || "Unknown project"} · {resolveUserLabel(bug.developerLead || bug.assignee)}
+                        </p>
+                      </div>
+                      <Badge variant={getIssuePriorityVariant(bug.priority)}>
+                        {bug.priority || "Medium"}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <Badge variant={getIssueStatusVariant(bug.status)}>
+                        {getIssueStatusLabel(bug.status)}
+                      </Badge>
+                      <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
+                        {bug.severity || "Not set"}
+                      </span>
+                      <span>{formatDateTime(bug.closedAt || bug.createdAt)}</span>
+                    </div>
+                  </div>
+                )) : (
+                  <AnalyticsEmptyState className="min-h-[240px]" icon={Bug} title="No bugs in scope" description="Bug lifecycle details will appear after bugs match the current filters." />
+                )}
+              </div>
+            </div>
+          </div>
         </AnalyticsPanel>
       </section>
 

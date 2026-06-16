@@ -22,6 +22,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import {
+  deleteIssue,
   fetchBugs,
   fetchEpics,
   fetchProjects,
@@ -884,6 +885,31 @@ const AdminBugsPage = () => {
         id: `update-error-${Date.now()}`,
         type: "error",
         message: err.response?.data?.message || "Failed to update bug.",
+      });
+    },
+  });
+
+  const deleteIssueMutation = useMutation({
+    mutationFn: deleteIssue,
+    onSuccess: async () => {
+      setSelectedBug(null);
+      setToast({
+        id: `delete-success-${Date.now()}`,
+        type: "success",
+        message: "Bug deleted successfully.",
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["bugs"] }),
+        queryClient.invalidateQueries({ queryKey: ["issues"] }),
+        queryClient.invalidateQueries({ queryKey: ["reports"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+      ]);
+    },
+    onError: (err) => {
+      setToast({
+        id: `delete-error-${Date.now()}`,
+        type: "error",
+        message: err.response?.data?.message || "Failed to delete bug.",
       });
     },
   });
@@ -1912,9 +1938,20 @@ const AdminBugsPage = () => {
       </Card>
 
       <IssueDetailsDialog
-        deletingId=""
+        deletingId={deleteIssueMutation.isPending ? deleteIssueMutation.variables : ""}
         issue={selectedBug}
-        onDeleteIssue={async () => {}}
+        onDeleteIssue={async (issueId) => {
+          const confirmed = window.confirm(
+            "Delete this bug? This will remove it from active bug lists."
+          );
+
+          if (!confirmed) {
+            return false;
+          }
+
+          await deleteIssueMutation.mutateAsync(issueId);
+          return true;
+        }}
         onOpenChange={(open) => {
           if (!open) {
             setSelectedBug(null);
@@ -1936,7 +1973,7 @@ const AdminBugsPage = () => {
         canEditCoreDetails
         canEditPriority
         canEditAssignee
-        canDeleteIssue={false}
+        canDeleteIssue
       />
 
       <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
