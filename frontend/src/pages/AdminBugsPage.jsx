@@ -1637,8 +1637,15 @@ const AdminBugsPage = () => {
         </CardContent>
       </Card>
 
-      <Card className="sticky top-20 z-30 overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl">
-        <CardContent className="space-y-3 p-3.5 sm:p-4">
+      <section className="grid gap-4 lg:grid-cols-3">
+        <DistributionPanel title="Severity Distribution" rows={severityRows} />
+        <DistributionPanel title="Bug Trend By Status" rows={statusRows} />
+        <DistributionPanel title="Developer Resolution Rate" rows={developerRows} />
+      </section>
+
+      <Card className="flex max-h-[calc(100svh-7rem)] min-h-[520px] flex-col overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl md:max-h-[calc(100vh-7.5rem)]">
+        <CardContent className="flex min-h-0 flex-col p-0">
+          <div className="sticky top-0 z-30 shrink-0 space-y-3 border-b border-slate-200/90 bg-white/95 p-3.5 backdrop-blur-xl sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <h2 className="flex items-center gap-2 text-base font-semibold text-slate-950">
@@ -1794,17 +1801,8 @@ const AdminBugsPage = () => {
               </label>
             </div>
           ) : null}
-        </CardContent>
-      </Card>
-
-      <section className="grid gap-4 lg:grid-cols-3">
-        <DistributionPanel title="Severity Distribution" rows={severityRows} />
-        <DistributionPanel title="Bug Trend By Status" rows={statusRows} />
-        <DistributionPanel title="Developer Resolution Rate" rows={developerRows} />
-      </section>
-
-      <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
-        <CardContent className="p-0">
+          </div>
+          <div className="min-h-0 flex-1 bg-white">
           {isLoading ? (
             <div className="space-y-3 p-4">
               {Array.from({ length: 8 }).map((_, index) => (
@@ -1812,7 +1810,7 @@ const AdminBugsPage = () => {
               ))}
             </div>
           ) : filteredBugs.length ? (
-            <div className="max-h-[calc(100svh-18rem)] min-h-[360px] overflow-auto [scrollbar-gutter:stable] md:max-h-[calc(100vh-19rem)]">
+            <div className="h-full min-h-[360px] overflow-auto [scrollbar-gutter:stable]">
               <table className="w-full min-w-[1280px] border-separate border-spacing-0 text-left">
                 <thead className="sticky top-0 z-20 bg-white/95 backdrop-blur">
                   <tr className="border-b border-slate-200 text-xs uppercase tracking-[0.16em] text-slate-500">
@@ -1909,6 +1907,7 @@ const AdminBugsPage = () => {
               />
             </div>
           )}
+          </div>
         </CardContent>
       </Card>
 
