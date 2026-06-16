@@ -1645,7 +1645,7 @@ const AdminBugsPage = () => {
 
       <Card className="flex max-h-[calc(100svh-7rem)] min-h-[520px] flex-col overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl md:max-h-[calc(100vh-7.5rem)]">
         <CardContent className="flex min-h-0 flex-col p-0">
-          <div className="sticky top-0 z-30 shrink-0 space-y-3 border-b border-slate-200/90 bg-white/95 p-3.5 backdrop-blur-xl sm:p-4">
+          <div className="shrink-0 space-y-3 border-b border-slate-200/90 bg-white p-3.5 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <h2 className="flex items-center gap-2 text-base font-semibold text-slate-950">
