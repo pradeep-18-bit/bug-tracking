@@ -1040,9 +1040,8 @@
 
   .auth-illustration-fallback {
     background:
-      radial-gradient(circle at 62% 34%, rgba(14, 165, 233, 0.18), transparent 36%),
-      radial-gradient(circle at 24% 72%, rgba(249, 115, 22, 0.14), transparent 32%),
-      linear-gradient(180deg, #0c1629 0%, #09111f 48%, #050914 100%);
+      radial-gradient(circle at 50% 24%, rgba(14, 116, 144, 0.16), transparent 34%),
+      linear-gradient(135deg, #031a33 0%, #021225 58%, #010b18 100%);
   }
 
   .auth-input,
@@ -1125,6 +1124,30 @@
   .auth-field-action:disabled {
     color: rgba(226, 232, 240, 0.6);
     cursor: not-allowed;
+  }
+
+  .auth-card-scroll {
+    scrollbar-color: rgba(226, 232, 240, 0.48) rgba(15, 23, 42, 0.22);
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+  }
+
+  .auth-card-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .auth-card-scroll::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.22);
+    border-radius: 999px;
+  }
+
+  .auth-card-scroll::-webkit-scrollbar-thumb {
+    background: rgba(226, 232, 240, 0.42);
+    border-radius: 999px;
+  }
+
+  .auth-card-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.62);
   }
 }
 

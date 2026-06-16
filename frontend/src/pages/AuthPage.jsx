@@ -11,7 +11,6 @@ import {
   Mail,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import authWorkspaceImage from "@/assets/auth/bug-tracker-workspace-login.png";
 import pirnavLogo from "@/assets/pirnav-logo.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -153,8 +152,6 @@ const AuthPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [isBackgroundLoaded, setIsBackgroundLoaded] = useState(false);
-  const [hasBackgroundError, setHasBackgroundError] = useState(false);
   const isAdminRoute = location.pathname === ADMIN_ROUTE_PATH;
   const canUseDefaultPassword =
     mode === "login" &&
@@ -243,35 +240,6 @@ const AuthPage = () => {
     });
     navigate(location.pathname, { replace: true, state: null });
   }, [authMutation, location.pathname, location.state, navigate]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const image = new window.Image();
-
-    image.onload = () => {
-      if (!isMounted) {
-        return;
-      }
-
-      setIsBackgroundLoaded(true);
-      setHasBackgroundError(false);
-    };
-
-    image.onerror = () => {
-      if (!isMounted) {
-        return;
-      }
-
-      setHasBackgroundError(true);
-      setIsBackgroundLoaded(false);
-    };
-
-    image.src = authWorkspaceImage;
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -486,32 +454,21 @@ const AuthPage = () => {
 
   return (
     <main
-      className="relative min-h-screen overflow-hidden bg-[#07111F] text-white"
+      className="relative min-h-screen overflow-hidden bg-[#031A33] text-white"
       style={{ fontFamily: '"Inter", sans-serif' }}
     >
       <div className="auth-illustration-fallback absolute inset-0" aria-hidden="true" />
-      {!hasBackgroundError ? (
-        <div
-          aria-hidden="true"
-          className={cn(
-            "absolute inset-0 bg-cover bg-center transition-opacity duration-500",
-            isBackgroundLoaded ? "opacity-100" : "opacity-0"
-          )}
-          style={{ backgroundImage: `url(${authWorkspaceImage})` }}
-        />
-      ) : null}
-      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(3,7,18,0.70)_0%,rgba(3,7,18,0.50)_28%,rgba(3,7,18,0.18)_58%,rgba(3,7,18,0.30)_100%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(2,6,23,0.30)_0%,rgba(2,6,23,0.12)_44%,rgba(2,6,23,0.42)_100%)]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_58%_40%,rgba(14,165,233,0.16)_0%,transparent_36%),radial-gradient(circle_at_26%_72%,rgba(249,115,22,0.14)_0%,transparent_32%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(3,26,51,0.96)_0%,rgba(2,18,37,0.98)_52%,rgba(1,11,24,1)_100%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_25%,rgba(14,116,144,0.18)_0%,transparent_34%),radial-gradient(circle_at_48%_88%,rgba(37,99,235,0.16)_0%,transparent_32%)]" />
 
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-8 sm:px-6 lg:justify-start lg:px-0 lg:pl-12 xl:pl-16 2xl:pl-20">
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-8 sm:px-6">
         <div className="auth-fade-in w-full max-w-[430px] lg:max-w-[420px]">
-          <div className="relative flex w-full flex-col overflow-hidden rounded-3xl border border-white/18 bg-slate-950/[0.56] p-6 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.86)] backdrop-blur-[26px] sm:p-8">
+          <div className="relative flex max-h-[calc(100svh-4rem)] w-full flex-col overflow-hidden rounded-3xl border border-white/18 bg-slate-950/[0.56] p-6 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.86)] backdrop-blur-[26px] sm:p-8">
             <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/60 to-transparent" />
             <div className="pointer-events-none absolute -right-20 -top-20 h-44 w-44 rounded-full bg-cyan-400/10 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-24 -left-16 h-44 w-44 rounded-full bg-amber-400/10 blur-3xl" />
-            <div className="relative">
-            <div className="space-y-2.5">
+            <div className="relative flex min-h-0 flex-col">
+            <div className="shrink-0 space-y-2.5">
               <div className="flex items-center">
                 <img
                   src={pirnavLogo}
@@ -529,7 +486,10 @@ const AuthPage = () => {
             </div>
 
             {mode === "forgot" ? (
-              <form className="mt-7 space-y-[18px]" onSubmit={handlePasswordResetSubmit}>
+              <form
+                className="auth-card-scroll -mr-2 mt-7 min-h-0 flex-1 space-y-[18px] overflow-y-auto pr-2"
+                onSubmit={handlePasswordResetSubmit}
+              >
                 {successMessage ? (
                   <div className="flex items-start gap-3 rounded-[10px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
@@ -696,7 +656,10 @@ const AuthPage = () => {
                 </button>
               </form>
             ) : (
-              <form className="mt-7 space-y-[18px]" onSubmit={handleSubmit}>
+              <form
+                className="auth-card-scroll -mr-2 mt-7 min-h-0 flex-1 space-y-[18px] overflow-y-auto pr-2"
+                onSubmit={handleSubmit}
+              >
                 {successMessage ? (
                   <div className="flex items-start gap-3 rounded-[10px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
