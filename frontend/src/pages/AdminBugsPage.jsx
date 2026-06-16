@@ -1836,12 +1836,26 @@ const AdminBugsPage = () => {
               ))}
             </div>
           ) : filteredBugs.length ? (
-            <div className="h-full min-h-[360px] overflow-auto [scrollbar-gutter:stable]">
-              <table className="w-full min-w-[1280px] border-separate border-spacing-0 text-left">
+            <div className="h-full min-h-[360px] overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
+              <table className="w-full table-fixed border-separate border-spacing-0 text-left">
+                <colgroup>
+                  <col className="w-[6%]" />
+                  <col className="w-[20%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[9%]" />
+                  <col className="w-[7%]" />
+                  <col className="w-[7%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[5%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[5%]" />
+                  <col className="w-[3%]" />
+                </colgroup>
                 <thead className="sticky top-0 z-20 bg-white/95 backdrop-blur">
-                  <tr className="border-b border-slate-200 text-xs uppercase tracking-[0.16em] text-slate-500">
+                  <tr className="border-b border-slate-200 text-[10px] uppercase tracking-[0.1em] text-slate-500 xl:text-[11px]">
                     {["Bug ID", "Title", "Project", "Tester", "Severity", "Priority", "Developer", "Status", "Reopens", "Updated", "Resolution ETA", "Actions"].map((header) => (
-                      <th key={header} className="border-b border-slate-200 px-3 py-3 font-semibold">
+                      <th key={header} className="border-b border-slate-200 px-2 py-3 font-semibold">
                         {header}
                       </th>
                     ))}
@@ -1859,22 +1873,22 @@ const AdminBugsPage = () => {
                         className="cursor-pointer border-b border-slate-100 transition hover:bg-blue-50/50"
                         onClick={() => setSelectedBug(bugIssue)}
                       >
-                        <td className="border-b border-slate-100 px-3 py-3 font-mono text-xs font-semibold text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 font-mono text-[11px] font-semibold leading-5 text-slate-600">
                           {getIssueDisplayKey(bugIssue)}
                         </td>
-                        <td className="max-w-[280px] border-b border-slate-100 px-3 py-3">
-                          <p className="truncate text-sm font-semibold text-slate-950">{bugIssue.title}</p>
+                        <td className="border-b border-slate-100 px-2 py-3">
+                          <p className="truncate text-[13px] font-semibold text-slate-950 xl:text-sm">{bugIssue.title}</p>
                           <p className="truncate text-xs text-slate-500">{getTeamName(bugIssue)}</p>
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600 xl:text-sm">
                           {getProjectName(bugIssue, projects)}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600 xl:text-sm">
                           {getUserLabel(reporter, "Unknown tester")}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3">
+                        <td className="border-b border-slate-100 px-2 py-3">
                           <span className={cn(
-                            "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
+                            "inline-flex rounded-full px-2 py-1 text-[11px] font-semibold",
                             ["Blocker", "Critical"].includes(getSeverity(bugIssue))
                               ? "bg-rose-50 text-rose-700"
                               : "bg-slate-100 text-slate-700"
@@ -1882,40 +1896,41 @@ const AdminBugsPage = () => {
                             {getSeverity(bugIssue)}
                           </span>
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3">
+                        <td className="border-b border-slate-100 px-2 py-3">
                           <Badge variant={getIssuePriorityVariant(bugIssue.priority)}>
                             {bugIssue.priority || "Medium"}
                           </Badge>
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600 xl:text-sm">
                           {getUserLabel(developer)}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3">
+                        <td className="border-b border-slate-100 px-2 py-3">
                           <Badge variant={getIssueStatusVariant(status)}>
                             {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
                           </Badge>
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm font-semibold text-slate-700">
+                        <td className="border-b border-slate-100 px-2 py-3 text-[12px] font-semibold text-slate-700 xl:text-sm">
                           {getReopenCount(bugIssue)}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600">
                           {formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600">
                           {getResolutionEta(bugIssue)}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3">
+                        <td className="border-b border-slate-100 px-2 py-3">
                           <Button
                             type="button"
-                            size="sm"
+                            size="icon"
                             variant="outline"
+                            className="h-8 w-8 rounded-lg"
                             onClick={(event) => {
                               event.stopPropagation();
                               setSelectedBug(bugIssue);
                             }}
+                            aria-label="View bug"
                           >
                             <Eye className="h-4 w-4" />
-                            View
                           </Button>
                         </td>
                       </tr>
