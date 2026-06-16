@@ -154,6 +154,9 @@ const sumChartValues = (rows = [], dataKey = "value") =>
 const hasChartValues = (rows = [], dataKey = "value") =>
   sumChartValues(rows, dataKey) > 0;
 const percent = (part, total) => (total ? Math.round((part / total) * 100) : 0);
+const normalizeAnalyticsValue = (value) => String(value || "").trim().toLowerCase();
+const getBugSeverityValue = (issue) => issue?.severity || issue?.bugDetails?.severity || "";
+const getBugPriorityValue = (issue) => issue?.priority || issue?.bugDetails?.priority || "";
 const resolveUserLabel = (user, fallback = "Unassigned") =>
   user?.name || user?.email || fallback;
 const isClosed = (issue) => CLOSED_STATUSES.has(issue?.status);
@@ -197,7 +200,10 @@ const buildRows = (rows = [], keyAccessor, labelAccessor) => {
 
 const buildGroupedBugRows = (issues = [], groups = [], valueAccessor, fallback) => {
   const rows = groups.map((group) => {
-    const count = issues.filter((issue) => group.labels.includes(valueAccessor(issue))).length;
+    const groupLabels = new Set(group.labels.map(normalizeAnalyticsValue));
+    const count = issues.filter((issue) =>
+      groupLabels.has(normalizeAnalyticsValue(valueAccessor(issue)))
+    ).length;
 
     return {
       ...group,
@@ -205,9 +211,15 @@ const buildGroupedBugRows = (issues = [], groups = [], valueAccessor, fallback) 
       value: count,
       count,
     };
-  });
-  const groupedValues = new Set(groups.flatMap((group) => group.labels));
-  const fallbackCount = issues.filter((issue) => !groupedValues.has(valueAccessor(issue))).length;
+  }).filter((row) => row.count > 0);
+  const groupedValues = new Set(
+    groups.flatMap((group) => group.labels.map(normalizeAnalyticsValue))
+  );
+  const fallbackCount = issues.filter((issue) => {
+    const value = normalizeAnalyticsValue(valueAccessor(issue));
+
+    return !value || !groupedValues.has(value);
+  }).length;
 
   if (fallbackCount > 0) {
     rows.push({
@@ -220,6 +232,23 @@ const buildGroupedBugRows = (issues = [], groups = [], valueAccessor, fallback) 
 
   return rows;
 };
+
+const ChartLegend = ({ rows = [] }) => (
+  <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+    {rows.map((row) => (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full bg-white/72 px-2 py-1 font-semibold shadow-sm"
+        key={row.key}
+      >
+        <span
+          className="h-2.5 w-2.5 rounded-full"
+          style={{ backgroundColor: row.color }}
+        />
+        {row.name}: {row.count}
+      </span>
+    ))}
+  </div>
+);
 
 const exportCsv = (rows) => {
   if (typeof document === "undefined") {
@@ -490,13 +519,13 @@ const TesterReportsDashboard = ({ user }) => {
   const severityRows = buildGroupedBugRows(
     bugIssues,
     BUG_SEVERITY_GROUPS,
-    (issue) => issue.severity,
+    getBugSeverityValue,
     { key: "Unspecified", label: "Unspecified", color: "#64748b" }
   );
   const priorityRows = buildGroupedBugRows(
     bugIssues,
     BUG_PRIORITY_GROUPS.map((group) => ({ ...group, labels: [group.source] })),
-    (issue) => issue.priority,
+    getBugPriorityValue,
     { key: "Unspecified", label: "Unspecified", color: "#64748b" }
   );
   const timelineRows = bugTrend.slice(-30).map((row) => ({
@@ -606,6 +635,7 @@ const TesterReportsDashboard = ({ user }) => {
                   </ResponsiveContainer>
                 ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Bug} title="No reported bugs" description="Your bug analytics appear after you report bugs." />}
               </ChartFrame>
+              {hasSeverityRows ? <ChartLegend rows={severityRows} /> : null}
             </div>
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Priority" title="My Bugs by Priority" />
@@ -624,6 +654,7 @@ const TesterReportsDashboard = ({ user }) => {
                   </ResponsiveContainer>
                 ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Gauge} title="No priority data" description="Priority analytics appear after you report bugs." />}
               </ChartFrame>
+              {hasPriorityRows ? <ChartLegend rows={priorityRows} /> : null}
             </div>
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3 lg:col-span-2">
               <SectionTitle kicker="Timeline" title="My Verification Timeline" />
@@ -1343,7 +1374,7 @@ const OrganizationReportsDashboard = () => {
   const bugSeverityRows = buildGroupedBugRows(
     bugIssues,
     BUG_SEVERITY_GROUPS,
-    (issue) => issue.severity,
+    getBugSeverityValue,
     { key: "Unspecified", label: "Unspecified", color: "#64748b" }
   );
   const taskAssigneeRows = buildRows(taskIssues, (issue) => issue.assignee?._id, (issue) => resolveUserLabel(issue.assignee));
@@ -1351,7 +1382,7 @@ const OrganizationReportsDashboard = () => {
   const bugPriorityRows = buildGroupedBugRows(
     bugIssues,
     BUG_PRIORITY_GROUPS.map((group) => ({ ...group, labels: [group.source] })),
-    (issue) => issue.priority,
+    getBugPriorityValue,
     { key: "Unspecified", label: "Unspecified", color: "#64748b" }
   );
   const taskTypeRows = buildRows(taskIssues, (issue) => issue.type, (issue) => issue.type);
@@ -1905,8 +1936,8 @@ const OrganizationReportsDashboard = () => {
 
             <div>
               <SectionTitle kicker="Ownership" title="Tasks By Assignee" />
-              <div className="mt-4 space-y-3">
-                {taskAssigneeRows.slice(0, 6).map((row) => (
+              <div className="mt-4 max-h-[360px] space-y-3 overflow-y-auto pr-2 dashboard-scrollbar">
+                {taskAssigneeRows.map((row) => (
                   <ProgressRow key={row.key} label={row.label} value={percent(row.count, taskScopeTotal)} meta={`${row.count} tasks`} tone="bg-blue-500" />
                 ))}
                 {!taskAssigneeRows.length ? (
@@ -1917,7 +1948,7 @@ const OrganizationReportsDashboard = () => {
 
             <div>
               <SectionTitle kicker="Breakdown" title="Story vs Task Mix" />
-              <div className="mt-4 space-y-3">
+              <div className="mt-4 max-h-[360px] space-y-3 overflow-y-auto pr-2 dashboard-scrollbar">
                 {taskTypeRows.map((row) => (
                   <ProgressRow key={row.key} label={row.label} value={percent(row.count, taskScopeTotal)} meta={`${row.count} items`} tone="bg-violet-500" />
                 ))}
@@ -1958,6 +1989,7 @@ const OrganizationReportsDashboard = () => {
                   </ResponsiveContainer>
                 ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Bug} title="No severity data" description="Bug severity appears when bugs exist in scope." />}
               </ChartFrame>
+              {hasBugSeverityRows ? <ChartLegend rows={bugSeverityRows} /> : null}
             </div>
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Priority" title="Bugs By Priority" />
@@ -1976,6 +2008,7 @@ const OrganizationReportsDashboard = () => {
                   </ResponsiveContainer>
                 ) : <AnalyticsEmptyState className="min-h-[200px]" icon={Gauge} title="No priority data" description="Bug priority appears when bugs exist in scope." />}
               </ChartFrame>
+              {hasBugPriorityRows ? <ChartLegend rows={bugPriorityRows} /> : null}
             </div>
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Reopen Heatmap" title="Weekly Reopen Trends" />
