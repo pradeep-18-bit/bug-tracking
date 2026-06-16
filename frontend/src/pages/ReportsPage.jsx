@@ -535,10 +535,13 @@ const SegmentedToggle = ({ options, value, onChange }) => (
 );
 
 const DateField = ({ value, onChange, label }) => (
-  <div className="relative">
+  <div className="relative min-w-0">
     <Input
       aria-label={label}
-      className={cn(ANALYTICS_FIELD_CLASS, "pr-10")}
+      className={cn(
+        ANALYTICS_FIELD_CLASS,
+        "date-picker-input w-full min-w-0 px-4 pr-11 text-sm"
+      )}
       type="date"
       value={value}
       onChange={onChange}
@@ -1925,8 +1928,11 @@ const OrganizationReportsDashboard = () => {
                 <option key={status.value} value={status.value}>{status.label}</option>
               ))}
             </select>
-            <div className="grid grid-cols-2 gap-2 md:col-span-2 xl:col-span-1">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(10rem,1fr)_auto_minmax(10rem,1fr)] sm:items-center md:col-span-2 xl:col-span-2">
               <DateField label="Date from" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
+              <span className="hidden text-center text-xs font-semibold uppercase tracking-[0.14em] text-slate-400 sm:block">
+                to
+              </span>
               <DateField label="Date to" value={filters.dateTo} onChange={(event) => updateFilter("dateTo", event.target.value)} />
             </div>
           </div>
