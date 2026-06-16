@@ -162,12 +162,21 @@ const isCriticalBug = (issue) =>
   ["Blocker", "Critical"].includes(issue?.severity) ||
   ["Critical", "High"].includes(issue?.priority);
 const isReadyForQa = (issue) =>
-  [ISSUE_STATUS.QA, ISSUE_STATUS.FIXED].includes(issue?.status);
+  [
+    ISSUE_STATUS.QA,
+    ISSUE_STATUS.READY_FOR_QA,
+    "READY_FOR_TESTING",
+    "READY_FOR_VERIFICATION",
+    ISSUE_STATUS.TESTING,
+    ISSUE_STATUS.FIXED,
+  ].includes(issue?.status);
 const isReopened = (issue) => issue?.status === ISSUE_STATUS.REOPEN;
 const isOverdue = (issue) =>
   Boolean(issue?.dueAt) && !isClosed(issue) && new Date(issue.dueAt) < new Date();
 const getTeamKey = (issue) => issue?.team?._id || "unassigned";
 const getTeamName = (issue) => issue?.team?.name || "Unassigned team";
+const getTesterKeys = (issue) =>
+  [issue?.reporter?._id, issue?.testerOwner?._id].filter(Boolean).map(String);
 const matchesTeam = (row, teamId) =>
   teamId === "all" || row.teamIds?.has(teamId) || (!row.teamIds?.size && teamId === "unassigned");
 
@@ -184,6 +193,32 @@ const buildRows = (rows = [], keyAccessor, labelAccessor) => {
   });
 
   return Array.from(buckets.values()).sort((left, right) => right.count - left.count);
+};
+
+const buildGroupedBugRows = (issues = [], groups = [], valueAccessor, fallback) => {
+  const rows = groups.map((group) => {
+    const count = issues.filter((issue) => group.labels.includes(valueAccessor(issue))).length;
+
+    return {
+      ...group,
+      name: group.label || group.key,
+      value: count,
+      count,
+    };
+  });
+  const groupedValues = new Set(groups.flatMap((group) => group.labels));
+  const fallbackCount = issues.filter((issue) => !groupedValues.has(valueAccessor(issue))).length;
+
+  if (fallbackCount > 0) {
+    rows.push({
+      ...fallback,
+      name: fallback.label || fallback.key,
+      value: fallbackCount,
+      count: fallbackCount,
+    });
+  }
+
+  return rows;
 };
 
 const exportCsv = (rows) => {
@@ -432,7 +467,7 @@ const TesterReportsDashboard = ({ user }) => {
     });
 
   const bugIssues = asArray(bugAnalytics.issues?.issues).filter(
-    (issue) => String(issue.reporter?._id || "") === String(currentTesterId)
+    (issue) => getTesterKeys(issue).includes(String(currentTesterId))
   );
   const testingTasks = asArray(taskAnalytics.issues?.issues).filter(
     (issue) => String(issue.assignee?._id || "") === String(currentTesterId)
@@ -451,24 +486,31 @@ const TesterReportsDashboard = ({ user }) => {
       .reduce((sum, value, _index, values) => sum + value / values.length, 0);
   const qaAccuracy = percent(bugsVerified, bugsVerified + bugsReopened + falsePositiveCount);
   const qaEfficiency = Math.round((qaAccuracy + percent(completedQaTasks, testingTasks.length) + percent(bugsVerified, bugIssues.length)) / 3);
-  const severityRows = BUG_SEVERITY_GROUPS.map((group) => ({
-    ...group,
-    name: group.key,
-    value: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
-    count: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
-  }));
-  const priorityRows = BUG_PRIORITY_GROUPS.map((group) => ({
-    ...group,
-    name: group.label,
-    value: bugIssues.filter((issue) => issue.priority === group.source).length,
-    count: bugIssues.filter((issue) => issue.priority === group.source).length,
-  }));
+  const severityRows = buildGroupedBugRows(
+    bugIssues,
+    BUG_SEVERITY_GROUPS,
+    (issue) => issue.severity,
+    { key: "Unspecified", label: "Unspecified", color: "#64748b" }
+  );
+  const priorityRows = buildGroupedBugRows(
+    bugIssues,
+    BUG_PRIORITY_GROUPS.map((group) => ({ ...group, labels: [group.source] })),
+    (issue) => issue.priority,
+    { key: "Unspecified", label: "Unspecified", color: "#64748b" }
+  );
   const timelineRows = bugTrend.slice(-30).map((row) => ({
     label: row.label || row.date || row._id || "",
     reported: toNumber(row.created),
     verified: toNumber(row.resolved || row.closed),
     reopened: toNumber(row.reopened),
   }));
+  const hasSeverityRows = hasChartValues(severityRows);
+  const hasPriorityRows = hasChartValues(priorityRows);
+  const hasTimelineRows =
+    sumChartValues(timelineRows, "reported") +
+      sumChartValues(timelineRows, "verified") +
+      sumChartValues(timelineRows, "reopened") >
+    0;
 
   if (import.meta.env.DEV) {
     console.log("Tester Bug Analytics Data:", bugAnalytics.results.overview?.data);
@@ -552,8 +594,8 @@ const TesterReportsDashboard = ({ user }) => {
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Severity" title="My Bugs by Severity" />
               <ChartFrame height={230}>
-                {bugIssues.length ? (
-                  <ResponsiveContainer width="100%" height={200}>
+                {hasSeverityRows ? (
+                  <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={severityRows} dataKey="value" nameKey="name" innerRadius={54} outerRadius={84} paddingAngle={3} isAnimationActive={false}>
                         {severityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
@@ -567,8 +609,8 @@ const TesterReportsDashboard = ({ user }) => {
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Priority" title="My Bugs by Priority" />
               <ChartFrame height={230}>
-                {bugIssues.length ? (
-                  <ResponsiveContainer width="100%" height={200}>
+                {hasPriorityRows ? (
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={priorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
                       <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
                       <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
@@ -585,8 +627,8 @@ const TesterReportsDashboard = ({ user }) => {
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3 lg:col-span-2">
               <SectionTitle kicker="Timeline" title="My Verification Timeline" />
               <ChartFrame height={300}>
-                {timelineRows.length ? (
-                  <ResponsiveContainer width="100%" height={250}>
+                {hasTimelineRows ? (
+                  <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={timelineRows}>
                       <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
                       <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
@@ -1296,20 +1338,20 @@ const OrganizationReportsDashboard = () => {
     reopenRate: percent(bugMetrics.reopened, bugMetrics.total),
   };
   const taskStatusRows = buildRows(taskIssues, (issue) => issue.status, (issue) => getIssueStatusLabel(issue.status));
-  const bugSeverityRows = BUG_SEVERITY_GROUPS.map((group) => ({
-    ...group,
-    name: group.key,
-    value: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
-    count: bugIssues.filter((issue) => group.labels.includes(issue.severity)).length,
-  }));
+  const bugSeverityRows = buildGroupedBugRows(
+    bugIssues,
+    BUG_SEVERITY_GROUPS,
+    (issue) => issue.severity,
+    { key: "Unspecified", label: "Unspecified", color: "#64748b" }
+  );
   const taskAssigneeRows = buildRows(taskIssues, (issue) => issue.assignee?._id, (issue) => resolveUserLabel(issue.assignee));
   const bugDeveloperRows = buildRows(bugIssues, (issue) => issue.developerLead?._id || issue.assignee?._id, (issue) => resolveUserLabel(issue.developerLead || issue.assignee));
-  const bugPriorityRows = BUG_PRIORITY_GROUPS.map((group) => ({
-    ...group,
-    name: group.label,
-    value: bugIssues.filter((issue) => issue.priority === group.source).length,
-    count: bugIssues.filter((issue) => issue.priority === group.source).length,
-  }));
+  const bugPriorityRows = buildGroupedBugRows(
+    bugIssues,
+    BUG_PRIORITY_GROUPS.map((group) => ({ ...group, labels: [group.source] })),
+    (issue) => issue.priority,
+    { key: "Unspecified", label: "Unspecified", color: "#64748b" }
+  );
   const taskTypeRows = buildRows(taskIssues, (issue) => issue.type, (issue) => issue.type);
   const trendRows = useMemo(() => {
     const rows = new Map();
@@ -1356,6 +1398,14 @@ const OrganizationReportsDashboard = () => {
       })),
     [bugTrend]
   );
+  const hasBugSeverityRows = hasChartValues(bugSeverityRows);
+  const hasBugPriorityRows = hasChartValues(bugPriorityRows);
+  const hasBugTimelineRows =
+    sumChartValues(bugTimelineRows, "created") +
+      sumChartValues(bugTimelineRows, "fixed") +
+      sumChartValues(bugTimelineRows, "reopened") +
+      sumChartValues(bugTimelineRows, "pending") >
+    0;
 
   if (import.meta.env.DEV) {
     console.log("Organization Task Analytics Overview:", taskAnalytics.results.overview?.data);
@@ -1766,8 +1816,8 @@ const OrganizationReportsDashboard = () => {
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Severity" title="Bugs By Severity" />
               <ChartFrame height={230}>
-                {bugMetrics.total ? (
-                  <ResponsiveContainer width="100%" height={230}>
+                {hasBugSeverityRows ? (
+                  <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={bugSeverityRows} dataKey="value" nameKey="name" innerRadius={54} outerRadius={84} paddingAngle={3} isAnimationActive={false}>
                         {bugSeverityRows.map((row) => <Cell key={row.key} fill={row.color} />)}
@@ -1781,8 +1831,8 @@ const OrganizationReportsDashboard = () => {
             <div className="rounded-[16px] border border-white/55 bg-white/50 p-3">
               <SectionTitle kicker="Priority" title="Bugs By Priority" />
               <ChartFrame height={230}>
-                {bugMetrics.total ? (
-                  <ResponsiveContainer width="100%" height={230}>
+                {hasBugPriorityRows ? (
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={bugPriorityRows} layout="vertical" margin={{ left: 8, right: 12 }}>
                       <CartesianGrid stroke={CHART_GRID_COLOR} horizontal={false} />
                       <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
@@ -1829,8 +1879,8 @@ const OrganizationReportsDashboard = () => {
 
         <AnalyticsPanel title="Bug Resolution Timeline" description="Created vs fixed bugs, throughput, reopen spikes, and QA verification flow.">
           <ChartFrame height={430}>
-            {bugTimelineRows.length ? (
-              <ResponsiveContainer width="100%" height={430}>
+            {hasBugTimelineRows ? (
+              <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={bugTimelineRows}>
                   <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
