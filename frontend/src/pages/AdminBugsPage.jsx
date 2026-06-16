@@ -1841,22 +1841,29 @@ const AdminBugsPage = () => {
                 <colgroup>
                   <col className="w-[6%]" />
                   <col className="w-[20%]" />
-                  <col className="w-[12%]" />
+                  <col className="w-[11%]" />
                   <col className="w-[9%]" />
-                  <col className="w-[7%]" />
+                  <col className="w-[6.5%]" />
                   <col className="w-[7%]" />
                   <col className="w-[10%]" />
                   <col className="w-[8%]" />
                   <col className="w-[5%]" />
-                  <col className="w-[8%]" />
-                  <col className="w-[5%]" />
+                  <col className="w-[8.5%]" />
+                  <col className="w-[6%]" />
                   <col className="w-[3%]" />
                 </colgroup>
                 <thead className="sticky top-0 z-20 bg-white/95 backdrop-blur">
                   <tr className="border-b border-slate-200 text-[10px] uppercase tracking-[0.1em] text-slate-500 xl:text-[11px]">
-                    {["Bug ID", "Title", "Project", "Tester", "Severity", "Priority", "Developer", "Status", "Reopens", "Updated", "Resolution ETA", "Actions"].map((header) => (
-                      <th key={header} className="border-b border-slate-200 px-2 py-3 font-semibold">
-                        {header}
+                    {["Bug ID", "Title", "Project", "Tester", "Severity", "Priority", "Developer", "Status", "Reopens", "Updated", "ETA", ""].map((header, index) => (
+                      <th
+                        key={`${header || "actions"}-${index}`}
+                        className={cn(
+                          "border-b border-slate-200 px-2 py-3 font-semibold",
+                          index === 8 && "text-center",
+                          index === 11 && "text-center"
+                        )}
+                      >
+                        {index === 11 ? <Eye className="mx-auto h-4 w-4" /> : header}
                       </th>
                     ))}
                   </tr>
@@ -1909,7 +1916,7 @@ const AdminBugsPage = () => {
                             {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
                           </Badge>
                         </td>
-                        <td className="border-b border-slate-100 px-2 py-3 text-[12px] font-semibold text-slate-700 xl:text-sm">
+                        <td className="border-b border-slate-100 px-2 py-3 text-center text-[12px] font-semibold text-slate-700 xl:text-sm">
                           {getReopenCount(bugIssue)}
                         </td>
                         <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600">
@@ -1918,7 +1925,7 @@ const AdminBugsPage = () => {
                         <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600">
                           {getResolutionEta(bugIssue)}
                         </td>
-                        <td className="border-b border-slate-100 px-2 py-3">
+                        <td className="border-b border-slate-100 px-1 py-3 text-center">
                           <Button
                             type="button"
                             size="icon"
