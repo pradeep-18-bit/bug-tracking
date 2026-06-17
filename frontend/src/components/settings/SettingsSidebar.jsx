@@ -22,9 +22,9 @@ const iconMap = {
 };
 
 const SettingsSidebar = ({ activeItem, items = [], onItemChange }) => (
-  <aside className="min-w-0 lg:sticky lg:top-28 lg:self-start">
+  <aside className="min-w-0 lg:sticky lg:top-0 lg:self-start">
     <nav
-      className="flex w-full gap-2 overflow-x-auto rounded-[16px] border border-slate-200/90 bg-white p-2 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.28)] [-ms-overflow-style:none] [scrollbar-width:none] lg:flex-col lg:overflow-visible [&::-webkit-scrollbar]:hidden"
+      className="flex w-full gap-2 overflow-x-auto rounded-[18px] border border-slate-200/90 bg-white/95 p-2 shadow-[0_18px_44px_-34px_rgba(15,23,42,0.32)] backdrop-blur [-ms-overflow-style:none] [scrollbar-width:none] lg:flex-col lg:overflow-visible [&::-webkit-scrollbar]:hidden"
       aria-label="Admin settings"
     >
       {items.map((item) => {
@@ -36,10 +36,10 @@ const SettingsSidebar = ({ activeItem, items = [], onItemChange }) => (
             key={item.id}
             type="button"
             className={cn(
-              "group flex min-w-max items-center gap-3 rounded-[12px] px-3 py-2.5 text-left text-sm font-medium transition duration-200 lg:min-w-0",
+              "group flex min-w-max items-center gap-3 rounded-[12px] border px-3 py-3 text-left text-sm font-semibold transition duration-200 lg:min-w-0",
               isActive
-                ? "bg-blue-50 text-blue-700 shadow-sm"
-                : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"
+                ? "border-blue-100 bg-blue-50 text-blue-700 shadow-sm"
+                : "border-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950"
             )}
             onClick={() => onItemChange(item.id)}
             aria-current={isActive ? "page" : undefined}
@@ -48,7 +48,7 @@ const SettingsSidebar = ({ activeItem, items = [], onItemChange }) => (
               className={cn(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] transition",
                 isActive
-                  ? "bg-white text-blue-700"
+                  ? "bg-white text-blue-700 shadow-[0_8px_18px_-14px_rgba(37,99,235,0.8)]"
                   : "bg-slate-50 text-slate-500 group-hover:bg-white group-hover:text-slate-700"
               )}
             >

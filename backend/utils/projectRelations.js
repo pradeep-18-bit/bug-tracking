@@ -1,5 +1,6 @@
 const ProjectTeam = require("../models/ProjectTeam");
 const Project = require("../models/Project");
+const ProjectMember = require("../models/ProjectMember");
 const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
 const { hasAdminAccess } = require("./roles");
@@ -79,23 +80,29 @@ const mergeProjectTeamIds = (project = {}, projectTeams = []) => {
   return teamIds;
 };
 
-const buildEffectiveMembers = (teams = []) => {
+const buildEffectiveProjectMembers = (teams = [], directMembers = []) => {
   const members = [];
   const seenIds = new Set();
 
-  const pushMember = (member) => {
-    const sanitizedMember = sanitizeUser(member) || member;
-    const userId = String(sanitizedMember?._id || member?._id || member || "");
+  const pushMember = (member, source = "team") => {
+    const user = sanitizeUser(member?.user || member?.userId || member) || member;
+    const userId = String(user?._id || member?.userId || member?._id || "");
 
     if (!userId || seenIds.has(userId)) {
       return;
     }
 
     seenIds.add(userId);
-    members.push(sanitizedMember);
+    members.push({
+      ...user,
+      projectRole: member?.role || user?.role || "Developer",
+      membershipSource: source,
+      membershipId: member?._id || "",
+    });
   };
 
-  teams.forEach((team) => (team.members || []).forEach(pushMember));
+  directMembers.forEach((member) => pushMember(member, "project"));
+  teams.forEach((team) => (team.members || []).forEach((member) => pushMember(member, "team")));
 
   return members.filter(Boolean);
 };
@@ -141,11 +148,27 @@ const attachTeamsToProjects = async (projects = []) => {
   const attachedTeamIds = Array.from(
     new Set(Array.from(teamIdsByProjectId.values()).flat())
   );
+  const projectMembers = await ProjectMember.find({
+    projectId: {
+      $in: projectIds,
+    },
+  })
+    .populate("userId", "name email role workspaceId")
+    .sort({ createdAt: 1 })
+    .lean();
+  const directMembersByProjectId = new Map(
+    projectIds.map((projectId) => [String(projectId), []])
+  );
+
+  projectMembers.forEach((member) => {
+    directMembersByProjectId.get(String(member.projectId))?.push(member);
+  });
 
   if (!attachedTeamIds.length) {
     return normalizedProjects.map((project) => ({
       ...project,
       teams: [],
+      projectMembers: directMembersByProjectId.get(String(project._id)) || [],
     }));
   }
 
@@ -200,6 +223,7 @@ const attachTeamsToProjects = async (projects = []) => {
   return normalizedProjects.map((project) => ({
     ...project,
     teams: teamsByProjectId.get(String(project._id)) || [],
+    projectMembers: directMembersByProjectId.get(String(project._id)) || [],
   }));
 };
 
@@ -208,7 +232,14 @@ const serializeProjectsWithRelations = async (projects = []) => {
 
   return projectsWithTeams.map((project) => {
     const { members: _legacyMembers, ...projectWithoutLegacyMembers } = project;
-    const effectiveMembers = buildEffectiveMembers(project.teams || []);
+    const directProjectMembers = (project.projectMembers || []).map((member) => ({
+      ...member,
+      user: member.userId,
+    }));
+    const effectiveMembers = buildEffectiveProjectMembers(
+      project.teams || [],
+      directProjectMembers
+    );
     const serializedTeams = (project.teams || []).map((team) => ({
       ...team,
       workspaceId: normalizeWorkspaceId(team.workspaceId),
@@ -234,6 +265,12 @@ const serializeProjectsWithRelations = async (projects = []) => {
       attachedTeams: serializedTeams,
       teamIds: serializedTeams.map((team) => team._id).filter(Boolean),
       teamCount: project.teams?.length || 0,
+      projectMembers: directProjectMembers.map((member) => ({
+        _id: member._id,
+        role: member.role,
+        user: sanitizeUser(member.user),
+        userId: sanitizeUser(member.user),
+      })),
       members: effectiveMembers,
       memberCount: effectiveMembers.length,
     };

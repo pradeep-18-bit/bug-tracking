@@ -186,6 +186,16 @@ export const changePasswordRequest = async (payload) => {
   return response.data;
 };
 
+export const requestPasswordReset = async (payload) => {
+  const response = await api.post("/auth/forgot-password", payload);
+  return response.data;
+};
+
+export const resetPassword = async (payload) => {
+  const response = await api.post("/auth/reset-password", payload);
+  return response.data;
+};
+
 export const fetchUsers = async () => {
   const response = await api.get("/auth/users");
   const data = response.data;
@@ -325,6 +335,19 @@ export const deleteProject = async (projectId) => {
   return response.data;
 };
 
+export const addProjectMember = async ({ projectId, userId, role }) => {
+  const response = await api.post(`/projects/${projectId}/members`, {
+    userId,
+    role,
+  });
+  return response.data;
+};
+
+export const removeProjectMember = async ({ projectId, userId }) => {
+  const response = await api.delete(`/projects/${projectId}/members/${userId}`);
+  return response.data;
+};
+
 export const attachProjectTeam = async ({ projectId, teamId }) => {
   const response = await api.post(`/projects/${projectId}/teams`, {
     teamId,
@@ -387,6 +410,11 @@ export const fetchTeam = async (id) => {
 
 export const createTeam = async (payload) => {
   const response = await api.post("/teams", payload);
+  return response.data;
+};
+
+export const deleteTeam = async (teamId) => {
+  const response = await api.delete(`/teams/${teamId}`);
   return response.data;
 };
 
@@ -985,6 +1013,15 @@ export const fetchChatMessages = async ({ conversationId, before, limit = 30 }) 
 export const sendChatMessage = async (payload) => {
   const response = await api.post("/chat/messages", payload);
   return response.data?.message || response.data;
+};
+
+export const fetchChatCallLogs = async (conversationId) => {
+  const response = await api.get("/chat/calls", {
+    params: buildParams({
+      conversationId,
+    }),
+  });
+  return response.data?.calls || [];
 };
 
 export const uploadChatAttachment = async (file, onUploadProgress) => {

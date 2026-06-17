@@ -73,6 +73,21 @@ const userSchema = new Schema(
         default: null,
       },
     },
+    passwordResetOtpHash: {
+      type: String,
+      select: false,
+      default: "",
+    },
+    passwordResetOtpExpiresAt: {
+      type: Date,
+      select: false,
+      default: null,
+    },
+    passwordResetRequestedAt: {
+      type: Date,
+      select: false,
+      default: null,
+    },
     createdAt: {
       type: Date,
       default: Date.now,
