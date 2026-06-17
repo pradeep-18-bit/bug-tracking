@@ -27,6 +27,13 @@ import { cn, getInitials } from "@/lib/utils";
 
 const CallContext = createContext(null);
 const getId = (value) => String(value?._id || value?.id || value || "");
+const callLog = (message, details = null) => {
+  if (details === null || details === undefined) {
+    console.log(`[Call] ${message}`);
+    return;
+  }
+  console.log(`[Call] ${message}`, details);
+};
 
 const rtcConfig = {
   iceServers: [
@@ -80,17 +87,26 @@ const playRingtone = () => {
   };
 };
 
-const RemoteMedia = ({ stream, muted }) => {
+const RemoteMedia = ({ stream, muted, onVideoStateChange }) => {
   const videoRef = useRef(null);
   const audioRef = useRef(null);
   const [hasVideo, setHasVideo] = useState(false);
 
   useEffect(() => {
-    const updateHasVideo = () =>
-      setHasVideo(stream?.getVideoTracks().some((track) => track.readyState === "live"));
+    const updateHasVideo = () => {
+      const nextHasVideo = Boolean(
+        stream?.getVideoTracks().some((track) => track.readyState === "live" && !track.muted)
+      );
+      setHasVideo(nextHasVideo);
+      onVideoStateChange?.(nextHasVideo);
+    };
 
     if (videoRef.current) {
       videoRef.current.srcObject = stream;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play?.().catch(() => {});
+        updateHasVideo();
+      };
       videoRef.current.play?.().catch(() => {});
     }
     if (audioRef.current) {
@@ -98,20 +114,31 @@ const RemoteMedia = ({ stream, muted }) => {
       audioRef.current.muted = muted;
       audioRef.current.play?.().catch(() => {});
     }
+    const watchedTracks = stream?.getVideoTracks() || [];
+    watchedTracks.forEach((track) => {
+      track.onmute = updateHasVideo;
+      track.onunmute = updateHasVideo;
+      track.onended = updateHasVideo;
+    });
     updateHasVideo();
     stream?.addEventListener?.("addtrack", updateHasVideo);
     stream?.addEventListener?.("removetrack", updateHasVideo);
 
     return () => {
+      watchedTracks.forEach((track) => {
+        track.onmute = null;
+        track.onunmute = null;
+        track.onended = null;
+      });
       stream?.removeEventListener?.("addtrack", updateHasVideo);
       stream?.removeEventListener?.("removetrack", updateHasVideo);
     };
-  }, [muted, stream]);
+  }, [muted, onVideoStateChange, stream]);
 
   return (
     <>
       {!hasVideo ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-800 text-xs font-bold text-white/45">
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-800 text-xs font-bold text-white/45">
           Connecting video
         </div>
       ) : null}
@@ -169,15 +196,19 @@ export const CallProvider = ({ children }) => {
   const [duration, setDuration] = useState(0);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
+  const [screenSharers, setScreenSharers] = useState({});
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [peerStatuses, setPeerStatuses] = useState({});
   const peersRef = useRef(new Map());
   const pendingCandidatesRef = useRef(new Map());
   const localStreamRef = useRef(null);
+  const cameraTrackRef = useRef(null);
   const outboundVideoTrackRef = useRef(null);
   const stopRingtoneRef = useRef(null);
   const activeCallRef = useRef(null);
   const screenRef = useRef(null);
   const stageRef = useRef(null);
+  const negotiatingPeersRef = useRef(new Set());
 
   useEffect(() => {
     activeCallRef.current = activeCall;
@@ -205,6 +236,7 @@ export const CallProvider = ({ children }) => {
       delete next[userId];
       return next;
     });
+    negotiatingPeersRef.current.delete(userId);
   }, []);
 
   const cleanupAllPeers = useCallback(() => {
@@ -219,10 +251,53 @@ export const CallProvider = ({ children }) => {
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     screenRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
+    cameraTrackRef.current = null;
     outboundVideoTrackRef.current = null;
     screenRef.current = null;
     setLocalStream(null);
+    setIsScreenSharing(false);
+    setScreenSharers({});
   }, []);
+
+  const negotiatePeer = useCallback(
+    async (targetUserId, options = {}) => {
+      const currentCall = activeCallRef.current;
+      const peer = peersRef.current.get(String(targetUserId));
+
+      if (!currentCall?.callId || !peer || peer.connectionState === "closed") {
+        return;
+      }
+
+      if (peer.signalingState !== "stable" || negotiatingPeersRef.current.has(String(targetUserId))) {
+        callLog("skipping negotiation while peer is not stable", {
+          targetUserId,
+          signalingState: peer.signalingState,
+        });
+        return;
+      }
+
+      negotiatingPeersRef.current.add(String(targetUserId));
+      try {
+        const offer = await peer.createOffer(options);
+        callLog(options.iceRestart ? "offer created for ICE restart" : "offer created", {
+          targetUserId,
+          signalingState: peer.signalingState,
+        });
+        await peer.setLocalDescription(offer);
+        getChatSocket(token)?.emit("call:offer", {
+          callId: currentCall.callId,
+          targetUserId: String(targetUserId),
+          description: peer.localDescription || offer,
+          iceRestart: Boolean(options.iceRestart),
+        });
+      } catch (error) {
+        callLog("offer negotiation failed", { targetUserId, error });
+      } finally {
+        negotiatingPeersRef.current.delete(String(targetUserId));
+      }
+    },
+    [token]
+  );
 
   const closeCallUi = useCallback(() => {
     stopRingtoneRef.current?.();
@@ -266,6 +341,7 @@ export const CallProvider = ({ children }) => {
 
   const getMedia = useCallback(async (callType) => {
     try {
+      callLog("requesting local media", { callType });
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -282,10 +358,27 @@ export const CallProvider = ({ children }) => {
             : false,
       });
       localStreamRef.current = stream;
-      outboundVideoTrackRef.current = stream.getVideoTracks()[0] || null;
+      cameraTrackRef.current = stream.getVideoTracks()[0] || null;
+      outboundVideoTrackRef.current = cameraTrackRef.current;
+      stream.getTracks().forEach((track) => {
+        callLog("local media track acquired", {
+          kind: track.kind,
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState,
+          label: track.label,
+        });
+        track.onended = () => {
+          callLog("local media track ended", { kind: track.kind, label: track.label });
+          if (track.kind === "video" && outboundVideoTrackRef.current === track) {
+            setIsCameraOff(true);
+          }
+        };
+      });
       setLocalStream(stream);
       return stream;
     } catch (mediaError) {
+      callLog("local media request failed", mediaError);
       setError(
         callType === "video"
           ? "Camera or microphone permission was denied."
@@ -299,24 +392,69 @@ export const CallProvider = ({ children }) => {
     ({ callId, targetUserId, stream }) => {
       const normalizedTargetId = String(targetUserId);
       if (peersRef.current.has(normalizedTargetId)) {
+        callLog("reusing existing peer connection", { targetUserId: normalizedTargetId });
         return peersRef.current.get(normalizedTargetId);
       }
 
+      callLog("creating peer connection", { callId, targetUserId: normalizedTargetId });
       const peer = new RTCPeerConnection(rtcConfig);
       const nextRemoteStream = new MediaStream();
       updateRemoteStream(normalizedTargetId, nextRemoteStream);
       stream.getTracks().forEach((track) => {
         const outboundTrack =
           track.kind === "video" ? outboundVideoTrackRef.current || track : track;
+        callLog("adding local track to peer", {
+          targetUserId: normalizedTargetId,
+          kind: outboundTrack.kind,
+          readyState: outboundTrack.readyState,
+          enabled: outboundTrack.enabled,
+        });
         peer.addTrack(outboundTrack, stream);
       });
       peer.ontrack = (event) => {
-        event.streams?.[0]?.getTracks().forEach((track) => {
-          nextRemoteStream.addTrack(track);
+        callLog("track received", {
+          fromUserId: normalizedTargetId,
+          kind: event.track?.kind,
+          streams: event.streams?.length || 0,
+          readyState: event.track?.readyState,
         });
+        const incomingTracks = event.streams?.[0]?.getTracks()?.length
+          ? event.streams[0].getTracks()
+          : [event.track].filter(Boolean);
+        incomingTracks.forEach((track) => {
+          if (!nextRemoteStream.getTracks().some((item) => item.id === track.id)) {
+            nextRemoteStream.addTrack(track);
+          }
+          track.onunmute = () => {
+            callLog("remote track unmuted", { fromUserId: normalizedTargetId, kind: track.kind });
+            updateRemoteStream(normalizedTargetId, nextRemoteStream);
+          };
+          track.onmute = () => {
+            callLog("remote track muted", { fromUserId: normalizedTargetId, kind: track.kind });
+          };
+          track.onended = () => {
+            callLog("remote track ended", { fromUserId: normalizedTargetId, kind: track.kind });
+            if (track.kind === "video") {
+              window.setTimeout(() => {
+                const stillMissing = !nextRemoteStream
+                  .getVideoTracks()
+                  .some((item) => item.readyState === "live" && !item.muted);
+                if (stillMissing && peer.connectionState !== "closed") {
+                  negotiatePeer(normalizedTargetId, { iceRestart: true });
+                }
+              }, 800);
+            }
+          };
+        });
+        updateRemoteStream(normalizedTargetId, nextRemoteStream);
       };
       peer.onicecandidate = (event) => {
         if (event.candidate) {
+          callLog("ICE candidate sent", {
+            targetUserId: normalizedTargetId,
+            candidateType: event.candidate.type,
+            protocol: event.candidate.protocol,
+          });
           getChatSocket(token)?.emit("call:ice-candidate", {
             callId,
             targetUserId: normalizedTargetId,
@@ -337,20 +475,23 @@ export const CallProvider = ({ children }) => {
 
         try {
           peer.restartIce?.();
-          const offer = await peer.createOffer({ iceRestart: true });
-          await peer.setLocalDescription(offer);
-          getChatSocket(token)?.emit("call:offer", {
-            callId: currentCall.callId,
-            targetUserId: normalizedTargetId,
-            description: offer,
-            iceRestart: true,
-          });
+          await negotiatePeer(normalizedTargetId, { iceRestart: true });
         } catch {
           cleanupPeer(normalizedTargetId);
         }
       };
+      peer.onsignalingstatechange = () => {
+        callLog("signalingState changed", {
+          targetUserId: normalizedTargetId,
+          signalingState: peer.signalingState,
+        });
+      };
       peer.oniceconnectionstatechange = () => {
         const state = peer.iceConnectionState;
+        callLog("iceConnectionState changed", {
+          targetUserId: normalizedTargetId,
+          iceConnectionState: state,
+        });
         setPeerStatuses((current) => ({
           ...current,
           [normalizedTargetId]: state,
@@ -362,6 +503,12 @@ export const CallProvider = ({ children }) => {
       };
       peer.onconnectionstatechange = () => {
         const state = peer.connectionState;
+        callLog("connectionState changed", {
+          targetUserId: normalizedTargetId,
+          connectionState: state,
+          iceConnectionState: peer.iceConnectionState,
+          signalingState: peer.signalingState,
+        });
         setPeerStatuses((current) => ({
           ...current,
           [normalizedTargetId]: state,
@@ -386,7 +533,7 @@ export const CallProvider = ({ children }) => {
       peersRef.current.set(normalizedTargetId, peer);
       return peer;
     },
-    [cleanupPeer, token, updateRemoteStream]
+    [cleanupPeer, negotiatePeer, token, updateRemoteStream]
   );
 
   const startCall = useCallback(
@@ -512,49 +659,120 @@ export const CallProvider = ({ children }) => {
     setIsMuted(nextMuted);
   }, [isMuted]);
 
-  const toggleCamera = useCallback(() => {
+  const toggleCamera = useCallback(async () => {
     const nextOff = !isCameraOff;
-    localStreamRef.current?.getVideoTracks().forEach((track) => {
-      track.enabled = !nextOff;
-    });
+    let cameraTrack = cameraTrackRef.current || localStreamRef.current?.getVideoTracks()[0];
+
+    if (!cameraTrack && !nextOff) {
+      const cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 24, max: 30 },
+        },
+      });
+      cameraTrack = cameraStream.getVideoTracks()[0] || null;
+      if (cameraTrack) {
+        cameraTrackRef.current = cameraTrack;
+        outboundVideoTrackRef.current = cameraTrack;
+        localStreamRef.current?.addTrack(cameraTrack);
+        setLocalStream(new MediaStream(localStreamRef.current?.getTracks() || []));
+        peersRef.current.forEach((peer, targetUserId) => {
+          if (!peer.getSenders().some((sender) => sender.track?.kind === "video")) {
+            peer.addTrack(cameraTrack, localStreamRef.current);
+          }
+          negotiatePeer(targetUserId);
+        });
+      }
+    }
+
+    if (cameraTrack) {
+      cameraTrack.enabled = !nextOff;
+    }
     setIsCameraOff(nextOff);
-  }, [isCameraOff]);
+  }, [isCameraOff, negotiatePeer]);
+
+  const stopScreenShare = useCallback(() => {
+    const call = activeCallRef.current;
+    const cameraTrack = cameraTrackRef.current || localStreamRef.current?.getVideoTracks()[0];
+
+    screenRef.current?.getTracks().forEach((track) => track.stop());
+    screenRef.current = null;
+    setIsScreenSharing(false);
+
+    if (cameraTrack) {
+      outboundVideoTrackRef.current = cameraTrack;
+      peersRef.current.forEach((peer, targetUserId) => {
+        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+        if (sender) {
+          sender.replaceTrack(cameraTrack);
+        } else {
+          peer.addTrack(cameraTrack, localStreamRef.current);
+        }
+        negotiatePeer(targetUserId);
+      });
+    }
+
+    if (call?.callId) {
+      getChatSocket(token)?.emit("call:screen-share-stopped", { callId: call.callId });
+    }
+    callLog("screen share stopped");
+  }, [negotiatePeer, token]);
 
   const shareScreen = useCallback(async () => {
     if (!navigator.mediaDevices?.getDisplayMedia) {
       return;
     }
 
-    const displayStream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        frameRate: { ideal: 15, max: 24 },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-      },
-      audio: false,
-    });
-    screenRef.current = displayStream;
-    const screenTrack = displayStream.getVideoTracks()[0];
-    outboundVideoTrackRef.current = screenTrack || outboundVideoTrackRef.current;
+    if (isScreenSharing) {
+      stopScreenShare();
+      return;
+    }
 
-    peersRef.current.forEach((peer) => {
-      const sender = peer.getSenders().find((item) => item.track?.kind === "video");
-      if (sender && screenTrack) {
-        sender.replaceTrack(screenTrack);
-      }
-    });
-    screenTrack.onended = () => {
-      const cameraTrack = localStreamRef.current?.getVideoTracks()[0];
-      if (!cameraTrack) {
+    try {
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          cursor: "always",
+          frameRate: { ideal: 15, max: 24 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+      const screenTrack = displayStream.getVideoTracks()[0];
+      if (!screenTrack) {
         return;
       }
-      outboundVideoTrackRef.current = cameraTrack;
-      peersRef.current.forEach((peer) => {
-        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
-        sender?.replaceTrack(cameraTrack);
+
+      screenRef.current = displayStream;
+      outboundVideoTrackRef.current = screenTrack;
+      setIsScreenSharing(true);
+      callLog("screen share started", {
+        label: screenTrack.label,
+        readyState: screenTrack.readyState,
       });
-    };
-  }, []);
+
+      peersRef.current.forEach((peer, targetUserId) => {
+        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+        if (sender) {
+          sender.replaceTrack(screenTrack);
+        } else {
+          peer.addTrack(screenTrack, localStreamRef.current || displayStream);
+        }
+        negotiatePeer(targetUserId);
+      });
+
+      const call = activeCallRef.current;
+      if (call?.callId) {
+        getChatSocket(token)?.emit("call:screen-share-started", { callId: call.callId });
+      }
+
+      screenTrack.onended = stopScreenShare;
+    } catch (screenError) {
+      callLog("screen share failed", screenError);
+      setError("Screen sharing could not be started.");
+    }
+  }, [isScreenSharing, negotiatePeer, stopScreenShare, token]);
 
   const toggleRaiseHand = useCallback(() => {
     const call = activeCallRef.current;
@@ -650,14 +868,8 @@ export const CallProvider = ({ children }) => {
 
       const stream = localStreamRef.current || (await getMedia(currentCall.callType));
       const targetUserId = getId(currentCall.peer);
-      const peer = createPeer({ callId: payload.callId, targetUserId, stream });
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      socket.emit("call:offer", {
-        callId: payload.callId,
-        targetUserId,
-        description: offer,
-      });
+      createPeer({ callId: payload.callId, targetUserId, stream });
+      await negotiatePeer(targetUserId);
       setActiveCall({ ...currentCall, status: "connected", startedAt: payload.startTime });
     };
     const handleJoined = (payload) => {
@@ -672,6 +884,22 @@ export const CallProvider = ({ children }) => {
         status: "connected",
         startedAt: payload.call.startTime || currentCall.startedAt,
       });
+      window.setTimeout(async () => {
+        const stream = localStreamRef.current || (await getMedia(currentCall.callType));
+        (payload.existingParticipantIds || [])
+          .map(String)
+          .filter((participantId) => participantId && participantId !== getId(user))
+          .forEach((participantId) => {
+            if (!peersRef.current.has(participantId)) {
+              createPeer({
+                callId: payload.call.callId,
+                targetUserId: participantId,
+                stream,
+              });
+              negotiatePeer(participantId);
+            }
+          });
+      }, 1500);
     };
     const handleParticipantJoined = async (payload) => {
       const currentCall = activeCallRef.current;
@@ -686,18 +914,12 @@ export const CallProvider = ({ children }) => {
       }
 
       const stream = localStreamRef.current || (await getMedia(currentCall.callType));
-      const peer = createPeer({
+      createPeer({
         callId: currentCall.callId,
         targetUserId: joinedUserId,
         stream,
       });
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      socket.emit("call:offer", {
-        callId: currentCall.callId,
-        targetUserId: joinedUserId,
-        description: offer,
-      });
+      await negotiatePeer(joinedUserId);
     };
     const handleParticipantLeft = (payload) => {
       cleanupPeer(String(payload.userId || ""));
@@ -721,17 +943,23 @@ export const CallProvider = ({ children }) => {
         ]);
       }
       await peer.setRemoteDescription(payload.description);
+      callLog("remote description set", {
+        fromUserId,
+        type: payload.description?.type,
+        iceRestart: Boolean(payload.iceRestart),
+      });
       const pendingCandidates = pendingCandidatesRef.current.get(fromUserId) || [];
       await Promise.all(
         pendingCandidates.map((candidate) => peer.addIceCandidate(candidate).catch(() => {}))
       );
       pendingCandidatesRef.current.delete(fromUserId);
       const answer = await peer.createAnswer();
+      callLog("answer created", { targetUserId: fromUserId });
       await peer.setLocalDescription(answer);
       socket.emit("call:answer", {
         callId: payload.callId,
         targetUserId: fromUserId,
-        description: answer,
+        description: peer.localDescription || answer,
       });
       setActiveCall({ ...currentCall, status: "connected", startedAt: payload.startTime });
     };
@@ -740,6 +968,10 @@ export const CallProvider = ({ children }) => {
       const peer = peersRef.current.get(fromUserId);
       if (peer && activeCallRef.current?.callId === payload.callId) {
         await peer.setRemoteDescription(payload.description);
+        callLog("remote description set", {
+          fromUserId,
+          type: payload.description?.type,
+        });
         const pendingCandidates = pendingCandidatesRef.current.get(fromUserId) || [];
         await Promise.all(
           pendingCandidates.map((candidate) => peer.addIceCandidate(candidate).catch(() => {}))
@@ -751,6 +983,11 @@ export const CallProvider = ({ children }) => {
       const fromUserId = String(payload.fromUserId);
       const candidate = new RTCIceCandidate(payload.candidate);
       const peer = peersRef.current.get(fromUserId);
+      callLog("ICE candidate received", {
+        fromUserId,
+        candidateType: payload.candidate?.type,
+        protocol: payload.candidate?.protocol,
+      });
       if (peer?.remoteDescription) {
         await peer.addIceCandidate(candidate).catch(() => {});
       } else {
@@ -765,6 +1002,19 @@ export const CallProvider = ({ children }) => {
         ...current,
         [String(payload.userId)]: Boolean(payload.raised),
       }));
+    };
+    const handleScreenShareStarted = (payload = {}) => {
+      setScreenSharers((current) => ({
+        ...current,
+        [String(payload.userId)]: true,
+      }));
+    };
+    const handleScreenShareStopped = (payload = {}) => {
+      setScreenSharers((current) => {
+        const next = { ...current };
+        delete next[String(payload.userId)];
+        return next;
+      });
     };
     const handleEnded = (payload = {}) => {
       if (payload.conversationId) {
@@ -798,6 +1048,8 @@ export const CallProvider = ({ children }) => {
     socket.on("call:answer", handleAnswer);
     socket.on("call:ice-candidate", handleCandidate);
     socket.on("call:raise-hand", handleRaiseHand);
+    socket.on("call:screen-share-started", handleScreenShareStarted);
+    socket.on("call:screen-share-stopped", handleScreenShareStopped);
     socket.on("call:ended", handleEnded);
     socket.on("call:rejected", handleEnded);
     socket.on("call:missed", handleMissed);
@@ -817,6 +1069,8 @@ export const CallProvider = ({ children }) => {
       socket.off("call:answer", handleAnswer);
       socket.off("call:ice-candidate", handleCandidate);
       socket.off("call:raise-hand", handleRaiseHand);
+      socket.off("call:screen-share-started", handleScreenShareStarted);
+      socket.off("call:screen-share-stopped", handleScreenShareStopped);
       socket.off("call:ended", handleEnded);
       socket.off("call:rejected", handleEnded);
       socket.off("call:missed", handleMissed);
@@ -827,6 +1081,7 @@ export const CallProvider = ({ children }) => {
     closeCallUi,
     createPeer,
     getMedia,
+    negotiatePeer,
     notifyIncomingCall,
     token,
     user,
@@ -883,6 +1138,30 @@ export const CallProvider = ({ children }) => {
     (!isGroupCall ||
       getId(activeCall.createdBy || activeCall.callerId) === getId(user) ||
       ["Admin", "Manager"].includes(user?.role));
+  const joinedParticipantCount =
+    participants.filter((item) => item.status === "Joined").length ||
+    (remoteEntries.length + (activeCall ? 1 : 0));
+  const stageTileCount = Math.max(1, remoteEntries.length || 1);
+  const stageGridClass =
+    stageTileCount === 1
+      ? "grid-cols-1"
+      : stageTileCount === 2
+        ? "grid-cols-1 md:grid-cols-2"
+        : stageTileCount <= 4
+          ? "grid-cols-1 sm:grid-cols-2"
+          : stageTileCount <= 9
+            ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+            : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+  const getConnectionLabel = (userId) => {
+    const status = peerStatuses[userId];
+    if (["connected", "completed"].includes(status)) {
+      return "Good";
+    }
+    if (["failed", "disconnected"].includes(status)) {
+      return "Reconnecting";
+    }
+    return "Connecting";
+  };
 
   return (
     <CallContext.Provider value={value}>
@@ -950,51 +1229,72 @@ export const CallProvider = ({ children }) => {
               </Button>
             </div>
 
-            <div ref={stageRef} className="grid min-h-0 flex-1 bg-slate-900 lg:grid-cols-[1fr_260px]">
+            <div ref={stageRef} className="relative min-h-0 flex-1 overflow-hidden bg-slate-900">
               <div
                 className={cn(
-                  "grid min-h-0 gap-3 p-3",
-                  isGroupCall
-                    ? "auto-rows-fr grid-cols-1 sm:grid-cols-2 xl:grid-cols-3"
-                    : "grid-cols-1"
+                  "relative grid h-full min-h-0 gap-2 overflow-y-auto p-2 sm:gap-3 sm:p-3",
+                  remoteEntries.length ? stageGridClass : "grid-cols-1"
                 )}
               >
-                <div className="relative min-h-[180px] overflow-hidden rounded-2xl border border-white/10 bg-slate-800">
-                  {localStream && activeCall.callType === "video" ? (
+                <div
+                  className={cn(
+                    "relative min-h-[240px] overflow-hidden rounded-lg border border-white/10 bg-slate-800",
+                    !remoteEntries.length && "min-h-full",
+                    remoteEntries.length &&
+                      "absolute bottom-4 right-4 z-20 h-28 min-h-0 w-40 shadow-2xl sm:h-36 sm:w-56"
+                  )}
+                >
+                  {localStream && !isCameraOff ? (
                     <LocalVideo stream={localStream} />
                   ) : (
                     <div className="flex h-full flex-col items-center justify-center">
-                      <Avatar className="h-20 w-20 rounded-[28px] border border-white/15">
+                      <Avatar className="h-20 w-20 rounded-lg border border-white/15">
                         <AvatarFallback className="bg-blue-500 text-2xl text-white">
                           {getInitials(user?.name)}
                         </AvatarFallback>
                       </Avatar>
                     </div>
                   )}
-                  <span className="absolute bottom-3 left-3 rounded-full bg-black/55 px-3 py-1 text-xs font-bold">
+                  <span className="absolute bottom-3 left-3 max-w-[75%] truncate rounded-full bg-black/60 px-3 py-1 text-xs font-bold">
                     You {isMuted ? "· muted" : ""}
                   </span>
+                  {isScreenSharing ? (
+                    <span className="absolute right-2 top-2 rounded-full bg-emerald-400 px-2 py-1 text-[10px] font-black uppercase text-slate-950">
+                      Sharing
+                    </span>
+                  ) : null}
                 </div>
 
                 {remoteEntries.length ? (
                   remoteEntries.map(([userId, stream]) => {
                     const participant = participantById.get(userId);
-                    const userName = participant?.user?.name || "Participant";
+                    const userName =
+                      participant?.user?.name ||
+                      (!isGroupCall ? activeCall.peer?.name : "") ||
+                      "Participant";
 
                     return (
                       <div
                         key={userId}
                         className={cn(
-                          "relative min-h-[180px] overflow-hidden rounded-2xl border bg-slate-800",
-                          raisedHands[userId] ? "border-amber-300" : "border-white/10"
+                          "relative min-h-[210px] overflow-hidden rounded-lg border bg-slate-800 shadow-lg",
+                          stageTileCount === 1 && "min-h-full",
+                          raisedHands[userId] ||
+                            ["connected", "completed"].includes(peerStatuses[userId])
+                            ? "border-emerald-300/70"
+                            : "border-white/10"
                         )}
                       >
                         <RemoteMedia stream={stream} muted={isSpeakerOff} />
-                        <span className="absolute bottom-3 left-3 rounded-full bg-black/55 px-3 py-1 text-xs font-bold">
-                          {userName}
+                        <div className="absolute bottom-3 left-3 flex max-w-[75%] items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs font-bold">
+                          <span className="truncate">{userName}</span>
+                          {screenSharers[userId] ? <MonitorUp className="h-3.5 w-3.5" /> : null}
+                        </div>
+                        <span className="absolute right-3 top-3 rounded-full bg-black/55 px-2 py-1 text-[10px] font-black uppercase text-white/70">
+                          {getConnectionLabel(userId)}
                         </span>
                         {raisedHands[userId] ? (
-                          <span className="absolute right-3 top-3 rounded-full bg-amber-400 px-2 py-1 text-xs font-black text-slate-950">
+                          <span className="absolute right-3 top-11 rounded-full bg-amber-400 px-2 py-1 text-xs font-black text-slate-950">
                             Hand
                           </span>
                         ) : null}
@@ -1002,13 +1302,13 @@ export const CallProvider = ({ children }) => {
                     );
                   })
                 ) : (
-                  <div className="flex min-h-[180px] items-center justify-center rounded-2xl border border-dashed border-white/15 bg-slate-800/70 px-6 text-center text-sm font-semibold text-white/55">
+                  <div className="hidden">
                     {isGroupCall ? "Waiting for participants to join" : "Waiting for remote media"}
                   </div>
                 )}
               </div>
 
-              {isGroupCall ? (
+              {false && isGroupCall ? (
                 <aside className="hidden border-l border-white/10 bg-slate-950/70 p-4 lg:block">
                   <div className="flex items-center gap-2 text-sm font-extrabold">
                     <UsersRound className="h-4 w-4" />
@@ -1056,7 +1356,6 @@ export const CallProvider = ({ children }) => {
                 onClick={toggleCamera}
                 title="Toggle camera"
                 aria-label="Toggle camera"
-                disabled={activeCall.callType !== "video"}
               >
                 {isCameraOff ? <CameraOff className="h-5 w-5" /> : <Camera className="h-5 w-5" />}
               </Button>
@@ -1068,7 +1367,6 @@ export const CallProvider = ({ children }) => {
                 onClick={shareScreen}
                 title="Share screen"
                 aria-label="Share screen"
-                disabled={activeCall.callType !== "video"}
               >
                 <MonitorUp className="h-5 w-5" />
               </Button>

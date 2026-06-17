@@ -987,6 +987,15 @@ const setupChatSocket = (server) => {
           return;
         }
 
+        console.log(`[Socket][Call] ${eventName} received`, {
+          callId: objectIdString(call._id),
+          fromUserId: objectIdString(socket.user._id),
+          targetUserId: objectIdString(payload.targetUserId),
+          descriptionType: payload.description?.type,
+          hasCandidate: Boolean(payload.candidate),
+          iceRestart: Boolean(payload.iceRestart),
+        });
+
         const targetUserId = objectIdString(payload.targetUserId);
         const participantIds = (call.participants || []).map(objectIdString);
         const activeParticipantIds = (call.activeParticipantIds || []).map(objectIdString);
@@ -1008,6 +1017,50 @@ const setupChatSocket = (server) => {
           ...payload,
           fromUserId: objectIdString(socket.user._id),
           startTime: call.startTime,
+        });
+      });
+    });
+
+    ["screen-share-started", "screen-share-stopped"].forEach((eventName) => {
+      socket.on(`call:${eventName}`, async (payload = {}) => {
+        const call = await CallLog.findOne({
+          _id: payload.callId,
+          workspaceId: socket.user.workspaceId,
+          participants: socket.user._id,
+          status: {
+            $in: ["Active", "Answered"],
+          },
+        })
+          .select("_id conversationId participants activeParticipantIds scope status")
+          .lean();
+
+        if (!call) {
+          return;
+        }
+
+        const userId = objectIdString(socket.user._id);
+        const activeParticipantIds = (call.activeParticipantIds || []).map(objectIdString);
+
+        if (call.scope === "group" && !activeParticipantIds.includes(userId)) {
+          return;
+        }
+
+        console.log(`[Socket][Call] ${eventName}`, {
+          callId: objectIdString(call._id),
+          userId,
+        });
+
+        const targetRooms =
+          call.scope === "group"
+            ? [callRoomName(call._id)]
+            : (call.participants || [])
+                .map(objectIdString)
+                .filter((participantId) => participantId !== userId)
+                .map(userRoomName);
+
+        socket.to(targetRooms).emit(`call:${eventName}`, {
+          callId: objectIdString(call._id),
+          userId,
         });
       });
     });
