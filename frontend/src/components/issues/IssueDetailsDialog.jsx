@@ -365,6 +365,15 @@ const IssueDetailsDialog = ({
   const reporterName = issue.reporter?.name || issue.reporterName || "Unknown reporter";
   const reporterRole = issue.reporter?.role || "Tester";
   const canChangeStatusForRole = Boolean(role) && canEditStatus;
+  const canShowDeleteAction = canDeleteIssue && typeof onDeleteIssue === "function";
+  const deleteLabel = isBug ? "Delete Bug" : "Delete Task";
+  const handleDeleteIssue = async () => {
+    const result = await onDeleteIssue(issue._id);
+
+    if (result !== false) {
+      onOpenChange(false);
+    }
+  };
   const commentComposer = (
     <form className="space-y-3 rounded-2xl border border-blue-100 bg-white p-3 shadow-sm" onSubmit={handleSubmitComment}>
       <Input
@@ -549,10 +558,29 @@ const IssueDetailsDialog = ({
       >
         <DialogHeader
           className={cn(
-            "sticky top-0 z-10 border-b border-slate-200/80 bg-white/95 px-4 py-3 pr-16 shadow-sm backdrop-blur-xl sm:px-6 sm:py-4",
-            compactDrawer && "pr-14"
+            "sticky top-0 z-10 border-b border-slate-200/80 bg-white/95 px-4 py-3 pr-44 shadow-sm backdrop-blur-xl sm:px-6 sm:py-4 sm:pr-56",
+            compactDrawer && "pr-14 sm:pr-14"
           )}
         >
+          {canShowDeleteAction ? (
+            <Button
+              className={cn(
+                "absolute right-16 top-3 h-9 rounded-xl px-3 text-xs font-semibold shadow-sm sm:top-4 sm:h-10 sm:px-4 sm:text-sm",
+                compactDrawer && "hidden"
+              )}
+              variant="destructive"
+              type="button"
+              disabled={deletingId === issue._id}
+              onClick={handleDeleteIssue}
+            >
+              {deletingId === issue._id ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              {deleteLabel}
+            </Button>
+          ) : null}
           <div className={cn("flex min-w-0 flex-wrap items-center gap-2", compactDrawer && "gap-1.5")}>
             <span className="rounded-full bg-slate-100 px-3 py-1 font-mono text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
               {issueKey}
@@ -1525,25 +1553,6 @@ const IssueDetailsDialog = ({
               </div>
             </div>
 
-            {canDeleteIssue ? (
-              <Button
-                className="sticky bottom-4 z-10 w-full shadow-lg sm:w-auto"
-                variant="destructive"
-                type="button"
-                disabled={deletingId === issue._id}
-                onClick={async () => {
-                  await onDeleteIssue(issue._id);
-                  onOpenChange(false);
-                }}
-              >
-                {deletingId === issue._id ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4" />
-                )}
-                Delete Issue
-              </Button>
-            ) : null}
           </section>
 
           <section className={cn("min-h-0 overflow-y-auto overscroll-contain border-t border-slate-200 bg-slate-50 p-4 sm:p-6 lg:border-l lg:border-t-0", compactDrawer && "rounded-2xl border border-gray-200 p-3")}>

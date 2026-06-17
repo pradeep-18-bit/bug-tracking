@@ -1,4 +1,6 @@
+const crypto = require("crypto");
 const User = require("../models/User");
+const { sendWorkspaceEmail } = require("../services/emailService");
 const asyncHandler = require("../utils/asyncHandler");
 const { DEFAULT_USER } = require("../utils/defaultUser");
 const generateToken = require("../utils/generateToken");
@@ -9,6 +11,9 @@ const {
 
 const passwordHasLetter = /[A-Za-z]/;
 const passwordHasNumber = /\d/;
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_RESET_OTP_TTL_MS = 10 * 60 * 1000;
+const PASSWORD_RESET_RESEND_COOLDOWN_MS = 60 * 1000;
 
 const isAdminDefaultLoginAllowed = () =>
   process.env.ENABLE_ADMIN_DEFAULT_LOGIN === "true";
@@ -17,6 +22,29 @@ const getAdminDefaultPassword = () =>
   typeof process.env.ADMIN_DEFAULT_PASSWORD === "string"
     ? process.env.ADMIN_DEFAULT_PASSWORD
     : "";
+
+const getOtpSecret = () =>
+  process.env.JWT_SECRET || process.env.EMAIL_CONFIG_SECRET || "password-reset-otp";
+
+const hashPasswordResetOtp = ({ email, otp }) =>
+  crypto
+    .createHmac("sha256", getOtpSecret())
+    .update(`${String(email || "").toLowerCase().trim()}:${String(otp || "").trim()}`)
+    .digest("hex");
+
+const generatePasswordResetOtp = () =>
+  String(crypto.randomInt(100000, 1000000));
+
+const isSameHash = (left = "", right = "") => {
+  const leftBuffer = Buffer.from(String(left), "hex");
+  const rightBuffer = Buffer.from(String(right), "hex");
+
+  return (
+    leftBuffer.length === rightBuffer.length &&
+    leftBuffer.length > 0 &&
+    crypto.timingSafeEqual(leftBuffer, rightBuffer)
+  );
+};
 
 const isDefaultAdminCredentialAttempt = (email, password) =>
   email === DEFAULT_USER.email &&
@@ -271,10 +299,164 @@ const changePassword = asyncHandler(async (req, res) => {
   });
 });
 
+const sendPasswordResetEmail = ({ email, name, otp, workspaceId }) => {
+  const subject = "Your Pirnav password reset OTP";
+  const text = [
+    `Hello ${name || "there"},`,
+    `Your password reset OTP is ${otp}.`,
+    "This OTP expires in 10 minutes.",
+    "If you did not request this, you can ignore this email.",
+  ].join("\n");
+
+  return sendWorkspaceEmail({
+    workspaceId,
+    to: email,
+    subject,
+    html: `
+      <div style="font-family: Arial, sans-serif; padding: 20px; color: #0F172A;">
+        <h2 style="margin: 0 0 12px; color: #2563EB;">Reset your password</h2>
+        <p style="margin: 0 0 16px;">Use this OTP to reset your Pirnav workspace password.</p>
+        <div style="display: inline-block; letter-spacing: 8px; background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 10px; padding: 14px 18px; font-size: 28px; font-weight: 800; color: #0F172A;">${otp}</div>
+        <p style="margin: 16px 0 0; color: #475569;">This OTP expires in 10 minutes.</p>
+        <p style="margin: 10px 0 0; color: #64748B; font-size: 13px;">If you did not request this, you can ignore this email.</p>
+      </div>
+    `,
+    text,
+  });
+};
+
+const requestPasswordReset = asyncHandler(async (req, res) => {
+  const normalizedEmail =
+    typeof req.body.email === "string" ? req.body.email.toLowerCase().trim() : "";
+
+  if (!normalizedEmail) {
+    res.status(400);
+    throw new Error("Email is required");
+  }
+
+  if (!emailRegex.test(normalizedEmail)) {
+    res.status(400);
+    throw new Error("Please enter a valid email address");
+  }
+
+  const user = await User.findOne({ email: normalizedEmail }).select(
+    "+passwordResetRequestedAt +passwordResetOtpHash +passwordResetOtpExpiresAt"
+  );
+
+  const responseMessage =
+    "If an account exists for this email, an OTP has been sent.";
+
+  if (!user) {
+    res.status(200).json({ message: responseMessage });
+    return;
+  }
+
+  const requestedAt = user.passwordResetRequestedAt?.getTime?.() || 0;
+
+  if (requestedAt && Date.now() - requestedAt < PASSWORD_RESET_RESEND_COOLDOWN_MS) {
+    res.status(429);
+    throw new Error("Please wait a minute before requesting another OTP");
+  }
+
+  const otp = generatePasswordResetOtp();
+  user.passwordResetOtpHash = hashPasswordResetOtp({
+    email: normalizedEmail,
+    otp,
+  });
+  user.passwordResetOtpExpiresAt = new Date(Date.now() + PASSWORD_RESET_OTP_TTL_MS);
+  user.passwordResetRequestedAt = new Date();
+  await user.save();
+
+  try {
+    await sendPasswordResetEmail({
+      email: user.email,
+      name: user.name,
+      otp,
+      workspaceId: user.workspaceId,
+    });
+  } catch (error) {
+    user.passwordResetOtpHash = "";
+    user.passwordResetOtpExpiresAt = null;
+    await user.save();
+    throw error;
+  }
+
+  res.status(200).json({ message: responseMessage });
+});
+
+const resetPasswordWithOtp = asyncHandler(async (req, res) => {
+  const normalizedEmail =
+    typeof req.body.email === "string" ? req.body.email.toLowerCase().trim() : "";
+  const otp = typeof req.body.otp === "string" ? req.body.otp.trim() : "";
+  const newPassword =
+    typeof req.body.newPassword === "string" ? req.body.newPassword : "";
+
+  if (!normalizedEmail || !otp || !newPassword) {
+    res.status(400);
+    throw new Error("Email, OTP, and new password are required");
+  }
+
+  if (!emailRegex.test(normalizedEmail)) {
+    res.status(400);
+    throw new Error("Please enter a valid email address");
+  }
+
+  if (!/^\d{6}$/.test(otp)) {
+    res.status(400);
+    throw new Error("OTP must be 6 digits");
+  }
+
+  const passwordValidationMessage = getPasswordValidationMessage(newPassword);
+
+  if (passwordValidationMessage) {
+    res.status(400);
+    throw new Error(passwordValidationMessage);
+  }
+
+  const user = await User.findOne({ email: normalizedEmail }).select(
+    "+password +passwordResetOtpHash +passwordResetOtpExpiresAt"
+  );
+
+  const expectedHash = hashPasswordResetOtp({
+    email: normalizedEmail,
+    otp,
+  });
+  const isExpired =
+    !user?.passwordResetOtpExpiresAt ||
+    user.passwordResetOtpExpiresAt.getTime() < Date.now();
+  const otpMatches =
+    user?.passwordResetOtpHash &&
+    isSameHash(user.passwordResetOtpHash, expectedHash);
+
+  if (!user || isExpired || !otpMatches) {
+    res.status(400);
+    throw new Error("Invalid or expired OTP");
+  }
+
+  const matchesCurrentPassword = await user.comparePassword(newPassword);
+
+  if (matchesCurrentPassword) {
+    res.status(400);
+    throw new Error("New password must be different from the current password");
+  }
+
+  user.password = newPassword;
+  user.passwordResetOtpHash = "";
+  user.passwordResetOtpExpiresAt = null;
+  user.passwordResetRequestedAt = null;
+  await user.save();
+
+  res.status(200).json({
+    message: "Password updated successfully. Please sign in.",
+  });
+});
+
 module.exports = {
   register,
   login,
   adminLogin,
   getUsers,
   changePassword,
+  requestPasswordReset,
+  resetPasswordWithOtp,
 };

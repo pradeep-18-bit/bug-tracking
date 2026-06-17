@@ -2,6 +2,7 @@ const express = require("express");
 const {
   createConversation,
   createMessage,
+  getCallLogs,
   getConversationById,
   getConversations,
   getMessages,
@@ -18,6 +19,7 @@ router.post("/conversations", protect, createConversation);
 router.get("/conversation/:id", protect, getConversationById);
 router.get("/messages/:conversationId", protect, getMessages);
 router.post("/messages", protect, createMessage);
+router.get("/calls", protect, getCallLogs);
 router.post("/attachments", protect, uploadChatAttachmentMiddleware, uploadChatAttachment);
 router.get("/users/search", protect, searchUsers);
 

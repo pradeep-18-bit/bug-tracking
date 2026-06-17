@@ -3,6 +3,7 @@ const path = require("path");
 const multer = require("multer");
 const mongoose = require("mongoose");
 const Conversation = require("../models/Conversation.model");
+const CallLog = require("../models/CallLog.model");
 const Message = require("../models/Message.model");
 const Project = require("../models/Project");
 const ProjectTeam = require("../models/ProjectTeam");
@@ -527,6 +528,14 @@ const createMessageDocument = async ({
     .lean();
 };
 
+const createSystemMessageDocument = async ({ conversationId, sender, message }) =>
+  createMessageDocument({
+    conversationId,
+    sender,
+    message,
+    attachments: [],
+  });
+
 const getConversations = asyncHandler(async (req, res) => {
   ensureChatAccess(req, res);
 
@@ -861,6 +870,28 @@ const searchUsers = asyncHandler(async (req, res) => {
   });
 });
 
+const getCallLogs = asyncHandler(async (req, res) => {
+  ensureChatAccess(req, res);
+
+  const query = {
+    workspaceId: normalizeWorkspaceId(req.user.workspaceId),
+    participants: req.user._id,
+  };
+
+  if (req.query.conversationId && isValidObjectId(req.query.conversationId)) {
+    query.conversationId = req.query.conversationId;
+  }
+
+  const calls = await CallLog.find(query)
+    .populate("callerId", userSelect)
+    .populate("receiverId", userSelect)
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean();
+
+  res.status(200).json({ calls });
+});
+
 const markConversationSeen = async ({ conversationId, user }) => {
   const conversation = await Conversation.findOne({
     _id: conversationId,
@@ -912,8 +943,10 @@ module.exports = {
   createConversation,
   createMessage,
   createMessageDocument,
+  createSystemMessageDocument,
   getConversationById,
   getConversations,
+  getCallLogs,
   getMessages,
   loadConversationForUser,
   markConversationSeen,

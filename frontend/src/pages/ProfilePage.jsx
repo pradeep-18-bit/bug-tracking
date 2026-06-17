@@ -6,7 +6,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getInitials } from "@/lib/utils";
 import {
   Mail,
-  User,
   Briefcase,
   Users,
   Shield,
@@ -136,7 +135,7 @@ const ProfilePage = () => {
         </div>
 
         {/* Account Management Section */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6">
           {/* Security Card */}
           <Card className="border-slate-200 transition-all hover:shadow-md">
             <CardHeader>
@@ -156,31 +155,6 @@ const ProfilePage = () => {
                   className="gap-2 w-full justify-between"
                 >
                   Change Password
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-
-          {/* Settings Card */}
-          <Card className="border-slate-200 transition-all hover:shadow-md">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <User className="h-5 w-5 text-blue-600" />
-                Preferences
-              </CardTitle>
-              <CardDescription>Manage your account preferences</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-slate-600">
-                Configure notifications, theme, and other preferences.
-              </p>
-              <Link to="/settings" className="inline-block">
-                <Button
-                  variant="outline"
-                  className="gap-2 w-full justify-between"
-                >
-                  Go to Settings
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>

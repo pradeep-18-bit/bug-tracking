@@ -5,6 +5,8 @@ const {
   createProject,
   updateProject,
   updateProjectLeadership,
+  addProjectMember,
+  removeProjectMember,
   deleteProject,
   attachProjectTeam,
   detachProjectTeam,
@@ -20,6 +22,8 @@ router.get("/", auth, getProjects);
 router.post("/", auth, createProject);
 router.patch("/:id", auth, updateProject);
 router.patch("/:id/leadership", auth, updateProjectLeadership);
+router.post("/:id/members", auth, addProjectMember);
+router.delete("/:id/members/:userId", auth, removeProjectMember);
 router.delete("/:id", auth, deleteProject);
 router.get("/:id/teams", auth, getProjectTeams);
 router.post("/:id/teams", auth, attachProjectTeam);

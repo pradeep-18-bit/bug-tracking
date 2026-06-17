@@ -35,6 +35,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me}
 
       MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-bugtracker}:${MONGO_ROOT_PASSWORD:-bugtracker}@mongo:27017/${MONGO_APP_DATABASE:-bugtracker}?authSource=admin
+      REDIS_URL: redis://redis:6379
 
       ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-admin123}
       ENABLE_ADMIN_DEFAULT_LOGIN: ${ENABLE_ADMIN_DEFAULT_LOGIN:-true}
@@ -54,6 +55,7 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
     depends_on:
+      - redis
       - mongo
 
     ports:
@@ -62,6 +64,25 @@ services:
     volumes:
       - ./backend/uploads:/app/uploads
 
+  redis:
+    image: redis:7-alpine
+    container_name: bug-tracking-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  coturn:
+    image: coturn/coturn
+    container_name: coturn
+    restart: unless-stopped
+    network_mode: host
+    command: >
+      -n
+      --realm=app.renivval.com
+      --external-ip=65.2.115.155
+      --lt-cred-mech
+      --user=turnuser:StrongTurnPassword123
+  
   frontend:
     build:
       context: ./frontend

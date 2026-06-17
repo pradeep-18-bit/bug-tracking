@@ -1,4 +1,6 @@
 const mongoose = require("mongoose");
+const Project = require("../models/Project");
+const ProjectTeam = require("../models/ProjectTeam");
 const Team = require("../models/Team");
 const User = require("../models/User");
 const asyncHandler = require("../utils/asyncHandler");
@@ -10,6 +12,8 @@ const {
   resolveRequestedWorkspaceId,
 } = require("../utils/workspace");
 const TeamMember = require("../models/TeamMember");
+
+const ACTIVE_PROJECT_STATUSES = ["Active", "On Hold"];
 
 const requireAdmin = (req, res) => {
   if (!hasAdminAccess(req.user.role)) {
@@ -270,10 +274,104 @@ const removeTeamMember = asyncHandler(async (req, res) => {
   });
 });
 
+const deleteTeam = asyncHandler(async (req, res) => {
+  requireAdmin(req, res);
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid team id");
+  }
+
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const team = await Team.findOne({
+    _id: req.params.id,
+    workspaceId,
+  })
+    .select("_id name workspaceId")
+    .lean();
+
+  if (!team) {
+    res.status(404);
+    throw new Error("Team not found");
+  }
+
+  const [memberCount, linkedProjectIds, inlineProjectCount] = await Promise.all([
+    TeamMember.countDocuments({
+      teamId: team._id,
+    }),
+    ProjectTeam.find({
+      teamId: team._id,
+    }).distinct("projectId"),
+    Project.countDocuments({
+      workspaceId,
+      status: {
+        $in: ACTIVE_PROJECT_STATUSES,
+      },
+      $or: [
+        {
+          attachedTeams: team._id,
+        },
+        {
+          teamIds: team._id,
+        },
+      ],
+    }),
+  ]);
+
+  if (memberCount > 0) {
+    res.status(409);
+    throw new Error("Cannot delete a team while it has members. Remove members first.");
+  }
+
+  const activeLinkedProjectCount = linkedProjectIds.length
+    ? await Project.countDocuments({
+        _id: {
+          $in: linkedProjectIds,
+        },
+        workspaceId,
+        status: {
+          $in: ACTIVE_PROJECT_STATUSES,
+        },
+      })
+    : 0;
+
+  if (activeLinkedProjectCount + inlineProjectCount > 0) {
+    res.status(409);
+    throw new Error("Cannot delete a team while it is associated with active projects.");
+  }
+
+  await Promise.all([
+    ProjectTeam.deleteMany({
+      teamId: team._id,
+    }),
+    Project.updateMany(
+      {
+        workspaceId,
+      },
+      {
+        $pull: {
+          attachedTeams: team._id,
+          teamIds: team._id,
+        },
+      }
+    ),
+    Team.deleteOne({
+      _id: team._id,
+      workspaceId,
+    }),
+  ]);
+
+  res.status(200).json({
+    message: "Team deleted successfully",
+    deletedTeamId: team._id,
+  });
+});
+
 module.exports = {
   getTeams,
   getTeamById,
   createTeam,
   addTeamMember,
   removeTeamMember,
+  deleteTeam,
 };

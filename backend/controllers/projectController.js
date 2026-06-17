@@ -4,6 +4,7 @@ const Epic = require("../models/Epic");
 const Issue = require("../models/Issue");
 const Project = require("../models/Project");
 const ProjectMeeting = require("../models/ProjectMeeting");
+const ProjectMember = require("../models/ProjectMember");
 const ProjectTeam = require("../models/ProjectTeam");
 const Team = require("../models/Team");
 const TeamMember = require("../models/TeamMember");
@@ -770,6 +771,144 @@ const updateProject = asyncHandler(async (req, res) => {
 
 const updateProjectLeadership = updateProject;
 
+const normalizeProjectMemberRole = (value, fallback = "Developer") => {
+  const allowedRoles = ["Developer", "Tester", "Team Lead", "Manager"];
+  const role = allowedRoles.find(
+    (item) => item.toLowerCase() === String(value || "").trim().toLowerCase()
+  );
+  const fallbackRole = allowedRoles.includes(fallback) ? fallback : "Developer";
+
+  return role || fallbackRole;
+};
+
+const addProjectMember = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Unauthorized");
+  }
+
+  if (!hasAdminAccess(req.user.role)) {
+    res.status(403);
+    throw new Error("Only admins and managers can manage project members");
+  }
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid project id");
+  }
+
+  if (!mongoose.isValidObjectId(req.body.userId)) {
+    res.status(400);
+    throw new Error("Invalid user id");
+  }
+
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const [project, user] = await Promise.all([
+    Project.findOne({
+      _id: req.params.id,
+      workspaceId,
+    })
+      .select("_id workspaceId")
+      .lean(),
+    User.findOne({
+      _id: req.body.userId,
+      workspaceId,
+    })
+      .select("_id name email role workspaceId")
+      .lean(),
+  ]);
+
+  if (!project) {
+    res.status(404);
+    throw new Error("Project not found");
+  }
+
+  if (!user) {
+    res.status(400);
+    throw new Error("Selected user does not belong to this workspace");
+  }
+
+  const projectRole = normalizeProjectMemberRole(req.body.role, user.role);
+
+  await ProjectMember.findOneAndUpdate(
+    {
+      projectId: project._id,
+      userId: user._id,
+    },
+    {
+      $set: {
+        role: projectRole,
+        updatedAt: new Date(),
+      },
+      $setOnInsert: {
+        projectId: project._id,
+        userId: user._id,
+        createdAt: new Date(),
+      },
+    },
+    {
+      upsert: true,
+      new: true,
+      setDefaultsOnInsert: true,
+    }
+  );
+
+  res.status(200).json({
+    message: `${user.name || user.email || "Member"} added to the project`,
+    ...(await buildProjectResponse(project._id)),
+  });
+});
+
+const removeProjectMember = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Unauthorized");
+  }
+
+  if (!hasAdminAccess(req.user.role)) {
+    res.status(403);
+    throw new Error("Only admins and managers can manage project members");
+  }
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid project id");
+  }
+
+  if (!mongoose.isValidObjectId(req.params.userId)) {
+    res.status(400);
+    throw new Error("Invalid user id");
+  }
+
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const project = await Project.findOne({
+    _id: req.params.id,
+    workspaceId,
+  })
+    .select("_id")
+    .lean();
+
+  if (!project) {
+    res.status(404);
+    throw new Error("Project not found");
+  }
+
+  const membership = await ProjectMember.findOneAndDelete({
+    projectId: project._id,
+    userId: req.params.userId,
+  }).lean();
+
+  if (!membership) {
+    res.status(404);
+    throw new Error("Member is not directly assigned to this project");
+  }
+
+  res.status(200).json({
+    message: "Member removed from the project",
+    ...(await buildProjectResponse(project._id)),
+  });
+});
+
 const deleteProject = asyncHandler(async (req, res) => {
   if (!req.user) {
     res.status(401);
@@ -818,6 +957,9 @@ const deleteProject = asyncHandler(async (req, res) => {
       projectId: project._id,
     }),
     ProjectTeam.deleteMany({
+      projectId: project._id,
+    }),
+    ProjectMember.deleteMany({
       projectId: project._id,
     }),
     ProjectMeeting.deleteMany({
@@ -1325,6 +1467,8 @@ module.exports = {
   createProject,
   updateProject,
   updateProjectLeadership,
+  addProjectMember,
+  removeProjectMember,
   deleteProject,
   attachProjectTeam,
   detachProjectTeam,

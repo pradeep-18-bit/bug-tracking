@@ -22,6 +22,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import {
+  deleteIssue,
   fetchBugs,
   fetchEpics,
   fetchProjects,
@@ -888,6 +889,31 @@ const AdminBugsPage = () => {
     },
   });
 
+  const deleteIssueMutation = useMutation({
+    mutationFn: deleteIssue,
+    onSuccess: async () => {
+      setSelectedBug(null);
+      setToast({
+        id: `delete-success-${Date.now()}`,
+        type: "success",
+        message: "Bug deleted successfully.",
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["bugs"] }),
+        queryClient.invalidateQueries({ queryKey: ["issues"] }),
+        queryClient.invalidateQueries({ queryKey: ["reports"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+      ]);
+    },
+    onError: (err) => {
+      setToast({
+        id: `delete-error-${Date.now()}`,
+        type: "error",
+        message: err.response?.data?.message || "Failed to delete bug.",
+      });
+    },
+  });
+
   const handleToggleTriageBug = (issueId, checked) => {
     setSelectedTriageIds((current) =>
       checked
@@ -1291,9 +1317,9 @@ const AdminBugsPage = () => {
         <MetricTile icon={CheckCircle2} label="Closed" value={metrics.closed} tone="bg-emerald-50 text-emerald-700" />
       </section>
 
-      <Card className="overflow-visible rounded-[14px] border border-slate-200/90 bg-white shadow-[0_18px_48px_-32px_rgba(15,23,42,0.46)]">
-        <CardContent className="p-0">
-          <div className="sticky top-[var(--app-content-spacing)] z-20 rounded-t-[14px] border-b border-slate-300/80 bg-white/92 px-3 py-2 backdrop-blur-xl sm:px-4">
+      <Card className="flex max-h-[calc(100svh-7rem)] min-h-[520px] flex-col overflow-hidden rounded-[14px] border border-slate-200/90 bg-white shadow-[0_18px_48px_-32px_rgba(15,23,42,0.46)] md:max-h-[calc(100vh-7.5rem)]">
+        <CardContent className="flex min-h-0 flex-col p-0">
+          <div className="sticky top-0 z-30 shrink-0 rounded-t-[14px] border-b border-slate-300/80 bg-white/95 px-3 py-2 backdrop-blur-xl sm:px-4">
             <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
               <div className="min-w-0">
                 <h2 className="flex items-center gap-2 text-[15px] font-semibold text-slate-950">
@@ -1398,7 +1424,7 @@ const AdminBugsPage = () => {
           </div>
 
           {selectedTriageIds.length ? (
-            <div className="sticky top-[150px] z-10 flex flex-col gap-2 border-b border-blue-100 bg-blue-50/95 px-3 py-2 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-4">
+            <div className="z-20 shrink-0 flex flex-col gap-2 border-b border-blue-100 bg-blue-50/95 px-3 py-2 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-4">
               <p className="text-[12px] font-bold text-blue-800">{selectedTriageIds.length} Bugs Selected</p>
               <div className="flex flex-wrap items-center gap-2">
                 <CompactSelect className="h-8 w-[150px]" value={bulkDeveloperId} onChange={(event) => setBulkDeveloperId(event.target.value)}>
@@ -1420,7 +1446,7 @@ const AdminBugsPage = () => {
             </div>
           ) : null}
 
-          <div className="bg-slate-100/80 p-2">
+          <div className="min-h-0 flex-1 overflow-auto bg-slate-100/80 p-2 [scrollbar-gutter:stable]">
             {isLoading ? (
               <div className="space-y-1.5">
                 {Array.from({ length: 8 }).map((_, index) => (
@@ -1430,7 +1456,7 @@ const AdminBugsPage = () => {
             ) : triageBugs.length ? (
               <>
                 <div className="hidden md:block">
-                  <div className="max-h-[430px] overflow-auto pr-1">
+                  <div className="pr-1">
                     <div className="min-w-[900px] space-y-1.5 lg:min-w-0">
                       <div className="grid grid-cols-[28px_minmax(220px,1.25fr)_minmax(130px,0.7fr)_minmax(120px,0.65fr)_minmax(120px,0.65fr)_minmax(145px,0.72fr)_104px_68px] items-center gap-2 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 lg:grid-cols-[28px_minmax(260px,1.35fr)_minmax(150px,0.72fr)_minmax(130px,0.65fr)_minmax(140px,0.68fr)_minmax(160px,0.76fr)_118px_72px]">
                         <div className="flex justify-center">
@@ -1637,8 +1663,15 @@ const AdminBugsPage = () => {
         </CardContent>
       </Card>
 
-      <Card className="sticky top-20 z-20 overflow-hidden rounded-[16px] border-white/70 bg-white/94 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl">
-        <CardContent className="space-y-3 p-3.5 sm:p-4">
+      <section className="grid gap-4 lg:grid-cols-3">
+        <DistributionPanel title="Severity Distribution" rows={severityRows} />
+        <DistributionPanel title="Bug Trend By Status" rows={statusRows} />
+        <DistributionPanel title="Developer Resolution Rate" rows={developerRows} />
+      </section>
+
+      <Card className="flex max-h-[calc(100svh-7rem)] min-h-[520px] flex-col overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl md:max-h-[calc(100vh-7.5rem)]">
+        <CardContent className="flex min-h-0 flex-col p-0">
+          <div className="shrink-0 space-y-3 border-b border-slate-200/90 bg-white p-3.5 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <h2 className="flex items-center gap-2 text-base font-semibold text-slate-950">
@@ -1794,17 +1827,8 @@ const AdminBugsPage = () => {
               </label>
             </div>
           ) : null}
-        </CardContent>
-      </Card>
-
-      <section className="grid gap-4 lg:grid-cols-3">
-        <DistributionPanel title="Severity Distribution" rows={severityRows} />
-        <DistributionPanel title="Bug Trend By Status" rows={statusRows} />
-        <DistributionPanel title="Developer Resolution Rate" rows={developerRows} />
-      </section>
-
-      <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
-        <CardContent className="p-0">
+          </div>
+          <div className="min-h-0 flex-1 bg-white">
           {isLoading ? (
             <div className="space-y-3 p-4">
               {Array.from({ length: 8 }).map((_, index) => (
@@ -1812,13 +1836,34 @@ const AdminBugsPage = () => {
               ))}
             </div>
           ) : filteredBugs.length ? (
-            <div className="max-h-[620px] overflow-auto">
-              <table className="w-full min-w-[1280px] border-separate border-spacing-0 text-left">
-                <thead className="sticky top-0 z-10 bg-white/95 backdrop-blur">
-                  <tr className="border-b border-slate-200 text-xs uppercase tracking-[0.16em] text-slate-500">
-                    {["Bug ID", "Title", "Project", "Tester", "Severity", "Priority", "Developer", "Status", "Reopens", "Updated", "Resolution ETA", "Actions"].map((header) => (
-                      <th key={header} className="border-b border-slate-200 px-3 py-3 font-semibold">
-                        {header}
+            <div className="h-full min-h-[360px] overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
+              <table className="w-full table-fixed border-separate border-spacing-0 text-left">
+                <colgroup>
+                  <col className="w-[6%]" />
+                  <col className="w-[20%]" />
+                  <col className="w-[11%]" />
+                  <col className="w-[9%]" />
+                  <col className="w-[6.5%]" />
+                  <col className="w-[7%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[5%]" />
+                  <col className="w-[8.5%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[3%]" />
+                </colgroup>
+                <thead className="sticky top-0 z-20 bg-white/95 backdrop-blur">
+                  <tr className="border-b border-slate-200 text-[10px] uppercase tracking-[0.1em] text-slate-500 xl:text-[11px]">
+                    {["Bug ID", "Title", "Project", "Tester", "Severity", "Priority", "Developer", "Status", "Reopens", "Updated", "ETA", ""].map((header, index) => (
+                      <th
+                        key={`${header || "actions"}-${index}`}
+                        className={cn(
+                          "border-b border-slate-200 px-2 py-3 font-semibold",
+                          index === 8 && "text-center",
+                          index === 11 && "text-center"
+                        )}
+                      >
+                        {index === 11 ? <Eye className="mx-auto h-4 w-4" /> : header}
                       </th>
                     ))}
                   </tr>
@@ -1835,22 +1880,22 @@ const AdminBugsPage = () => {
                         className="cursor-pointer border-b border-slate-100 transition hover:bg-blue-50/50"
                         onClick={() => setSelectedBug(bugIssue)}
                       >
-                        <td className="border-b border-slate-100 px-3 py-3 font-mono text-xs font-semibold text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 font-mono text-[11px] font-semibold leading-5 text-slate-600">
                           {getIssueDisplayKey(bugIssue)}
                         </td>
-                        <td className="max-w-[280px] border-b border-slate-100 px-3 py-3">
-                          <p className="truncate text-sm font-semibold text-slate-950">{bugIssue.title}</p>
+                        <td className="border-b border-slate-100 px-2 py-3">
+                          <p className="truncate text-[13px] font-semibold text-slate-950 xl:text-sm">{bugIssue.title}</p>
                           <p className="truncate text-xs text-slate-500">{getTeamName(bugIssue)}</p>
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600 xl:text-sm">
                           {getProjectName(bugIssue, projects)}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600 xl:text-sm">
                           {getUserLabel(reporter, "Unknown tester")}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3">
+                        <td className="border-b border-slate-100 px-2 py-3">
                           <span className={cn(
-                            "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
+                            "inline-flex rounded-full px-2 py-1 text-[11px] font-semibold",
                             ["Blocker", "Critical"].includes(getSeverity(bugIssue))
                               ? "bg-rose-50 text-rose-700"
                               : "bg-slate-100 text-slate-700"
@@ -1858,40 +1903,41 @@ const AdminBugsPage = () => {
                             {getSeverity(bugIssue)}
                           </span>
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3">
+                        <td className="border-b border-slate-100 px-2 py-3">
                           <Badge variant={getIssuePriorityVariant(bugIssue.priority)}>
                             {bugIssue.priority || "Medium"}
                           </Badge>
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600 xl:text-sm">
                           {getUserLabel(developer)}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3">
+                        <td className="border-b border-slate-100 px-2 py-3">
                           <Badge variant={getIssueStatusVariant(status)}>
                             {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
                           </Badge>
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm font-semibold text-slate-700">
+                        <td className="border-b border-slate-100 px-2 py-3 text-center text-[12px] font-semibold text-slate-700 xl:text-sm">
                           {getReopenCount(bugIssue)}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600">
                           {formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">
+                        <td className="break-words border-b border-slate-100 px-2 py-3 text-[12px] leading-5 text-slate-600">
                           {getResolutionEta(bugIssue)}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3">
+                        <td className="border-b border-slate-100 px-1 py-3 text-center">
                           <Button
                             type="button"
-                            size="sm"
+                            size="icon"
                             variant="outline"
+                            className="h-8 w-8 rounded-lg"
                             onClick={(event) => {
                               event.stopPropagation();
                               setSelectedBug(bugIssue);
                             }}
+                            aria-label="View bug"
                           >
                             <Eye className="h-4 w-4" />
-                            View
                           </Button>
                         </td>
                       </tr>
@@ -1909,13 +1955,25 @@ const AdminBugsPage = () => {
               />
             </div>
           )}
+          </div>
         </CardContent>
       </Card>
 
       <IssueDetailsDialog
-        deletingId=""
+        deletingId={deleteIssueMutation.isPending ? deleteIssueMutation.variables : ""}
         issue={selectedBug}
-        onDeleteIssue={async () => {}}
+        onDeleteIssue={async (issueId) => {
+          const confirmed = window.confirm(
+            "Delete this bug? This will remove it from active bug lists."
+          );
+
+          if (!confirmed) {
+            return false;
+          }
+
+          await deleteIssueMutation.mutateAsync(issueId);
+          return true;
+        }}
         onOpenChange={(open) => {
           if (!open) {
             setSelectedBug(null);
@@ -1937,7 +1995,7 @@ const AdminBugsPage = () => {
         canEditCoreDetails
         canEditPriority
         canEditAssignee
-        canDeleteIssue={false}
+        canDeleteIssue
       />
 
       <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
