@@ -1,5 +1,6 @@
 const path = require("path");
 require("./config/env");
+require("./utils/redis");
 
 const cors = require("cors");
 const express = require("express");
