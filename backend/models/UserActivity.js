@@ -29,6 +29,12 @@ const userActivitySchema = new Schema(
       default: null,
       index: true,
     },
+    status: {
+      type: String,
+      enum: ["active", "idle", "offline"],
+      default: "offline",
+      index: true,
+    },
     totalActiveMinutes: {
       type: Number,
       default: 0,
@@ -46,7 +52,7 @@ const userActivitySchema = new Schema(
     },
     currentStatus: {
       type: String,
-      enum: ["active", "idle", "away", "offline"],
+      enum: ["active", "idle", "offline"],
       default: "offline",
       index: true,
     },
@@ -64,5 +70,6 @@ const userActivitySchema = new Schema(
 
 userActivitySchema.index({ userId: 1, date: 1 }, { unique: true });
 userActivitySchema.index({ workspaceId: 1, date: 1, currentStatus: 1 });
+userActivitySchema.index({ workspaceId: 1, date: 1, status: 1 });
 
 module.exports = models.UserActivity || model("UserActivity", userActivitySchema);

@@ -3,7 +3,7 @@ const Issue = require("../models/Issue");
 const IssueHistory = require("../models/IssueHistory");
 const UserActivity = require("../models/UserActivity");
 const asyncHandler = require("../utils/asyncHandler");
-const { hasAdminAccess } = require("../utils/roles");
+const { hasAdminAccess, ROLE_ADMIN } = require("../utils/roles");
 const { ISSUE_TYPES } = require("../utils/issueTypes");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 const {
@@ -14,9 +14,9 @@ const {
 const MS_PER_HOUR = 60 * 60 * 1000;
 
 const requireAdmin = (req, res) => {
-  if (!hasAdminAccess(req.user.role)) {
+  if (req.user.role !== ROLE_ADMIN) {
     res.status(403);
-    throw new Error("Only admins and managers can view team activity");
+    throw new Error("Only admins can view team activity");
   }
 };
 
@@ -55,7 +55,8 @@ const serializeActivityRecord = (record) => {
     loginTime: record.loginTime,
     logoutTime: record.logoutTime,
     lastActiveTime: record.lastActiveTime,
-    currentStatus: record.currentStatus,
+    status: record.status || record.currentStatus,
+    currentStatus: record.currentStatus || record.status,
     loginHours: hours(loginMinutes),
     activeHours: hours(activeMinutes),
     idleHours: hours(idleMinutes),
@@ -115,13 +116,40 @@ const getTeamActivity = asyncHandler(async (req, res) => {
       ...current,
       [row.status]: (current[row.status] || 0) + 1,
     }),
-    { active: 0, idle: 0, away: 0, offline: 0 }
+    { active: 0, idle: 0, offline: 0 }
   );
 
   res.status(200).json({
     range: { start, end },
     summary,
     users,
+  });
+});
+
+const getMyActivity = asyncHandler(async (req, res) => {
+  const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
+  const presenceRows = await getWorkspacePresence(workspaceId);
+  const currentPresence = presenceRows.find(
+    ({ user }) => String(user._id) === String(req.user._id)
+  )?.presence;
+  const record = await UserActivity.findOne({
+    userId: req.user._id,
+    date: getDayStart(new Date()),
+  })
+    .populate("userId", "_id name email role workspaceId")
+    .lean();
+
+  res.status(200).json({
+    user: record?.userId || {
+      _id: req.user._id,
+      name: req.user.name,
+      email: req.user.email,
+      role: req.user.role,
+      workspaceId,
+    },
+    status: currentPresence?.status || record?.status || record?.currentStatus || "offline",
+    lastSeen: currentPresence?.lastSeen || record?.lastActiveTime || null,
+    activity: record ? serializeActivityRecord(record) : null,
   });
 });
 
@@ -253,6 +281,7 @@ const getBugEffortAnalytics = asyncHandler(async (req, res) => {
 
 module.exports = {
   getBugEffortAnalytics,
+  getMyActivity,
   getProductivityReport,
   getTeamActivity,
 };

@@ -7,25 +7,19 @@ import {
   useRef,
   useState,
 } from "react";
-import { useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { getChatSocket } from "@/lib/socket";
 
 const PresenceContext = createContext(null);
-const ACTIVE_THROTTLE_MS = 45000;
-const IDLE_MS = 5 * 60 * 1000;
-const AWAY_MS = 15 * 60 * 1000;
+const ACTIVE_THROTTLE_MS = 60 * 1000;
 
 const getId = (value) => String(value?._id || value?.id || value || "");
 
 export const PresenceProvider = ({ children }) => {
   const { token, user } = useAuth();
-  const location = useLocation();
   const [presenceByUserId, setPresenceByUserId] = useState({});
   const currentStatusRef = useRef("offline");
   const lastEmitRef = useRef(0);
-  const idleTimerRef = useRef(null);
-  const awayTimerRef = useRef(null);
 
   const upsertPresence = useCallback((presence) => {
     const userId = getId(presence?.userId);
@@ -76,19 +70,17 @@ export const PresenceProvider = ({ children }) => {
     [token]
   );
 
-  const scheduleIdleTimers = useCallback(() => {
-    window.clearTimeout(idleTimerRef.current);
-    window.clearTimeout(awayTimerRef.current);
-    idleTimerRef.current = window.setTimeout(() => emitStatus("idle", { force: true }), IDLE_MS);
-    awayTimerRef.current = window.setTimeout(() => emitStatus("away", { force: true }), AWAY_MS);
-  }, [emitStatus]);
-
   const markActive = useCallback(
-    (options = {}) => {
-      emitStatus("active", options);
-      scheduleIdleTimers();
-    },
-    [emitStatus, scheduleIdleTimers]
+    (options = {}) => emitStatus("active", options),
+    [emitStatus]
+  );
+  const markIdle = useCallback(
+    (options = {}) => emitStatus("idle", { ...options, force: true }),
+    [emitStatus]
+  );
+  const markOffline = useCallback(
+    (options = {}) => emitStatus("offline", { ...options, force: true }),
+    [emitStatus]
   );
 
   useEffect(() => {
@@ -109,36 +101,16 @@ export const PresenceProvider = ({ children }) => {
     markActive({ force: true });
 
     return () => {
+      if (currentStatusRef.current !== "offline") {
+        socket.emit("user:offline", {
+          at: new Date().toISOString(),
+        });
+      }
       socket.off("presence:update", handlePresenceUpdate);
       socket.off("connect", handleConnect);
-      window.clearTimeout(idleTimerRef.current);
-      window.clearTimeout(awayTimerRef.current);
+      socket.disconnect();
     };
   }, [markActive, token, upsertPresence]);
-
-  useEffect(() => {
-    if (!token) return undefined;
-
-    const activityEvents = ["mousemove", "keydown", "click", "scroll", "touchstart"];
-    const handleActivity = () => markActive();
-
-    activityEvents.forEach((eventName) =>
-      window.addEventListener(eventName, handleActivity, { passive: true })
-    );
-    window.addEventListener("app:user-activity", handleActivity);
-    scheduleIdleTimers();
-
-    return () => {
-      activityEvents.forEach((eventName) =>
-        window.removeEventListener(eventName, handleActivity)
-      );
-      window.removeEventListener("app:user-activity", handleActivity);
-    };
-  }, [markActive, scheduleIdleTimers, token]);
-
-  useEffect(() => {
-    markActive();
-  }, [location.pathname, location.search, markActive]);
 
   useEffect(() => {
     const userId = getId(user);
@@ -155,6 +127,8 @@ export const PresenceProvider = ({ children }) => {
   const value = useMemo(
     () => ({
       markActive,
+      markIdle,
+      markOffline,
       presenceByUserId,
       getPresence: (userId) =>
         presenceByUserId[getId(userId)] || {
@@ -163,7 +137,7 @@ export const PresenceProvider = ({ children }) => {
           lastSeen: null,
         },
     }),
-    [markActive, presenceByUserId]
+    [markActive, markIdle, markOffline, presenceByUserId]
   );
 
   return <PresenceContext.Provider value={value}>{children}</PresenceContext.Provider>;
@@ -172,6 +146,8 @@ export const PresenceProvider = ({ children }) => {
 export const usePresence = () =>
   useContext(PresenceContext) || {
     markActive: () => {},
+    markIdle: () => {},
+    markOffline: () => {},
     presenceByUserId: {},
     getPresence: () => ({ status: "offline", lastSeen: null }),
   };

@@ -1048,7 +1048,9 @@ const setupChatSocket = (server) => {
 
     socket.on("user:active", async (_payload = {}, callback) => {
       try {
+        addOnlineUser(socket.user, socket.id);
         await updateSocketPresence(io, socket, "active", "activity");
+        emitOnlineUsers(io, socket.user.workspaceId);
         callback?.({ ok: true });
       } catch (error) {
         callback?.({ ok: false, error: "Unable to update activity" });
@@ -1064,18 +1066,15 @@ const setupChatSocket = (server) => {
       }
     });
 
-    socket.on("user:away", async (_payload = {}, callback) => {
-      try {
-        await updateSocketPresence(io, socket, "away", "activity");
-        callback?.({ ok: true });
-      } catch (error) {
-        callback?.({ ok: false, error: "Unable to update activity" });
-      }
-    });
-
     socket.on("user:offline", async (_payload = {}, callback) => {
       try {
-        await updateSocketPresence(io, socket, "offline", "logout");
+        const offlineUser = socket.user;
+
+        removeOnlineUser(socket.id);
+        if (!isUserOnline(offlineUser.workspaceId, offlineUser._id)) {
+          await updateSocketPresence(io, socket, "offline", "logout");
+        }
+        emitOnlineUsers(io, offlineUser.workspaceId);
         callback?.({ ok: true });
       } catch (error) {
         callback?.({ ok: false, error: "Unable to update activity" });

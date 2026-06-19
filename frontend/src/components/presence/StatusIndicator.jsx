@@ -4,14 +4,12 @@ import { usePresence } from "@/context/PresenceContext";
 const statusClassName = {
   active: "bg-emerald-500",
   idle: "bg-yellow-400",
-  away: "bg-orange-500",
   offline: "bg-slate-400",
 };
 
 const statusLabel = {
   active: "Active",
   idle: "Idle",
-  away: "Away",
   offline: "Offline",
 };
 

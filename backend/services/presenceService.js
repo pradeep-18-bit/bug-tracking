@@ -3,10 +3,10 @@ const User = require("../models/User");
 const redisClient = require("../utils/redis");
 const { normalizeWorkspaceId } = require("../utils/workspace");
 
-const PRESENCE_TTL_SECONDS = 20 * 60;
+const PRESENCE_TTL_SECONDS = 10 * 60;
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
-const AWAY_WINDOW_MS = 15 * 60 * 1000;
-const VALID_STATUSES = new Set(["active", "idle", "away", "offline"]);
+const DB_WRITE_INTERVAL_MS = 60 * 1000;
+const VALID_STATUSES = new Set(["active", "idle", "offline"]);
 
 const getDayStart = (value = new Date()) => {
   const date = new Date(value);
@@ -20,7 +20,6 @@ const diffMinutes = (left, right) =>
 const inferStatus = (lastSeen = new Date(), fallback = "active") => {
   const age = Date.now() - new Date(lastSeen).getTime();
 
-  if (age > AWAY_WINDOW_MS) return "away";
   if (age > ACTIVE_WINDOW_MS) return "idle";
   return VALID_STATUSES.has(fallback) ? fallback : "active";
 };
@@ -76,6 +75,8 @@ const getActivityRecord = async ({ userId, workspaceId, at = new Date() }) =>
         totalActiveMinutes: 0,
         totalIdleMinutes: 0,
         totalLoginMinutes: 0,
+        status: "offline",
+        currentStatus: "offline",
       },
     },
     {
@@ -102,7 +103,7 @@ const updateActivityDurations = async ({ record, previousStatus, at }) => {
 
   if (["active"].includes(previousStatus)) {
     update.$inc.totalActiveMinutes = minutes;
-  } else if (["idle", "away"].includes(previousStatus)) {
+  } else if (previousStatus === "idle") {
     update.$inc.totalIdleMinutes = minutes;
   }
 
@@ -124,22 +125,33 @@ const setPresence = async ({
   const previousPresence = await safeRedisGet(presenceKey(userId));
   const previousStatus = previousPresence?.status || "offline";
   const record = await getActivityRecord({ userId, workspaceId, at });
+  const lastSeenTime = previousPresence?.lastSeen
+    ? new Date(previousPresence.lastSeen).getTime()
+    : 0;
+  const shouldWriteActivity =
+    nextStatus === "offline" ||
+    nextStatus !== previousStatus ||
+    !previousPresence ||
+    at.getTime() - lastSeenTime >= DB_WRITE_INTERVAL_MS;
 
-  await updateActivityDurations({ record, previousStatus, at });
-  await UserActivity.updateOne(
-    {
-      userId,
-      date: getDayStart(at),
-    },
-    {
-      $set: {
-        currentStatus: nextStatus,
-        lastActiveTime: at,
-        ...(nextStatus === "offline" ? { logoutTime: at } : {}),
-        ...(nextStatus === "active" && !record.loginTime ? { loginTime: at } : {}),
+  if (shouldWriteActivity) {
+    await updateActivityDurations({ record, previousStatus, at });
+    await UserActivity.updateOne(
+      {
+        userId,
+        date: getDayStart(at),
       },
-    }
-  );
+      {
+        $set: {
+          status: nextStatus,
+          currentStatus: nextStatus,
+          lastActiveTime: at,
+          ...(nextStatus === "offline" ? { logoutTime: at } : {}),
+          ...(nextStatus === "active" && !record.loginTime ? { loginTime: at } : {}),
+        },
+      }
+    );
+  }
 
   const payload = {
     userId,
@@ -200,7 +212,7 @@ const getWorkspacePresence = async (workspaceId) => {
 
 module.exports = {
   ACTIVE_WINDOW_MS,
-  AWAY_WINDOW_MS,
+  DB_WRITE_INTERVAL_MS,
   getDayStart,
   getPresenceForUsers,
   getWorkspacePresence,

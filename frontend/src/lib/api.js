@@ -597,6 +597,11 @@ export const fetchTeamActivity = async (filters = {}) => {
   return response.data;
 };
 
+export const fetchMyActivity = async () => {
+  const response = await api.get("/activity/me");
+  return response.data;
+};
+
 export const fetchProductivityReport = async (filters = {}) => {
   const response = await api.get("/activity/productivity", {
     params: buildParams(filters),
