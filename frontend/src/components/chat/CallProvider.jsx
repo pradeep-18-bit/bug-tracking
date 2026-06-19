@@ -36,6 +36,20 @@ const getCandidateKey = (candidate = {}) =>
     candidate.sdpMLineIndex ?? "",
     candidate.usernameFragment || "",
   ].join("|");
+const getCandidateSummary = (candidate = {}) => {
+  const text = candidate.candidate || "";
+  const parts = text.split(" ");
+
+  return {
+    candidateType: candidate.type || parts[7] || "",
+    protocol: candidate.protocol || parts[2] || "",
+    address: candidate.address || parts[4] || "",
+    port: candidate.port || parts[5] || "",
+  };
+};
+const isLiveTrack = (track) => track?.readyState === "live";
+const hasLiveTrack = (stream, kind) =>
+  Boolean(stream?.getTracks().some((track) => track.kind === kind && isLiveTrack(track)));
 const callLog = (message, details = null) => {
   if (details === null || details === undefined) {
     console.log(`[Call] ${message}`);
@@ -96,12 +110,15 @@ const playRingtone = () => {
   };
 };
 
-const RemoteMedia = ({ stream, muted, onVideoStateChange }) => {
+const RemoteMedia = ({ stream, muted, onVideoStalled, onVideoStateChange }) => {
   const videoRef = useRef(null);
   const audioRef = useRef(null);
   const [hasVideo, setHasVideo] = useState(false);
 
   useEffect(() => {
+    let stallTimerId;
+    let lastVideoTime = 0;
+    let unchangedTicks = 0;
     const updateHasVideo = () => {
       const nextHasVideo = Boolean(
         stream?.getVideoTracks().some((track) => track.readyState === "live" && !track.muted)
@@ -110,39 +127,73 @@ const RemoteMedia = ({ stream, muted, onVideoStateChange }) => {
       onVideoStateChange?.(nextHasVideo);
     };
 
-    if (videoRef.current) {
+    const playElement = (element, label) => {
+      element?.play?.().catch((playError) => {
+        callLog(`remote ${label} autoplay blocked`, playError?.message || playError);
+      });
+    };
+
+    if (videoRef.current && videoRef.current.srcObject !== stream) {
       videoRef.current.srcObject = stream;
       videoRef.current.onloadedmetadata = () => {
-        videoRef.current?.play?.().catch(() => {});
+        playElement(videoRef.current, "video");
         updateHasVideo();
       };
-      videoRef.current.play?.().catch(() => {});
+      playElement(videoRef.current, "video");
     }
     if (audioRef.current) {
-      audioRef.current.srcObject = stream;
+      if (audioRef.current.srcObject !== stream) {
+        audioRef.current.srcObject = stream;
+      }
       audioRef.current.muted = muted;
-      audioRef.current.play?.().catch(() => {});
+      playElement(audioRef.current, "audio");
     }
-    const watchedTracks = stream?.getVideoTracks() || [];
+    const watchedTracks = stream?.getTracks() || [];
     watchedTracks.forEach((track) => {
-      track.onmute = updateHasVideo;
-      track.onunmute = updateHasVideo;
-      track.onended = updateHasVideo;
+      track.addEventListener?.("mute", updateHasVideo);
+      track.addEventListener?.("unmute", updateHasVideo);
+      track.addEventListener?.("ended", updateHasVideo);
     });
     updateHasVideo();
     stream?.addEventListener?.("addtrack", updateHasVideo);
     stream?.addEventListener?.("removetrack", updateHasVideo);
+    stallTimerId = window.setInterval(() => {
+      const element = videoRef.current;
+      if (!element || element.paused || !hasLiveTrack(stream, "video")) {
+        unchangedTicks = 0;
+        return;
+      }
+      if (element.currentTime === lastVideoTime) {
+        unchangedTicks += 1;
+      } else {
+        unchangedTicks = 0;
+        lastVideoTime = element.currentTime;
+      }
+      if (unchangedTicks >= 4) {
+        callLog("remote video appears stalled", {
+          currentTime: element.currentTime,
+          readyState: element.readyState,
+          videoWidth: element.videoWidth,
+          videoHeight: element.videoHeight,
+        });
+        playElement(element, "video");
+        updateHasVideo();
+        onVideoStalled?.();
+        unchangedTicks = 0;
+      }
+    }, 2000);
 
     return () => {
+      window.clearInterval(stallTimerId);
       watchedTracks.forEach((track) => {
-        track.onmute = null;
-        track.onunmute = null;
-        track.onended = null;
+        track.removeEventListener?.("mute", updateHasVideo);
+        track.removeEventListener?.("unmute", updateHasVideo);
+        track.removeEventListener?.("ended", updateHasVideo);
       });
       stream?.removeEventListener?.("addtrack", updateHasVideo);
       stream?.removeEventListener?.("removetrack", updateHasVideo);
     };
-  }, [muted, onVideoStateChange, stream]);
+  }, [muted, onVideoStalled, onVideoStateChange, stream]);
 
   return (
     <>
@@ -221,26 +272,52 @@ export const CallProvider = ({ children }) => {
   const screenRef = useRef(null);
   const stageRef = useRef(null);
   const negotiatingPeersRef = useRef(new Set());
+  const restartingPeersRef = useRef(new Set());
+  const makingOfferRef = useRef(new Map());
+  const ignoredOfferRef = useRef(new Map());
+  const mediaRequestRef = useRef(null);
+  const mediaKindRef = useRef(null);
+  const remoteStreamVersionsRef = useRef(new Map());
+  const videoStallTimersRef = useRef(new Map());
 
   useEffect(() => {
     activeCallRef.current = activeCall;
   }, [activeCall]);
 
   const updateRemoteStream = useCallback((userId, stream) => {
+    const normalizedUserId = String(userId);
+    const version = (remoteStreamVersionsRef.current.get(normalizedUserId) || 0) + 1;
+    remoteStreamVersionsRef.current.set(normalizedUserId, version);
     setRemoteStreams((current) => ({
       ...current,
-      [userId]: stream,
+      [normalizedUserId]: {
+        stream,
+        version,
+      },
     }));
   }, []);
 
   const cleanupPeer = useCallback((userId) => {
     const peer = peersRef.current.get(userId);
+    if (peer) {
+      peer.ontrack = null;
+      peer.onicecandidate = null;
+      peer.onsignalingstatechange = null;
+      peer.oniceconnectionstatechange = null;
+      peer.onconnectionstatechange = null;
+      peer.onnegotiationneeded = null;
+    }
     peer?.close();
     peersRef.current.delete(userId);
     pendingCandidatesRef.current.delete(userId);
     processedCandidatesRef.current.delete(userId);
     processedOffersRef.current.delete(userId);
     processedAnswersRef.current.delete(userId);
+    makingOfferRef.current.delete(userId);
+    ignoredOfferRef.current.delete(userId);
+    restartingPeersRef.current.delete(userId);
+    window.clearTimeout(videoStallTimersRef.current.get(userId));
+    videoStallTimersRef.current.delete(userId);
     setPeerStatuses((current) => {
       const next = { ...current };
       delete next[userId];
@@ -255,12 +332,27 @@ export const CallProvider = ({ children }) => {
   }, []);
 
   const cleanupAllPeers = useCallback(() => {
-    peersRef.current.forEach((peer) => peer.close());
+    peersRef.current.forEach((peer) => {
+      peer.ontrack = null;
+      peer.onicecandidate = null;
+      peer.onsignalingstatechange = null;
+      peer.oniceconnectionstatechange = null;
+      peer.onconnectionstatechange = null;
+      peer.onnegotiationneeded = null;
+      peer.close();
+    });
     peersRef.current.clear();
     pendingCandidatesRef.current.clear();
     processedCandidatesRef.current.clear();
     processedOffersRef.current.clear();
     processedAnswersRef.current.clear();
+    makingOfferRef.current.clear();
+    ignoredOfferRef.current.clear();
+    negotiatingPeersRef.current.clear();
+    restartingPeersRef.current.clear();
+    videoStallTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    videoStallTimersRef.current.clear();
+    remoteStreamVersionsRef.current.clear();
     setRemoteStreams({});
     setPeerStatuses({});
   }, []);
@@ -272,6 +364,8 @@ export const CallProvider = ({ children }) => {
     cameraTrackRef.current = null;
     outboundVideoTrackRef.current = null;
     screenRef.current = null;
+    mediaRequestRef.current = null;
+    mediaKindRef.current = null;
     setLocalStream(null);
     setIsScreenSharing(false);
     setScreenSharers({});
@@ -312,8 +406,7 @@ export const CallProvider = ({ children }) => {
         processedCandidatesRef.current.set(normalizedUserId, processedSet);
         callLog("queued ICE candidate applied", {
           fromUserId: normalizedUserId,
-          candidateType: candidate.type,
-          protocol: candidate.protocol,
+          ...getCandidateSummary(candidate),
         });
       } catch (candidateError) {
         callLog("queued ICE candidate failed", {
@@ -344,13 +437,29 @@ export const CallProvider = ({ children }) => {
       }
 
       negotiatingPeersRef.current.add(String(targetUserId));
+      makingOfferRef.current.set(String(targetUserId), true);
       try {
         const offer = await peer.createOffer(options);
         callLog(options.iceRestart ? "offer created for ICE restart" : "offer created", {
           targetUserId,
           signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
         });
+        if (peer.signalingState !== "stable") {
+          callLog("offer discarded because signaling state changed", {
+            targetUserId,
+            signalingState: peer.signalingState,
+          });
+          return;
+        }
         await peer.setLocalDescription(offer);
+        callLog("local offer set", {
+          targetUserId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
         getChatSocket(token)?.emit("call:offer", {
           callId: currentCall.callId,
           targetUserId: String(targetUserId),
@@ -360,6 +469,7 @@ export const CallProvider = ({ children }) => {
       } catch (error) {
         callLog("offer negotiation failed", { targetUserId, error });
       } finally {
+        makingOfferRef.current.set(String(targetUserId), false);
         negotiatingPeersRef.current.delete(String(targetUserId));
       }
     },
@@ -406,54 +516,117 @@ export const CallProvider = ({ children }) => {
     }
   }, []);
 
-  const getMedia = useCallback(async (callType) => {
-    try {
-      callLog("requesting local media", { callType });
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video:
-          callType === "video"
-            ? {
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-                frameRate: { ideal: 24, max: 30 },
-              }
-            : false,
-      });
-      localStreamRef.current = stream;
-      cameraTrackRef.current = stream.getVideoTracks()[0] || null;
-      outboundVideoTrackRef.current = cameraTrackRef.current;
-      stream.getTracks().forEach((track) => {
-        callLog("local media track acquired", {
-          kind: track.kind,
-          enabled: track.enabled,
-          muted: track.muted,
-          readyState: track.readyState,
-          label: track.label,
-        });
-        track.onended = () => {
-          callLog("local media track ended", { kind: track.kind, label: track.label });
-          if (track.kind === "video" && outboundVideoTrackRef.current === track) {
-            setIsCameraOff(true);
-          }
-        };
-      });
-      setLocalStream(stream);
-      return stream;
-    } catch (mediaError) {
-      callLog("local media request failed", mediaError);
-      setError(
-        callType === "video"
-          ? "Camera or microphone permission was denied."
-          : "Microphone permission was denied."
-      );
-      throw mediaError;
+  const attachLocalTrackHandlers = useCallback((track) => {
+    if (!track || track.__bugTrackerHandled) {
+      return;
     }
+
+    track.__bugTrackerHandled = true;
+    track.enabled = track.enabled !== false;
+    track.addEventListener?.("ended", () => {
+      callLog("local media track ended", {
+        kind: track.kind,
+        label: track.label,
+        readyState: track.readyState,
+      });
+      if (track.kind === "audio") {
+        setIsMuted(true);
+      }
+      if (track.kind === "video" && outboundVideoTrackRef.current === track) {
+        setIsCameraOff(true);
+      }
+    });
+    track.addEventListener?.("mute", () => {
+      callLog("local media track muted by browser", { kind: track.kind, label: track.label });
+    });
+    track.addEventListener?.("unmute", () => {
+      callLog("local media track unmuted by browser", { kind: track.kind, label: track.label });
+    });
   }, []);
+
+  const getMedia = useCallback(async (callType) => {
+    const needsVideo = callType === "video";
+    const existingStream = localStreamRef.current;
+    const existingHasAudio = hasLiveTrack(existingStream, "audio");
+    const existingHasVideo = hasLiveTrack(existingStream, "video");
+
+    if (existingHasAudio && (!needsVideo || existingHasVideo)) {
+      callLog("reusing existing local media", {
+        callType,
+        audioTracks: existingStream.getAudioTracks().length,
+        videoTracks: existingStream.getVideoTracks().length,
+      });
+      existingStream.getTracks().forEach(attachLocalTrackHandlers);
+      setLocalStream(new MediaStream(existingStream.getTracks().filter(isLiveTrack)));
+      return existingStream;
+    }
+
+    if (mediaRequestRef.current && mediaKindRef.current === callType) {
+      callLog("waiting for in-flight local media request", { callType });
+      return mediaRequestRef.current;
+    }
+
+    mediaKindRef.current = callType;
+    mediaRequestRef.current = (async () => {
+      try {
+        callLog("requesting local media", { callType, needsVideo });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: existingHasAudio
+            ? false
+            : {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              },
+          video:
+            needsVideo && !existingHasVideo
+              ? {
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                  frameRate: { ideal: 24, max: 30 },
+                }
+              : false,
+        });
+        const mergedStream = new MediaStream([
+          ...(existingStream?.getTracks().filter(isLiveTrack) || []),
+          ...stream.getTracks(),
+        ]);
+
+        mergedStream.getTracks().forEach((track) => {
+          attachLocalTrackHandlers(track);
+          callLog("local media track acquired", {
+            kind: track.kind,
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+            label: track.label,
+          });
+        });
+
+        localStreamRef.current = mergedStream;
+        cameraTrackRef.current = mergedStream.getVideoTracks().find(isLiveTrack) || null;
+        outboundVideoTrackRef.current =
+          isScreenSharing && screenRef.current?.getVideoTracks()[0]
+            ? screenRef.current.getVideoTracks()[0]
+            : cameraTrackRef.current;
+        setLocalStream(new MediaStream(mergedStream.getTracks().filter(isLiveTrack)));
+        return mergedStream;
+      } catch (mediaError) {
+        callLog("local media request failed", mediaError);
+        setError(
+          callType === "video"
+            ? "Camera or microphone permission was denied."
+            : "Microphone permission was denied."
+        );
+        throw mediaError;
+      } finally {
+        mediaRequestRef.current = null;
+        mediaKindRef.current = null;
+      }
+    })();
+
+    return mediaRequestRef.current;
+  }, [attachLocalTrackHandlers, isScreenSharing]);
 
   const createPeer = useCallback(
     ({ callId, targetUserId, stream }) => {
@@ -481,9 +654,12 @@ export const CallProvider = ({ children }) => {
       const peer = new RTCPeerConnection(rtcConfig);
       const nextRemoteStream = new MediaStream();
       updateRemoteStream(normalizedTargetId, nextRemoteStream);
-      stream?.getTracks().forEach((track) => {
+      stream?.getTracks().filter(isLiveTrack).forEach((track) => {
         const outboundTrack =
           track.kind === "video" ? outboundVideoTrackRef.current || track : track;
+        if (peer.getSenders().some((sender) => sender.track?.id === outboundTrack.id)) {
+          return;
+        }
         callLog("adding local track to peer", {
           targetUserId: normalizedTargetId,
           kind: outboundTrack.kind,
@@ -506,15 +682,24 @@ export const CallProvider = ({ children }) => {
           if (!nextRemoteStream.getTracks().some((item) => item.id === track.id)) {
             nextRemoteStream.addTrack(track);
           }
-          track.onunmute = () => {
-            callLog("remote track unmuted", { fromUserId: normalizedTargetId, kind: track.kind });
+          const refreshRemoteStream = () => {
             updateRemoteStream(normalizedTargetId, nextRemoteStream);
           };
-          track.onmute = () => {
+          track.addEventListener?.("unmute", () => {
+            callLog("remote track unmuted", { fromUserId: normalizedTargetId, kind: track.kind });
+            refreshRemoteStream();
+          });
+          track.addEventListener?.("mute", () => {
             callLog("remote track muted", { fromUserId: normalizedTargetId, kind: track.kind });
-          };
-          track.onended = () => {
-            callLog("remote track ended", { fromUserId: normalizedTargetId, kind: track.kind });
+            refreshRemoteStream();
+          });
+          track.addEventListener?.("ended", () => {
+            callLog("remote track ended", {
+              fromUserId: normalizedTargetId,
+              kind: track.kind,
+              readyState: track.readyState,
+            });
+            refreshRemoteStream();
             if (track.kind === "video") {
               window.setTimeout(() => {
                 const stillMissing = !nextRemoteStream
@@ -525,7 +710,7 @@ export const CallProvider = ({ children }) => {
                 }
               }, 800);
             }
-          };
+          });
         });
         updateRemoteStream(normalizedTargetId, nextRemoteStream);
       };
@@ -533,13 +718,57 @@ export const CallProvider = ({ children }) => {
         if (event.candidate) {
           callLog("ICE candidate sent", {
             targetUserId: normalizedTargetId,
-            candidateType: event.candidate.type,
-            protocol: event.candidate.protocol,
+            ...getCandidateSummary(event.candidate),
           });
           getChatSocket(token)?.emit("call:ice-candidate", {
             callId,
             targetUserId: normalizedTargetId,
             candidate: event.candidate,
+          });
+        }
+      };
+      const logSelectedCandidatePair = async () => {
+        try {
+          const stats = await peer.getStats();
+          let selectedPair = null;
+          stats.forEach((report) => {
+            if (report.type === "transport" && report.selectedCandidatePairId) {
+              selectedPair = stats.get(report.selectedCandidatePairId);
+            }
+            if (report.type === "candidate-pair" && report.selected) {
+              selectedPair = report;
+            }
+          });
+
+          if (!selectedPair) {
+            return;
+          }
+
+          const localCandidate = stats.get(selectedPair.localCandidateId);
+          const remoteCandidate = stats.get(selectedPair.remoteCandidateId);
+          callLog("selected ICE candidate pair", {
+            targetUserId: normalizedTargetId,
+            local: localCandidate
+              ? {
+                  candidateType: localCandidate.candidateType,
+                  protocol: localCandidate.protocol,
+                  address: localCandidate.address || localCandidate.ip,
+                  port: localCandidate.port,
+                }
+              : null,
+            remote: remoteCandidate
+              ? {
+                  candidateType: remoteCandidate.candidateType,
+                  protocol: remoteCandidate.protocol,
+                  address: remoteCandidate.address || remoteCandidate.ip,
+                  port: remoteCandidate.port,
+                }
+              : null,
+          });
+        } catch (statsError) {
+          callLog("selected ICE candidate pair lookup failed", {
+            targetUserId: normalizedTargetId,
+            error: statsError?.message || statsError,
           });
         }
       };
@@ -549,17 +778,35 @@ export const CallProvider = ({ children }) => {
         if (
           !currentCall?.callId ||
           peer.signalingState !== "stable" ||
-          peer.connectionState === "closed"
+          peer.connectionState === "closed" ||
+          restartingPeersRef.current.has(normalizedTargetId)
         ) {
           return;
         }
 
+        restartingPeersRef.current.add(normalizedTargetId);
         try {
+          await getMedia(currentCall.callType || "audio");
           peer.restartIce?.();
           await negotiatePeer(normalizedTargetId, { iceRestart: true });
-        } catch {
+        } catch (restartError) {
+          callLog("ICE restart failed", {
+            targetUserId: normalizedTargetId,
+            error: restartError?.message || restartError,
+          });
           cleanupPeer(normalizedTargetId);
+        } finally {
+          window.setTimeout(() => restartingPeersRef.current.delete(normalizedTargetId), 2500);
         }
+      };
+      peer.onnegotiationneeded = () => {
+        callLog("negotiationneeded", {
+          targetUserId: normalizedTargetId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
+        negotiatePeer(normalizedTargetId);
       };
       peer.onsignalingstatechange = () => {
         callLog("signalingState changed", {
@@ -582,7 +829,9 @@ export const CallProvider = ({ children }) => {
           [normalizedTargetId]: state,
         }));
 
-        if (["failed", "disconnected"].includes(state)) {
+        if (["connected", "completed"].includes(state)) {
+          logSelectedCandidatePair();
+        } else if (["failed", "disconnected"].includes(state)) {
           restartIce();
         }
       };
@@ -618,7 +867,7 @@ export const CallProvider = ({ children }) => {
       peersRef.current.set(normalizedTargetId, peer);
       return peer;
     },
-    [cleanupPeer, negotiatePeer, token, updateRemoteStream]
+    [cleanupPeer, getMedia, negotiatePeer, token, updateRemoteStream]
   );
 
   const startCall = useCallback(
@@ -749,39 +998,41 @@ export const CallProvider = ({ children }) => {
     let cameraTrack = cameraTrackRef.current || localStreamRef.current?.getVideoTracks()[0];
 
     if (!cameraTrack && !nextOff) {
-      const cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 24, max: 30 },
-        },
-      });
-      cameraTrack = cameraStream.getVideoTracks()[0] || null;
-      if (cameraTrack) {
-        cameraTrackRef.current = cameraTrack;
-        outboundVideoTrackRef.current = cameraTrack;
-        localStreamRef.current?.addTrack(cameraTrack);
-        setLocalStream(new MediaStream(localStreamRef.current?.getTracks() || []));
-        peersRef.current.forEach((peer, targetUserId) => {
-          if (!peer.getSenders().some((sender) => sender.track?.kind === "video")) {
-            peer.addTrack(cameraTrack, localStreamRef.current);
-          }
-          negotiatePeer(targetUserId);
-        });
-      }
+      await getMedia("video");
+      cameraTrack = cameraTrackRef.current || localStreamRef.current?.getVideoTracks()[0];
     }
 
     if (cameraTrack) {
       cameraTrack.enabled = !nextOff;
+      if (!nextOff && !isScreenSharing) {
+        outboundVideoTrackRef.current = cameraTrack;
+        peersRef.current.forEach((peer, targetUserId) => {
+          const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+          if (sender) {
+            sender.replaceTrack(cameraTrack).catch((replaceError) => {
+              callLog("camera replaceTrack failed", {
+                targetUserId,
+                error: replaceError?.message || replaceError,
+              });
+            });
+          } else {
+            peer.addTrack(cameraTrack, localStreamRef.current);
+            negotiatePeer(targetUserId);
+          }
+        });
+      }
     }
     setIsCameraOff(nextOff);
-  }, [isCameraOff, negotiatePeer]);
+  }, [getMedia, isCameraOff, isScreenSharing, negotiatePeer]);
 
   const stopScreenShare = useCallback(() => {
     const call = activeCallRef.current;
     const cameraTrack = cameraTrackRef.current || localStreamRef.current?.getVideoTracks()[0];
 
-    screenRef.current?.getTracks().forEach((track) => track.stop());
+    screenRef.current?.getTracks().forEach((track) => {
+      track.onended = null;
+      track.stop();
+    });
     screenRef.current = null;
     setIsScreenSharing(false);
 
@@ -790,11 +1041,29 @@ export const CallProvider = ({ children }) => {
       peersRef.current.forEach((peer, targetUserId) => {
         const sender = peer.getSenders().find((item) => item.track?.kind === "video");
         if (sender) {
-          sender.replaceTrack(cameraTrack);
+          sender.replaceTrack(cameraTrack).catch((replaceError) => {
+            callLog("restore camera replaceTrack failed", {
+              targetUserId,
+              error: replaceError?.message || replaceError,
+            });
+          });
         } else {
           peer.addTrack(cameraTrack, localStreamRef.current);
           negotiatePeer(targetUserId);
         }
+      });
+      setLocalStream(
+        new MediaStream(localStreamRef.current?.getTracks().filter(isLiveTrack) || [])
+      );
+    } else {
+      peersRef.current.forEach((peer, targetUserId) => {
+        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+        sender?.replaceTrack(null).catch((replaceError) => {
+          callLog("clear screen sender failed", {
+            targetUserId,
+            error: replaceError?.message || replaceError,
+          });
+        });
       });
     }
 
@@ -837,15 +1106,30 @@ export const CallProvider = ({ children }) => {
         readyState: screenTrack.readyState,
       });
 
+      const replacementPromises = [];
       peersRef.current.forEach((peer, targetUserId) => {
         const sender = peer.getSenders().find((item) => item.track?.kind === "video");
         if (sender) {
-          sender.replaceTrack(screenTrack);
+          replacementPromises.push(
+            sender.replaceTrack(screenTrack).catch((replaceError) => {
+              callLog("screen replaceTrack failed", {
+                targetUserId,
+                error: replaceError?.message || replaceError,
+              });
+            })
+          );
         } else {
           peer.addTrack(screenTrack, localStreamRef.current || displayStream);
           negotiatePeer(targetUserId);
         }
       });
+      await Promise.all(replacementPromises);
+      setLocalStream(
+        new MediaStream([
+          ...(localStreamRef.current?.getAudioTracks().filter(isLiveTrack) || []),
+          screenTrack,
+        ])
+      );
 
       const call = activeCallRef.current;
       if (call?.callId) {
@@ -1011,7 +1295,7 @@ export const CallProvider = ({ children }) => {
     };
     const handleOffer = async (payload) => {
       const currentCall = activeCallRef.current;
-      if (!currentCall || currentCall.callId !== payload.callId) {
+      if (!currentCall || currentCall.callId !== payload.callId || payload.description?.type !== "offer") {
         return;
       }
 
@@ -1037,7 +1321,22 @@ export const CallProvider = ({ children }) => {
         targetUserId: fromUserId,
         stream,
       });
-      if (peer.signalingState !== "stable") {
+      const isPolite = getId(user).localeCompare(fromUserId) < 0;
+      const offerCollision =
+        makingOfferRef.current.get(fromUserId) || peer.signalingState !== "stable";
+
+      ignoredOfferRef.current.set(fromUserId, !isPolite && offerCollision);
+      if (ignoredOfferRef.current.get(fromUserId)) {
+        callLog("ignoring offer collision from impolite peer", {
+          fromUserId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
+        return;
+      }
+
+      if (offerCollision) {
         callLog("rolling back local description before applying offer", {
           fromUserId,
           signalingState: peer.signalingState,
@@ -1068,12 +1367,25 @@ export const CallProvider = ({ children }) => {
         iceRestart: Boolean(payload.iceRestart),
       });
       await applyQueuedCandidates(fromUserId, peer);
+      if (peer.signalingState !== "have-remote-offer") {
+        callLog("skipping answer because offer was not applied", {
+          fromUserId,
+          signalingState: peer.signalingState,
+        });
+        return;
+      }
       const answer = await peer.createAnswer();
       callLog("answer created", {
         targetUserId: fromUserId,
         signalingState: peer.signalingState,
       });
       await peer.setLocalDescription(answer);
+      callLog("local answer set", {
+        targetUserId: fromUserId,
+        signalingState: peer.signalingState,
+        connectionState: peer.connectionState,
+        iceConnectionState: peer.iceConnectionState,
+      });
       socket.emit("call:answer", {
         callId: payload.callId,
         targetUserId: fromUserId,
@@ -1082,6 +1394,10 @@ export const CallProvider = ({ children }) => {
       setActiveCall({ ...currentCall, status: "connected", startedAt: payload.startTime });
     };
     const handleAnswer = async (payload) => {
+      if (payload.description?.type !== "answer") {
+        return;
+      }
+
       const fromUserId = String(payload.fromUserId);
       const peer = peersRef.current.get(fromUserId);
 
@@ -1133,11 +1449,15 @@ export const CallProvider = ({ children }) => {
       await applyQueuedCandidates(fromUserId, peer);
     };
     const handleCandidate = async (payload) => {
-      if (!payload.candidate) {
+      if (!payload.candidate || activeCallRef.current?.callId !== payload.callId) {
         return;
       }
 
       const fromUserId = String(payload.fromUserId);
+      if (ignoredOfferRef.current.get(fromUserId)) {
+        callLog("skipping ICE candidate for ignored offer", { fromUserId });
+        return;
+      }
       const candidate = new RTCIceCandidate(payload.candidate);
       const candidateKey = getCandidateKey(payload.candidate);
       const processedSet = processedCandidatesRef.current.get(fromUserId) || new Set();
@@ -1153,8 +1473,7 @@ export const CallProvider = ({ children }) => {
 
       callLog("ICE candidate received", {
         fromUserId,
-        candidateType: payload.candidate?.type,
-        protocol: payload.candidate?.protocol,
+        ...getCandidateSummary(payload.candidate),
         signalingState: peer?.signalingState,
         connectionState: peer?.connectionState,
         iceConnectionState: peer?.iceConnectionState,
@@ -1166,8 +1485,7 @@ export const CallProvider = ({ children }) => {
           processedCandidatesRef.current.set(fromUserId, processedSet);
           callLog("ICE candidate applied", {
             fromUserId,
-            candidateType: payload.candidate?.type,
-            protocol: payload.candidate?.protocol,
+            ...getCandidateSummary(payload.candidate),
           });
         } catch (candidateError) {
           callLog("ICE candidate apply failed", {
@@ -1188,8 +1506,7 @@ export const CallProvider = ({ children }) => {
 
         callLog("queueing ICE candidate until remoteDescription is set", {
           fromUserId,
-          candidateType: payload.candidate?.type,
-          protocol: payload.candidate?.protocol,
+          ...getCandidateSummary(payload.candidate),
           queuedCount: pendingCandidates.length + 1,
         });
         pendingCandidatesRef.current.set(fromUserId, [
@@ -1235,7 +1552,7 @@ export const CallProvider = ({ children }) => {
       }
       closeCallUi();
     };
-    const handleSocketReconnect = () => {
+    const handleSocketReconnect = async () => {
       const currentCall = activeCallRef.current;
 
       if (!currentCall?.callId) {
@@ -1252,7 +1569,25 @@ export const CallProvider = ({ children }) => {
         socket.emit("call:join", { callId: currentCall.callId });
       }
 
+      const stream = await getMedia(currentCall.callType || "audio").catch(() => null);
       peersRef.current.forEach((peer, targetUserId) => {
+        stream?.getTracks().filter(isLiveTrack).forEach((track) => {
+          const sender = peer.getSenders().find((item) => item.track?.kind === track.kind);
+          const outboundTrack =
+            track.kind === "video" ? outboundVideoTrackRef.current || track : track;
+          if (sender && sender.track?.id !== outboundTrack.id) {
+            sender.replaceTrack(outboundTrack).catch((replaceError) => {
+              callLog("reconnect replaceTrack failed", {
+                targetUserId,
+                kind: outboundTrack.kind,
+                error: replaceError?.message || replaceError,
+              });
+            });
+          } else if (!sender) {
+            peer.addTrack(outboundTrack, stream);
+            negotiatePeer(targetUserId);
+          }
+        });
         if (
           ["disconnected", "failed"].includes(peer.connectionState) ||
           ["disconnected", "failed"].includes(peer.iceConnectionState)
@@ -1496,7 +1831,8 @@ export const CallProvider = ({ children }) => {
                 </div>
 
                 {remoteEntries.length ? (
-                  remoteEntries.map(([userId, stream]) => {
+                  remoteEntries.map(([userId, remoteMedia]) => {
+                    const stream = remoteMedia?.stream || remoteMedia;
                     const participant = participantById.get(userId);
                     const userName =
                       participant?.user?.name ||
@@ -1515,7 +1851,12 @@ export const CallProvider = ({ children }) => {
                             : "border-white/10"
                         )}
                       >
-                        <RemoteMedia stream={stream} muted={isSpeakerOff} />
+                        <RemoteMedia
+                          key={`${userId}-${remoteMedia?.version || 0}`}
+                          stream={stream}
+                          muted={isSpeakerOff}
+                          onVideoStalled={() => negotiatePeer(userId, { iceRestart: true })}
+                        />
                         <div className="absolute bottom-3 left-3 flex max-w-[75%] items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs font-bold">
                           <span className="truncate">{userName}</span>
                           {screenSharers[userId] ? <MonitorUp className="h-3.5 w-3.5" /> : null}
