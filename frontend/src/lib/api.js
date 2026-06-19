@@ -26,6 +26,18 @@ api.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${session.token}`;
   }
 
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("app:user-activity", {
+        detail: {
+          source: "api",
+          method: config.method,
+          url: config.url,
+        },
+      })
+    );
+  }
+
   return config;
 });
 
@@ -574,6 +586,27 @@ export const createComment = async (payload) => {
 export const fetchAnalyticsOverview = async (filters = {}) => {
   const response = await api.get("/analytics/overview", {
     params: buildParams(normalizeIssueFilters(filters)),
+  });
+  return response.data;
+};
+
+export const fetchTeamActivity = async (filters = {}) => {
+  const response = await api.get("/activity/team", {
+    params: buildParams(filters),
+  });
+  return response.data;
+};
+
+export const fetchProductivityReport = async (filters = {}) => {
+  const response = await api.get("/activity/productivity", {
+    params: buildParams(filters),
+  });
+  return response.data;
+};
+
+export const fetchBugEffortAnalytics = async (filters = {}) => {
+  const response = await api.get("/activity/bug-effort", {
+    params: buildParams(filters),
   });
   return response.data;
 };

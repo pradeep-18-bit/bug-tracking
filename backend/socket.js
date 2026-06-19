@@ -11,6 +11,7 @@ const {
   loadConversationForUser,
   markConversationSeen,
 } = require("./controllers/chat.controller");
+const { setPresence } = require("./services/presenceService");
 const { normalizeWorkspaceId } = require("./utils/workspace");
 
 const onlineUsersByWorkspace = new Map();
@@ -100,6 +101,26 @@ const emitOnlineUsers = (io, workspaceId) => {
   );
 
   io.to(workspaceRoomName(normalizedWorkspaceId)).emit("online_users", onlineUsers);
+};
+
+const emitPresenceUpdate = (io, presence) => {
+  if (!presence?.workspaceId || !presence?.userId) {
+    return;
+  }
+
+  io.to(workspaceRoomName(presence.workspaceId)).emit("presence:update", presence);
+};
+
+const updateSocketPresence = async (io, socket, status, source = "socket") => {
+  const presence = await setPresence({
+    user: socket.user,
+    status,
+    socketId: socket.id,
+    source,
+  });
+
+  emitPresenceUpdate(io, presence);
+  return presence;
 };
 
 const setCallPresence = (io, workspaceId, userIds = [], status = "online") => {
@@ -289,6 +310,7 @@ const setupChatSocket = (server) => {
     addOnlineUser(socket.user, socket.id);
     socket.join(userRoomName(socket.user._id));
     socket.join(workspaceRoomName(socket.user.workspaceId));
+    await updateSocketPresence(io, socket, "active", "connect");
     emitOnlineUsers(io, socket.user.workspaceId);
 
     const joinConversation = async (conversationId, callback) => {
@@ -344,6 +366,7 @@ const setupChatSocket = (server) => {
 
     socket.on("send_message", async (payload = {}, callback) => {
       try {
+        await updateSocketPresence(io, socket, "active", "chat");
         const conversation = await joinConversation(payload.conversationId);
 
         if (!conversation) {
@@ -384,6 +407,7 @@ const setupChatSocket = (server) => {
     });
 
     socket.on("typing", async (payload = {}) => {
+      await updateSocketPresence(io, socket, "active", "chat");
       const conversation = await Conversation.findOne({
         _id: payload.conversationId,
         workspaceId: socket.user.workspaceId,
@@ -436,6 +460,7 @@ const setupChatSocket = (server) => {
 
     socket.on("mark_seen", async (payload = {}, callback) => {
       try {
+        await updateSocketPresence(io, socket, "active", "chat");
         const conversationId = payload.conversationId || payload;
         const result = await markConversationSeen({
           conversationId,
@@ -1021,6 +1046,42 @@ const setupChatSocket = (server) => {
       });
     });
 
+    socket.on("user:active", async (_payload = {}, callback) => {
+      try {
+        await updateSocketPresence(io, socket, "active", "activity");
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ ok: false, error: "Unable to update activity" });
+      }
+    });
+
+    socket.on("user:idle", async (_payload = {}, callback) => {
+      try {
+        await updateSocketPresence(io, socket, "idle", "activity");
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ ok: false, error: "Unable to update activity" });
+      }
+    });
+
+    socket.on("user:away", async (_payload = {}, callback) => {
+      try {
+        await updateSocketPresence(io, socket, "away", "activity");
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ ok: false, error: "Unable to update activity" });
+      }
+    });
+
+    socket.on("user:offline", async (_payload = {}, callback) => {
+      try {
+        await updateSocketPresence(io, socket, "offline", "logout");
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ ok: false, error: "Unable to update activity" });
+      }
+    });
+
     ["screen-share-started", "screen-share-stopped"].forEach((eventName) => {
       socket.on(`call:${eventName}`, async (payload = {}) => {
         const call = await CallLog.findOne({
@@ -1089,8 +1150,14 @@ const setupChatSocket = (server) => {
 
     socket.on("disconnect", (reason) => {
       console.log(`[Socket] Client disconnected: ${socket.id} (Reason: ${reason})`);
+      const disconnectedUser = socket.user;
       removeOnlineUser(socket.id);
-      emitOnlineUsers(io, socket.user.workspaceId);
+      if (!isUserOnline(disconnectedUser.workspaceId, disconnectedUser._id)) {
+        updateSocketPresence(io, socket, "offline", "disconnect").catch((error) => {
+          console.error("[presence] disconnect update failed", error.message);
+        });
+      }
+      emitOnlineUsers(io, disconnectedUser.workspaceId);
     });
   });
 
