@@ -27,6 +27,15 @@ import { cn, getInitials } from "@/lib/utils";
 
 const CallContext = createContext(null);
 const getId = (value) => String(value?._id || value?.id || value || "");
+const getDescriptionKey = (description = {}) =>
+  `${description.type || ""}:${description.sdp || ""}`;
+const getCandidateKey = (candidate = {}) =>
+  [
+    candidate.candidate || "",
+    candidate.sdpMid || "",
+    candidate.sdpMLineIndex ?? "",
+    candidate.usernameFragment || "",
+  ].join("|");
 const callLog = (message, details = null) => {
   if (details === null || details === undefined) {
     console.log(`[Call] ${message}`);
@@ -201,6 +210,9 @@ export const CallProvider = ({ children }) => {
   const [peerStatuses, setPeerStatuses] = useState({});
   const peersRef = useRef(new Map());
   const pendingCandidatesRef = useRef(new Map());
+  const processedCandidatesRef = useRef(new Map());
+  const processedOffersRef = useRef(new Map());
+  const processedAnswersRef = useRef(new Map());
   const localStreamRef = useRef(null);
   const cameraTrackRef = useRef(null);
   const outboundVideoTrackRef = useRef(null);
@@ -226,6 +238,9 @@ export const CallProvider = ({ children }) => {
     peer?.close();
     peersRef.current.delete(userId);
     pendingCandidatesRef.current.delete(userId);
+    processedCandidatesRef.current.delete(userId);
+    processedOffersRef.current.delete(userId);
+    processedAnswersRef.current.delete(userId);
     setPeerStatuses((current) => {
       const next = { ...current };
       delete next[userId];
@@ -243,6 +258,9 @@ export const CallProvider = ({ children }) => {
     peersRef.current.forEach((peer) => peer.close());
     peersRef.current.clear();
     pendingCandidatesRef.current.clear();
+    processedCandidatesRef.current.clear();
+    processedOffersRef.current.clear();
+    processedAnswersRef.current.clear();
     setRemoteStreams({});
     setPeerStatuses({});
   }, []);
@@ -257,6 +275,55 @@ export const CallProvider = ({ children }) => {
     setLocalStream(null);
     setIsScreenSharing(false);
     setScreenSharers({});
+  }, []);
+
+  const applyQueuedCandidates = useCallback(async (userId, peer) => {
+    const normalizedUserId = String(userId);
+    const queuedCandidates = pendingCandidatesRef.current.get(normalizedUserId) || [];
+
+    if (!peer?.remoteDescription || !queuedCandidates.length) {
+      return;
+    }
+
+    callLog("applying queued ICE candidates", {
+      fromUserId: normalizedUserId,
+      count: queuedCandidates.length,
+      signalingState: peer.signalingState,
+      connectionState: peer.connectionState,
+      iceConnectionState: peer.iceConnectionState,
+    });
+
+    for (const candidate of queuedCandidates) {
+      const candidateKey = getCandidateKey(candidate);
+      const processedSet =
+        processedCandidatesRef.current.get(normalizedUserId) || new Set();
+
+      if (processedSet.has(candidateKey)) {
+        callLog("skipping duplicate queued ICE candidate", {
+          fromUserId: normalizedUserId,
+          candidateKey,
+        });
+        continue;
+      }
+
+      try {
+        await peer.addIceCandidate(candidate);
+        processedSet.add(candidateKey);
+        processedCandidatesRef.current.set(normalizedUserId, processedSet);
+        callLog("queued ICE candidate applied", {
+          fromUserId: normalizedUserId,
+          candidateType: candidate.type,
+          protocol: candidate.protocol,
+        });
+      } catch (candidateError) {
+        callLog("queued ICE candidate failed", {
+          fromUserId: normalizedUserId,
+          error: candidateError?.message || candidateError,
+        });
+      }
+    }
+
+    pendingCandidatesRef.current.delete(normalizedUserId);
   }, []);
 
   const negotiatePeer = useCallback(
@@ -391,16 +458,30 @@ export const CallProvider = ({ children }) => {
   const createPeer = useCallback(
     ({ callId, targetUserId, stream }) => {
       const normalizedTargetId = String(targetUserId);
-      if (peersRef.current.has(normalizedTargetId)) {
-        callLog("reusing existing peer connection", { targetUserId: normalizedTargetId });
-        return peersRef.current.get(normalizedTargetId);
+      const existingPeer = peersRef.current.get(normalizedTargetId);
+
+      if (existingPeer && existingPeer.connectionState !== "closed") {
+        callLog("reusing existing peer connection", {
+          targetUserId: normalizedTargetId,
+          signalingState: existingPeer.signalingState,
+          connectionState: existingPeer.connectionState,
+          iceConnectionState: existingPeer.iceConnectionState,
+        });
+        return existingPeer;
+      }
+
+      if (existingPeer) {
+        callLog("discarding closed peer connection before recreate", {
+          targetUserId: normalizedTargetId,
+        });
+        cleanupPeer(normalizedTargetId);
       }
 
       callLog("creating peer connection", { callId, targetUserId: normalizedTargetId });
       const peer = new RTCPeerConnection(rtcConfig);
       const nextRemoteStream = new MediaStream();
       updateRemoteStream(normalizedTargetId, nextRemoteStream);
-      stream.getTracks().forEach((track) => {
+      stream?.getTracks().forEach((track) => {
         const outboundTrack =
           track.kind === "video" ? outboundVideoTrackRef.current || track : track;
         callLog("adding local track to peer", {
@@ -484,6 +565,8 @@ export const CallProvider = ({ children }) => {
         callLog("signalingState changed", {
           targetUserId: normalizedTargetId,
           signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
         });
       };
       peer.oniceconnectionstatechange = () => {
@@ -491,13 +574,15 @@ export const CallProvider = ({ children }) => {
         callLog("iceConnectionState changed", {
           targetUserId: normalizedTargetId,
           iceConnectionState: state,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
         });
         setPeerStatuses((current) => ({
           ...current,
           [normalizedTargetId]: state,
         }));
 
-        if (state === "failed") {
+        if (["failed", "disconnected"].includes(state)) {
           restartIce();
         }
       };
@@ -708,8 +793,8 @@ export const CallProvider = ({ children }) => {
           sender.replaceTrack(cameraTrack);
         } else {
           peer.addTrack(cameraTrack, localStreamRef.current);
+          negotiatePeer(targetUserId);
         }
-        negotiatePeer(targetUserId);
       });
     }
 
@@ -758,8 +843,8 @@ export const CallProvider = ({ children }) => {
           sender.replaceTrack(screenTrack);
         } else {
           peer.addTrack(screenTrack, localStreamRef.current || displayStream);
+          negotiatePeer(targetUserId);
         }
-        negotiatePeer(targetUserId);
       });
 
       const call = activeCallRef.current;
@@ -931,6 +1016,21 @@ export const CallProvider = ({ children }) => {
       }
 
       const fromUserId = String(payload.fromUserId);
+      const descriptionKey = getDescriptionKey(payload.description);
+      const processedOfferSet = processedOffersRef.current.get(fromUserId) || new Set();
+
+      if (processedOfferSet.has(descriptionKey)) {
+        callLog("skipping duplicate offer", {
+          fromUserId,
+          signalingState: peersRef.current.get(fromUserId)?.signalingState,
+          connectionState: peersRef.current.get(fromUserId)?.connectionState,
+          iceConnectionState: peersRef.current.get(fromUserId)?.iceConnectionState,
+        });
+        return;
+      }
+      processedOfferSet.add(descriptionKey);
+      processedOffersRef.current.set(fromUserId, processedOfferSet);
+
       const stream = localStreamRef.current || (await getMedia(currentCall.callType));
       const peer = createPeer({
         callId: payload.callId,
@@ -938,23 +1038,41 @@ export const CallProvider = ({ children }) => {
         stream,
       });
       if (peer.signalingState !== "stable") {
-        await Promise.all([
-          peer.setLocalDescription({ type: "rollback" }).catch(() => {}),
-        ]);
+        callLog("rolling back local description before applying offer", {
+          fromUserId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
+        await peer.setLocalDescription({ type: "rollback" }).catch((rollbackError) => {
+          callLog("rollback before offer failed", {
+            fromUserId,
+            error: rollbackError?.message || rollbackError,
+          });
+        });
       }
+      callLog("setRemoteDescription(offer) starting", {
+        fromUserId,
+        signalingState: peer.signalingState,
+        connectionState: peer.connectionState,
+        iceConnectionState: peer.iceConnectionState,
+        iceRestart: Boolean(payload.iceRestart),
+      });
       await peer.setRemoteDescription(payload.description);
       callLog("remote description set", {
         fromUserId,
         type: payload.description?.type,
+        signalingState: peer.signalingState,
+        connectionState: peer.connectionState,
+        iceConnectionState: peer.iceConnectionState,
         iceRestart: Boolean(payload.iceRestart),
       });
-      const pendingCandidates = pendingCandidatesRef.current.get(fromUserId) || [];
-      await Promise.all(
-        pendingCandidates.map((candidate) => peer.addIceCandidate(candidate).catch(() => {}))
-      );
-      pendingCandidatesRef.current.delete(fromUserId);
+      await applyQueuedCandidates(fromUserId, peer);
       const answer = await peer.createAnswer();
-      callLog("answer created", { targetUserId: fromUserId });
+      callLog("answer created", {
+        targetUserId: fromUserId,
+        signalingState: peer.signalingState,
+      });
       await peer.setLocalDescription(answer);
       socket.emit("call:answer", {
         callId: payload.callId,
@@ -966,33 +1084,116 @@ export const CallProvider = ({ children }) => {
     const handleAnswer = async (payload) => {
       const fromUserId = String(payload.fromUserId);
       const peer = peersRef.current.get(fromUserId);
-      if (peer && activeCallRef.current?.callId === payload.callId) {
-        await peer.setRemoteDescription(payload.description);
-        callLog("remote description set", {
-          fromUserId,
-          type: payload.description?.type,
-        });
-        const pendingCandidates = pendingCandidatesRef.current.get(fromUserId) || [];
-        await Promise.all(
-          pendingCandidates.map((candidate) => peer.addIceCandidate(candidate).catch(() => {}))
-        );
-        pendingCandidatesRef.current.delete(fromUserId);
+
+      if (!peer || activeCallRef.current?.callId !== payload.callId) {
+        return;
       }
+
+      const descriptionKey = getDescriptionKey(payload.description);
+      const processedAnswerSet = processedAnswersRef.current.get(fromUserId) || new Set();
+
+      if (processedAnswerSet.has(descriptionKey)) {
+        callLog("skipping duplicate answer", {
+          fromUserId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
+        return;
+      }
+
+      if (peer.signalingState !== "have-local-offer") {
+        callLog("skipping answer in wrong signaling state", {
+          fromUserId,
+          expected: "have-local-offer",
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+          descriptionType: payload.description?.type,
+        });
+        return;
+      }
+      processedAnswerSet.add(descriptionKey);
+      processedAnswersRef.current.set(fromUserId, processedAnswerSet);
+
+      callLog("setRemoteDescription(answer) starting", {
+        fromUserId,
+        signalingState: peer.signalingState,
+        connectionState: peer.connectionState,
+        iceConnectionState: peer.iceConnectionState,
+      });
+      await peer.setRemoteDescription(payload.description);
+      callLog("remote description set", {
+        fromUserId,
+        type: payload.description?.type,
+        signalingState: peer.signalingState,
+        connectionState: peer.connectionState,
+        iceConnectionState: peer.iceConnectionState,
+      });
+      await applyQueuedCandidates(fromUserId, peer);
     };
     const handleCandidate = async (payload) => {
+      if (!payload.candidate) {
+        return;
+      }
+
       const fromUserId = String(payload.fromUserId);
       const candidate = new RTCIceCandidate(payload.candidate);
+      const candidateKey = getCandidateKey(payload.candidate);
+      const processedSet = processedCandidatesRef.current.get(fromUserId) || new Set();
       const peer = peersRef.current.get(fromUserId);
+
+      if (processedSet.has(candidateKey)) {
+        callLog("skipping duplicate ICE candidate", {
+          fromUserId,
+          candidateKey,
+        });
+        return;
+      }
+
       callLog("ICE candidate received", {
         fromUserId,
         candidateType: payload.candidate?.type,
         protocol: payload.candidate?.protocol,
+        signalingState: peer?.signalingState,
+        connectionState: peer?.connectionState,
+        iceConnectionState: peer?.iceConnectionState,
       });
       if (peer?.remoteDescription) {
-        await peer.addIceCandidate(candidate).catch(() => {});
+        try {
+          await peer.addIceCandidate(candidate);
+          processedSet.add(candidateKey);
+          processedCandidatesRef.current.set(fromUserId, processedSet);
+          callLog("ICE candidate applied", {
+            fromUserId,
+            candidateType: payload.candidate?.type,
+            protocol: payload.candidate?.protocol,
+          });
+        } catch (candidateError) {
+          callLog("ICE candidate apply failed", {
+            fromUserId,
+            error: candidateError?.message || candidateError,
+          });
+        }
       } else {
+        const pendingCandidates = pendingCandidatesRef.current.get(fromUserId) || [];
+
+        if (pendingCandidates.some((item) => getCandidateKey(item) === candidateKey)) {
+          callLog("skipping duplicate pending ICE candidate", {
+            fromUserId,
+            candidateKey,
+          });
+          return;
+        }
+
+        callLog("queueing ICE candidate until remoteDescription is set", {
+          fromUserId,
+          candidateType: payload.candidate?.type,
+          protocol: payload.candidate?.protocol,
+          queuedCount: pendingCandidates.length + 1,
+        });
         pendingCandidatesRef.current.set(fromUserId, [
-          ...(pendingCandidatesRef.current.get(fromUserId) || []),
+          ...pendingCandidates,
           candidate,
         ]);
       }
@@ -1034,7 +1235,34 @@ export const CallProvider = ({ children }) => {
       }
       closeCallUi();
     };
+    const handleSocketReconnect = () => {
+      const currentCall = activeCallRef.current;
 
+      if (!currentCall?.callId) {
+        return;
+      }
+
+      callLog("socket reconnected during call", {
+        callId: currentCall.callId,
+        scope: currentCall.scope,
+        peerCount: peersRef.current.size,
+      });
+
+      if (currentCall.scope === "group") {
+        socket.emit("call:join", { callId: currentCall.callId });
+      }
+
+      peersRef.current.forEach((peer, targetUserId) => {
+        if (
+          ["disconnected", "failed"].includes(peer.connectionState) ||
+          ["disconnected", "failed"].includes(peer.iceConnectionState)
+        ) {
+          negotiatePeer(targetUserId, { iceRestart: true });
+        }
+      });
+    };
+
+    socket.on("connect", handleSocketReconnect);
     socket.on("call:incoming", handleIncomingCall);
     socket.on("call:outgoing", handleOutgoingCall);
     socket.on("call:channel-active", handleChannelActive);
@@ -1075,8 +1303,10 @@ export const CallProvider = ({ children }) => {
       socket.off("call:rejected", handleEnded);
       socket.off("call:missed", handleMissed);
       socket.off("call:left", handleEnded);
+      socket.off("connect", handleSocketReconnect);
     };
   }, [
+    applyQueuedCandidates,
     cleanupPeer,
     closeCallUi,
     createPeer,

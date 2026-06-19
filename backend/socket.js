@@ -1024,8 +1024,23 @@ const setupChatSocket = (server) => {
         const targetUserId = objectIdString(payload.targetUserId);
         const participantIds = (call.participants || []).map(objectIdString);
         const activeParticipantIds = (call.activeParticipantIds || []).map(objectIdString);
+        const fromUserId = objectIdString(socket.user._id);
+
+        if (!targetUserId || targetUserId === fromUserId) {
+          console.warn(`[Socket][Call] ${eventName} ignored invalid target`, {
+            callId: objectIdString(call._id),
+            fromUserId,
+            targetUserId,
+          });
+          return;
+        }
 
         if (!participantIds.includes(targetUserId)) {
+          console.warn(`[Socket][Call] ${eventName} ignored non-participant target`, {
+            callId: objectIdString(call._id),
+            fromUserId,
+            targetUserId,
+          });
           return;
         }
 
@@ -1035,12 +1050,26 @@ const setupChatSocket = (server) => {
             !activeParticipantIds.includes(targetUserId) ||
             call.status !== "Active")
         ) {
+          console.warn(`[Socket][Call] ${eventName} ignored inactive group participant`, {
+            callId: objectIdString(call._id),
+            fromUserId,
+            targetUserId,
+            activeParticipantIds,
+            status: call.status,
+          });
           return;
         }
 
+        console.log(`[Socket][Call] ${eventName} routed`, {
+          callId: objectIdString(call._id),
+          fromUserId,
+          targetUserId,
+          targetRoom: userRoomName(targetUserId),
+        });
+
         socket.to(userRoomName(targetUserId)).emit(`call:${eventName}`, {
           ...payload,
-          fromUserId: objectIdString(socket.user._id),
+          fromUserId,
           startTime: call.startTime,
         });
       });
