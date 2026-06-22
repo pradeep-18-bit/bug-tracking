@@ -683,6 +683,7 @@ const AdminBugsPage = () => {
   }, [bugs.length, bugsData?.pagination?.total, bugsData?.pagination?.totalPages, page, pageSize]);
   const summary = bugsData?.summary || null;
   const actionMenuId = actionMenu?.issueId || "";
+  const visibleBugs = bugs;
 
   useEffect(() => {
     if (!toast?.id) {
@@ -861,16 +862,18 @@ const AdminBugsPage = () => {
 
   const metrics = useMemo(
     () => ({
-      total: filteredBugs.length,
-      open: filteredBugs.filter((bugIssue) => !isClosedBug(bugIssue)).length,
-      critical: getCriticalIssues(filteredBugs).length,
-      unassigned: filteredBugs.filter((bugIssue) => !resolveUserId(getBugDeveloper(bugIssue))).length,
-      inProgress: filteredBugs.filter(isInProgressBug).length,
-      reopened: getReopenedIssues(filteredBugs).length,
-      readyForQa: filteredBugs.filter(isReadyForQa).length,
-      closed: filteredBugs.filter(isClosedBug).length,
+      total: summary?.total ?? pagination.total,
+      open: summary?.open ?? visibleBugs.filter((bugIssue) => !isClosedBug(bugIssue)).length,
+      critical: summary?.critical ?? getCriticalIssues(visibleBugs).length,
+      unassigned:
+        summary?.unassigned ??
+        visibleBugs.filter((bugIssue) => !resolveUserId(getBugDeveloper(bugIssue))).length,
+      inProgress: summary?.inProgress ?? visibleBugs.filter(isInProgressBug).length,
+      reopened: summary?.reopened ?? getReopenedIssues(visibleBugs).length,
+      readyForQa: summary?.readyForQa ?? visibleBugs.filter(isReadyForQa).length,
+      closed: summary?.closed ?? visibleBugs.filter(isClosedBug).length,
     }),
-    [filteredBugs]
+    [pagination.total, summary, visibleBugs]
   );
 
   const triageBugs = useMemo(
@@ -1053,6 +1056,12 @@ const AdminBugsPage = () => {
   const isLoading = isProjectsLoading || isBugsLoading;
 
   const updateFilter = (key, value) => {
+    setPage(1);
+    if (searchParams.has("page")) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("page");
+      setSearchParams(nextParams, { replace: true });
+    }
     setFilters((current) => ({
       ...current,
       [key]: value,
@@ -1770,7 +1779,7 @@ const AdminBugsPage = () => {
                 Bug Tracker
               </h2>
               <p className="mt-0.5 text-[12px] text-slate-500">
-                {filteredBugs.length} visible bugs across QA, ownership, and lifecycle filters.
+                Showing {pagination.from}-{pagination.to} of {pagination.total} bugs across QA, ownership, and lifecycle filters.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1926,7 +1935,7 @@ const AdminBugsPage = () => {
                 <Skeleton key={`bug-row-skeleton-${index}`} className="h-14 rounded-2xl" />
               ))}
             </div>
-          ) : filteredBugs.length ? (
+          ) : visibleBugs.length ? (
             <div className="h-full min-h-[360px] overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
               <table className="w-full table-fixed border-separate border-spacing-0 text-left">
                 <colgroup>
@@ -1960,7 +1969,7 @@ const AdminBugsPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredBugs.map((bugIssue) => {
+                  {visibleBugs.map((bugIssue) => {
                     const reporter = getReporter(bugIssue);
                     const developer = getBugDeveloper(bugIssue);
                     const status = normalizeBugStatusForIssue(bugIssue);
