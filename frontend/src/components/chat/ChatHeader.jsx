@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Camera, Hash, Menu, Phone, UsersRound } from "lucide-react";
+import { Camera, Hash, Menu, Phone, Trash2, UsersRound } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,7 +55,7 @@ const presenceDotClass = (status, isOnline) => {
   return isOnline ? "bg-emerald-500" : "bg-slate-300";
 };
 
-const ChatHeader = memo(({ conversation, currentUserId, onlineUsers, onToggleSidebar }) => {
+const ChatHeader = memo(({ conversation, currentUserId, onlineUsers, onDelete, onToggleSidebar }) => {
   const { activeCall, callPresence, channelCalls, joinCall, startCall } = useCall();
   const participants = conversation?.participants || [];
   const title = getConversationName(conversation, currentUserId);
@@ -72,6 +72,21 @@ const ChatHeader = memo(({ conversation, currentUserId, onlineUsers, onToggleSid
   const groupJoinedCount = activeChannelCall?.activeParticipantIds?.length || 0;
   const isGroupCallAvailable =
     conversation?.type !== "direct" && conversation && !activeCall && !activeChannelCall;
+  const canDelete = conversation && !["project", "team"].includes(conversation.channelType);
+
+  const handleDelete = async () => {
+    if (!conversation || !onDelete) {
+      return;
+    }
+
+    const actionLabel = conversation.type === "direct" ? "delete this chat" : "remove this group chat";
+
+    if (!window.confirm(`Are you sure you want to ${actionLabel}?`)) {
+      return;
+    }
+
+    await onDelete(getId(conversation));
+  };
 
   return (
     <header className="flex min-h-[68px] shrink-0 items-center gap-2 border-b border-white/55 bg-white/52 px-3 py-2.5 backdrop-blur-2xl sm:min-h-[76px] sm:gap-3 sm:px-5 sm:py-3">
@@ -230,6 +245,20 @@ const ChatHeader = memo(({ conversation, currentUserId, onlineUsers, onToggleSid
             <Camera className="h-4 w-4" />
           </Button>
         </div>
+      ) : null}
+
+      {canDelete ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="shrink-0 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+          onClick={handleDelete}
+          title={conversation?.type === "direct" ? "Delete chat" : "Remove group chat"}
+          aria-label={conversation?.type === "direct" ? "Delete chat" : "Remove group chat"}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
       ) : null}
 
       <div className="hidden items-center -space-x-2 sm:flex">

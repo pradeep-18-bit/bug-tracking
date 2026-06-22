@@ -692,6 +692,46 @@ const createConversation = asyncHandler(async (req, res) => {
   });
 });
 
+const deleteConversation = asyncHandler(async (req, res) => {
+  ensureChatAccess(req, res);
+
+  if (!isValidObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid conversation id");
+  }
+
+  const conversation = await Conversation.findOne({
+    _id: req.params.id,
+    workspaceId: normalizeWorkspaceId(req.user.workspaceId),
+    participants: req.user._id,
+  }).select("_id channelType participants");
+
+  if (!conversation) {
+    res.status(404);
+    throw new Error("Conversation not found or inaccessible");
+  }
+
+  if (["project", "team"].includes(conversation.channelType)) {
+    res.status(400);
+    throw new Error("Workspace channels are managed from projects and teams");
+  }
+
+  conversation.participants = conversation.participants.filter(
+    (participantId) => objectIdString(participantId) !== objectIdString(req.user._id)
+  );
+
+  if (!conversation.participants.length) {
+    await Conversation.deleteOne({ _id: conversation._id });
+  } else {
+    await conversation.save();
+  }
+
+  res.status(200).json({
+    message: "Conversation removed",
+    conversationId: objectIdString(conversation._id),
+  });
+});
+
 const getConversationById = asyncHandler(async (req, res) => {
   ensureChatAccess(req, res);
 
@@ -941,6 +981,7 @@ const markConversationSeen = async ({ conversationId, user }) => {
 module.exports = {
   CHAT_ACCESS_ROLES,
   createConversation,
+  deleteConversation,
   createMessage,
   createMessageDocument,
   createSystemMessageDocument,

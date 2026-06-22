@@ -24,6 +24,7 @@ const ChatPage = () => {
   const createGroupConversation = useChatStore(
     (state) => state.createGroupConversation
   );
+  const deleteConversation = useChatStore((state) => state.deleteConversation);
   const loadMessages = useChatStore((state) => state.loadMessages);
   const searchUsers = useChatStore((state) => state.searchUsers);
   const sendMessage = useChatStore((state) => state.sendMessage);
@@ -85,6 +86,7 @@ const ChatPage = () => {
         onClose={() => setIsSidebarOpen(false)}
         onCreateDirect={createDirectConversation}
         onCreateGroup={createGroupConversation}
+        onDelete={deleteConversation}
         onSearch={searchUsers}
         onSelect={handleSelectConversation}
         searchResults={searchResults}
@@ -102,6 +104,7 @@ const ChatPage = () => {
             older: true,
           })
         }
+        onDelete={deleteConversation}
         onSend={sendMessage}
         onToggleSidebar={() => setIsSidebarOpen(true)}
         typingUsers={typingUsers}

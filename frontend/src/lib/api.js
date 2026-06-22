@@ -1033,6 +1033,11 @@ export const createChatConversation = async (payload) => {
   return response.data?.conversation || response.data;
 };
 
+export const deleteChatConversation = async (conversationId) => {
+  const response = await api.delete(`/chat/conversations/${conversationId}`);
+  return response.data;
+};
+
 export const fetchChatConversation = async (conversationId) => {
   const response = await api.get(`/chat/conversation/${conversationId}`);
   return response.data?.conversation || response.data;

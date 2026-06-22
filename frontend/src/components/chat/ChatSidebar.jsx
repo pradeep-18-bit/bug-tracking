@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Hash, MessageCircle, Plus, Search, UsersRound, X } from "lucide-react";
+import { Check, Hash, MessageCircle, Plus, Search, Trash2, UsersRound, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +40,7 @@ const getConversationSubtitle = (conversation, currentUserId) => {
 };
 
 const ConversationButton = memo(
-  ({ conversation, currentUserId, isActive, onlineUsers, onSelect }) => {
+  ({ conversation, currentUserId, isActive, onlineUsers, onDelete, onSelect }) => {
     const title = getConversationName(conversation, currentUserId);
     const subtitle = getConversationSubtitle(conversation, currentUserId);
     const directUser = (conversation.participants || []).find(
@@ -48,11 +48,21 @@ const ConversationButton = memo(
     );
     const isOnline =
       conversation.type === "direct" && onlineUsers.includes(getId(directUser));
+    const canDelete = !["project", "team"].includes(conversation.channelType);
+
+    const handleDelete = async (event) => {
+      event.stopPropagation();
+      const actionLabel = conversation.type === "direct" ? "delete this chat" : "remove this group chat";
+
+      if (!window.confirm(`Are you sure you want to ${actionLabel}?`)) {
+        return;
+      }
+
+      await onDelete(getId(conversation));
+    };
 
     return (
-      <button
-        type="button"
-        onClick={() => onSelect(getId(conversation))}
+      <div
         className={cn(
           "group flex w-full items-center gap-3 rounded-[22px] border px-3 py-3 text-left transition-all duration-200",
           isActive
@@ -60,69 +70,90 @@ const ConversationButton = memo(
             : "border-white/55 bg-white/48 text-slate-700 hover:-translate-y-0.5 hover:border-blue-200/80 hover:bg-white/78"
         )}
       >
-        <div className="relative shrink-0">
-          {conversation.type === "direct" ? (
-            <Avatar className="h-11 w-11 rounded-2xl">
-              <AvatarFallback className="text-xs">
-                {getInitials(directUser?.name || title)}
-              </AvatarFallback>
-            </Avatar>
-          ) : (
-            <span
-              className={cn(
-                "flex h-11 w-11 items-center justify-center rounded-2xl border",
-                isActive
-                  ? "border-white/40 bg-white/16"
-                  : "border-blue-100 bg-blue-50 text-blue-600"
-              )}
-            >
-              {conversation.channelType === "project" ? (
-                <Hash className="h-4 w-4" />
-              ) : (
-                <UsersRound className="h-4 w-4" />
-              )}
-            </span>
-          )}
-          {conversation.type === "direct" ? (
-            <span
-              className={cn(
-                "absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2",
-                isActive ? "border-blue-500" : "border-white",
-                isOnline ? "bg-emerald-500" : "bg-slate-300"
-              )}
-            />
-          ) : null}
-          {conversation.type === "direct" ? (
-            <StatusIndicator userId={getId(directUser)} className="absolute -bottom-0.5 -right-0.5" />
-          ) : null}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-sm font-extrabold">{title}</p>
-            {conversation.unreadCount ? (
+        <button
+          type="button"
+          onClick={() => onSelect(getId(conversation))}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        >
+          <div className="relative shrink-0">
+            {conversation.type === "direct" ? (
+              <Avatar className="h-11 w-11 rounded-2xl">
+                <AvatarFallback className="text-xs">
+                  {getInitials(directUser?.name || title)}
+                </AvatarFallback>
+              </Avatar>
+            ) : (
               <span
                 className={cn(
-                  "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-extrabold",
+                  "flex h-11 w-11 items-center justify-center rounded-2xl border",
                   isActive
-                    ? "bg-white text-blue-600"
-                    : "bg-blue-600 text-white"
+                    ? "border-white/40 bg-white/16"
+                    : "border-blue-100 bg-blue-50 text-blue-600"
                 )}
               >
-                {conversation.unreadCount}
+                {conversation.channelType === "project" ? (
+                  <Hash className="h-4 w-4" />
+                ) : (
+                  <UsersRound className="h-4 w-4" />
+                )}
               </span>
+            )}
+            {conversation.type === "direct" ? (
+              <span
+                className={cn(
+                  "absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2",
+                  isActive ? "border-blue-500" : "border-white",
+                  isOnline ? "bg-emerald-500" : "bg-slate-300"
+                )}
+              />
+            ) : null}
+            {conversation.type === "direct" ? (
+              <StatusIndicator userId={getId(directUser)} className="absolute -bottom-0.5 -right-0.5" />
             ) : null}
           </div>
-          <p
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate text-sm font-extrabold">{title}</p>
+              {conversation.unreadCount ? (
+                <span
+                  className={cn(
+                    "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-extrabold",
+                    isActive
+                      ? "bg-white text-blue-600"
+                      : "bg-blue-600 text-white"
+                  )}
+                >
+                  {conversation.unreadCount}
+                </span>
+              ) : null}
+            </div>
+            <p
+              className={cn(
+                "mt-0.5 truncate text-xs font-medium",
+                isActive ? "text-white/82" : "text-slate-500"
+              )}
+            >
+              {conversation.lastMessage || subtitle}
+            </p>
+          </div>
+        </button>
+
+        {canDelete ? (
+          <button
+            type="button"
+            title={conversation.type === "direct" ? "Delete chat" : "Remove group chat"}
+            aria-label={conversation.type === "direct" ? "Delete chat" : "Remove group chat"}
+            onClick={handleDelete}
             className={cn(
-              "mt-0.5 truncate text-xs font-medium",
-              isActive ? "text-white/82" : "text-slate-500"
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-full opacity-100 transition hover:bg-rose-500/10 hover:text-rose-600 sm:opacity-0 sm:group-hover:opacity-100",
+              isActive ? "text-white/82 hover:bg-white/18 hover:text-white" : "text-slate-400"
             )}
           >
-            {conversation.lastMessage || subtitle}
-          </p>
-        </div>
-      </button>
+            <Trash2 className="h-4 w-4" />
+          </button>
+        ) : null}
+      </div>
     );
   }
 );
@@ -151,6 +182,7 @@ const ChatSidebar = memo(
     onClose,
     onCreateDirect,
     onCreateGroup,
+    onDelete,
     onSearch,
     onSelect,
     searchResults,
@@ -354,6 +386,7 @@ const ChatSidebar = memo(
                 currentUserId={currentUserId}
                 isActive={activeConversationId === getId(conversation)}
                 onlineUsers={onlineUsers}
+                onDelete={onDelete}
                 onSelect={onSelect}
               />
             ))}
@@ -367,6 +400,7 @@ const ChatSidebar = memo(
                 currentUserId={currentUserId}
                 isActive={activeConversationId === getId(conversation)}
                 onlineUsers={onlineUsers}
+                onDelete={onDelete}
                 onSelect={onSelect}
               />
             ))}
@@ -380,6 +414,7 @@ const ChatSidebar = memo(
                 currentUserId={currentUserId}
                 isActive={activeConversationId === getId(conversation)}
                 onlineUsers={onlineUsers}
+                onDelete={onDelete}
                 onSelect={onSelect}
               />
             ))}
