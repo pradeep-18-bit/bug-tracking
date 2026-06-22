@@ -206,6 +206,27 @@ export const useChatStore = create((set, get) => ({
     await get().setActiveConversation(getId(conversation));
   },
 
+  createGroupConversation: async ({ name, participants = [] }) => {
+    const conversation = normalizeConversation(
+      await createChatConversation({
+        type: "group",
+        channelType: "custom",
+        name,
+        participants,
+      })
+    );
+
+    set((state) => ({
+      conversations: sortConversations([
+        conversation,
+        ...state.conversations.filter((item) => getId(item) !== getId(conversation)),
+      ]),
+      searchResults: [],
+    }));
+
+    await get().setActiveConversation(getId(conversation));
+  },
+
   sendMessage: async ({ conversationId, message, attachments = [], currentUser }) => {
     const text = String(message || "").trim();
 

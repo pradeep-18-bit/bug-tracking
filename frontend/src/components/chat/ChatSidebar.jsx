@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Hash, MessageCircle, Search, UsersRound, X } from "lucide-react";
+import { Check, Hash, MessageCircle, Plus, Search, UsersRound, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,16 +146,52 @@ const ChatSidebar = memo(
     onlineUsers,
     onClose,
     onCreateDirect,
+    onCreateGroup,
     onSearch,
     onSelect,
     searchResults,
   }) => {
     const [query, setQuery] = useState("");
+    const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+    const [groupName, setGroupName] = useState("");
+    const [selectedMembers, setSelectedMembers] = useState([]);
+    const [isSubmittingGroup, setIsSubmittingGroup] = useState(false);
+    const selectedMemberIds = useMemo(
+      () => new Set(selectedMembers.map((member) => getId(member))),
+      [selectedMembers]
+    );
 
     useEffect(() => {
       const timer = setTimeout(() => onSearch(query), 260);
       return () => clearTimeout(timer);
     }, [onSearch, query]);
+
+    const resetGroupComposer = () => {
+      setIsCreatingGroup(false);
+      setGroupName("");
+      setSelectedMembers([]);
+      setQuery("");
+    };
+
+    const handleCreateGroup = async (event) => {
+      event.preventDefault();
+
+      if (!groupName.trim() || selectedMembers.length < 1) {
+        return;
+      }
+
+      setIsSubmittingGroup(true);
+
+      try {
+        await onCreateGroup({
+          name: groupName.trim(),
+          participants: selectedMembers.map((member) => getId(member)),
+        });
+        resetGroupComposer();
+      } finally {
+        setIsSubmittingGroup(false);
+      }
+    };
 
     const groupedConversations = useMemo(
       () => ({
@@ -180,25 +216,76 @@ const ChatSidebar = memo(
             </p>
             <h1 className="mt-1 text-xl font-extrabold text-slate-950">Chat</h1>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="lg:hidden"
-            onClick={onClose}
-          >
-            <X className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              title="New group"
+              aria-label="New group"
+              onClick={() => setIsCreatingGroup((current) => !current)}
+            >
+              {isCreatingGroup ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="lg:hidden"
+              onClick={onClose}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
         <div className="shrink-0 border-b border-white/60 p-4">
+          {isCreatingGroup ? (
+            <form className="mb-4 space-y-3" onSubmit={handleCreateGroup}>
+              <Input
+                value={groupName}
+                onChange={(event) => setGroupName(event.target.value)}
+                className="bg-white/78"
+                maxLength={120}
+                placeholder="Group name"
+              />
+              {selectedMembers.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {selectedMembers.map((member) => (
+                    <button
+                      key={getId(member)}
+                      type="button"
+                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700"
+                      onClick={() =>
+                        setSelectedMembers((current) =>
+                          current.filter((item) => getId(item) !== getId(member))
+                        )
+                      }
+                    >
+                      <span className="truncate">{member.name}</span>
+                      <X className="h-3 w-3 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <Button
+                type="submit"
+                className="h-10 w-full rounded-xl"
+                disabled={!groupName.trim() || selectedMembers.length < 1 || isSubmittingGroup}
+              >
+                <UsersRound className="h-4 w-4" />
+                Create group
+              </Button>
+            </form>
+          ) : null}
+
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               className="bg-white/78 pl-10"
-              placeholder="Search teammates"
+              placeholder={isCreatingGroup ? "Add teammates" : "Search teammates"}
             />
           </div>
           <AnimatePresence>
@@ -214,6 +301,15 @@ const ChatSidebar = memo(
                     key={getId(user)}
                     type="button"
                     onClick={() => {
+                      if (isCreatingGroup) {
+                        setSelectedMembers((current) =>
+                          selectedMemberIds.has(getId(user))
+                            ? current.filter((member) => getId(member) !== getId(user))
+                            : [...current, user]
+                        );
+                        return;
+                      }
+
                       onCreateDirect(getId(user));
                       setQuery("");
                     }}
@@ -232,6 +328,9 @@ const ChatSidebar = memo(
                         {user.role}
                       </span>
                     </span>
+                    {isCreatingGroup && selectedMemberIds.has(getId(user)) ? (
+                      <Check className="ml-auto h-4 w-4 text-blue-600" />
+                    ) : null}
                   </button>
                 ))}
               </motion.div>

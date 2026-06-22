@@ -494,11 +494,24 @@ const setupChatSocket = (server) => {
         const invitedParticipantIds = isGroupCall
           ? participantIds
           : [objectIdString(socket.user._id), receiverId];
-        const onlineParticipantIds = invitedParticipantIds.filter(
-          (participantId) =>
-            participantId !== objectIdString(socket.user._id) &&
-            isUserOnline(socket.user.workspaceId, participantId)
-        );
+        const incomingCallParticipantIds = invitedParticipantIds.filter((participantId) => {
+          if (
+            participantId === objectIdString(socket.user._id) ||
+            !isUserOnline(socket.user.workspaceId, participantId)
+          ) {
+            return false;
+          }
+
+          if (!isGroupCall) {
+            return true;
+          }
+
+          const participant = (conversation.participants || []).find(
+            (item) => objectIdString(item) === participantId
+          );
+
+          return !["Admin", "Manager"].includes(participant?.role || "");
+        });
         const call = await CallLog.create({
           conversationId: conversation._id,
           channelId: conversation._id,
@@ -582,7 +595,7 @@ const setupChatSocket = (server) => {
           [socket.user._id],
           isGroupCall ? "in-group-call" : "ringing"
         );
-        setCallPresence(io, socket.user.workspaceId, onlineParticipantIds, "ringing");
+        setCallPresence(io, socket.user.workspaceId, incomingCallParticipantIds, "ringing");
 
         const caller = {
           _id: socket.user._id,
@@ -603,7 +616,7 @@ const setupChatSocket = (server) => {
         });
 
         if (isGroupCall) {
-          onlineParticipantIds.forEach((participantId) => {
+          incomingCallParticipantIds.forEach((participantId) => {
             io.to(userRoomName(participantId)).emit("call:incoming", basePayload);
           });
         } else {

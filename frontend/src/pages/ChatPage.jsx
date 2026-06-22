@@ -21,6 +21,9 @@ const ChatPage = () => {
   const createDirectConversation = useChatStore(
     (state) => state.createDirectConversation
   );
+  const createGroupConversation = useChatStore(
+    (state) => state.createGroupConversation
+  );
   const loadMessages = useChatStore((state) => state.loadMessages);
   const searchUsers = useChatStore((state) => state.searchUsers);
   const sendMessage = useChatStore((state) => state.sendMessage);
@@ -81,6 +84,7 @@ const ChatPage = () => {
         onlineUsers={onlineUsers}
         onClose={() => setIsSidebarOpen(false)}
         onCreateDirect={createDirectConversation}
+        onCreateGroup={createGroupConversation}
         onSearch={searchUsers}
         onSelect={handleSelectConversation}
         searchResults={searchResults}
