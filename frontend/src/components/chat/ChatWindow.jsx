@@ -37,6 +37,7 @@ const ChatWindow = memo(
     isLoadingMessages,
     messages,
     onlineUsers,
+    onDelete,
     onLoadOlder,
     onSend,
     onToggleSidebar,
@@ -112,6 +113,7 @@ const ChatWindow = memo(
           conversation={conversation}
           currentUserId={currentUserId}
           onlineUsers={onlineUsers}
+          onDelete={onDelete}
           onToggleSidebar={onToggleSidebar}
         />
 

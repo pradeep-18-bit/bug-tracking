@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import StatusIndicator from "@/components/presence/StatusIndicator";
 import { cn, getInitials } from "@/lib/utils";
 
 const sizeClasses = {
@@ -39,16 +40,20 @@ const TeamMemberStack = ({
     <div className={cn("flex items-center", className)}>
       <div className="flex items-center">
         {visibleMembers.map((member, index) => (
-          <Avatar
+          <span
             key={member._id}
-            className={cn(
-              "rounded-2xl border-2 border-white bg-gradient-to-br from-sky-100 to-cyan-100 text-slate-700 shadow-sm",
-              sizeClasses[size] || sizeClasses.md,
-              index === 0 ? "" : "-ml-3"
-            )}
+            className={cn("relative", index === 0 ? "" : "-ml-3")}
           >
-            <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
-          </Avatar>
+            <Avatar
+              className={cn(
+                "rounded-2xl border-2 border-white bg-gradient-to-br from-sky-100 to-cyan-100 text-slate-700 shadow-sm",
+                sizeClasses[size] || sizeClasses.md
+              )}
+            >
+              <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
+            </Avatar>
+            <StatusIndicator userId={member._id} className="absolute -bottom-0.5 -right-0.5" />
+          </span>
         ))}
       </div>
 

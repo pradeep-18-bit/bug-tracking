@@ -64,6 +64,8 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const ALL_PROJECTS_VALUE = "ALL";
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const DEFAULT_PAGE_SIZE = 25;
 
 const BUG_STATUS_FILTERS = [
   { value: "all", label: "All statuses" },
@@ -280,6 +282,38 @@ const SoftBadge = ({ children, className }) => (
     {children}
   </span>
 );
+
+const normalizePageSize = (value) => {
+  const parsed = Number(value);
+  return PAGE_SIZE_OPTIONS.includes(parsed) ? parsed : DEFAULT_PAGE_SIZE;
+};
+
+const normalizePageNumber = (value) => Math.max(1, Number(value) || 1);
+
+const HighlightMatch = ({ value, query }) => {
+  const text = String(value || "");
+  const term = String(query || "").trim();
+
+  if (!term) {
+    return text;
+  }
+
+  const index = text.toLowerCase().indexOf(term.toLowerCase());
+
+  if (index < 0) {
+    return text;
+  }
+
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark className="rounded bg-amber-200/80 px-0.5 text-slate-950">
+        {text.slice(index, index + term.length)}
+      </mark>
+      {text.slice(index + term.length)}
+    </>
+  );
+};
 
 const severityBadgeClassName = (severity) =>
   cn(
@@ -500,12 +534,15 @@ const AdminBugsPage = () => {
   const [actionMenu, setActionMenu] = useState(null);
   const [areTriageFiltersOpen, setAreTriageFiltersOpen] = useState(false);
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
+  const [page, setPage] = useState(normalizePageNumber(searchParams.get("page")));
+  const [pageSize, setPageSize] = useState(normalizePageSize(searchParams.get("pageSize")));
+  const [sortBy, setSortBy] = useState(searchParams.get("sortBy") || "updated:desc");
   const [filters, setFilters] = useState({
     projectId: searchParams.get("projectId") || ALL_PROJECTS_VALUE,
-    teamId: "all",
-    testerId: "all",
-    developerId: "all",
-    severity: "all",
+    teamId: searchParams.get("teamId") || "all",
+    testerId: searchParams.get("testerId") || "all",
+    developerId: searchParams.get("developerId") || "all",
+    severity: searchParams.get("severity") || "all",
     priority: normalizePriorityQueryValue(searchParams.get("priority")),
     status: initialStatusQuery.status,
     sprintId: "all",
@@ -522,6 +559,7 @@ const AdminBugsPage = () => {
     search: searchParams.get("search") || "",
   });
   const deferredSearch = useDeferredValue(filters.search);
+  const [debouncedSearch, setDebouncedSearch] = useState(filters.search);
 
   const {
     data: projects = [],
@@ -567,6 +605,14 @@ const AdminBugsPage = () => {
     [members]
   );
 
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearch(filters.search);
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [filters.search]);
+
   const {
     data: bugsData = [],
     isLoading: isBugsLoading,
@@ -581,26 +627,61 @@ const AdminBugsPage = () => {
       filters.status,
       filters.sprintId,
       filters.epicId,
+      filters.severity,
+      filters.testerId,
+      filters.developerId,
+      filters.lifecycle,
       filters.dateFrom,
       filters.dateTo,
       filters.filter,
+      debouncedSearch,
+      page,
+      pageSize,
+      sortBy,
     ],
     queryFn: () =>
       fetchBugs({
+        paginate: true,
+        page,
+        limit: pageSize,
         projectId: filters.projectId === ALL_PROJECTS_VALUE ? "" : filters.projectId,
         teamId: filters.teamId,
+        testerId: filters.testerId,
+        developerId: filters.developerId,
+        severity: filters.severity,
         priority: filters.priority,
         status: filters.status,
         sprintId: filters.sprintId,
         epicId: filters.epicId,
+        lifecycle: filters.lifecycle,
         dateFrom: filters.dateFrom,
         dateTo: filters.dateTo,
         filter: filters.filter,
-        sortBy: "recently-updated",
+        search: debouncedSearch.trim(),
+        sortBy,
       }),
+    keepPreviousData: true,
   });
 
-  const bugs = useMemo(() => (Array.isArray(bugsData) ? bugsData : []), [bugsData]);
+  const bugs = useMemo(
+    () => (Array.isArray(bugsData) ? bugsData : bugsData?.bugs || []),
+    [bugsData]
+  );
+  const pagination = useMemo(() => {
+    const fallbackTotal = bugs.length;
+    const total = Number(bugsData?.pagination?.total ?? fallbackTotal);
+    const totalPages = Math.max(1, Number(bugsData?.pagination?.totalPages || Math.ceil(total / pageSize) || 1));
+
+    return {
+      page: Math.min(page, totalPages),
+      pageSize,
+      total,
+      totalPages,
+      from: total ? (Math.min(page, totalPages) - 1) * pageSize + 1 : 0,
+      to: total ? Math.min(Math.min(page, totalPages) * pageSize, total) : 0,
+    };
+  }, [bugs.length, bugsData?.pagination?.total, bugsData?.pagination?.totalPages, page, pageSize]);
+  const summary = bugsData?.summary || null;
   const actionMenuId = actionMenu?.issueId || "";
 
   useEffect(() => {
@@ -614,6 +695,12 @@ const AdminBugsPage = () => {
 
     return () => clearTimeout(timer);
   }, [toast?.id]);
+
+  useEffect(() => {
+    if (page > pagination.totalPages) {
+      setPage(pagination.totalPages);
+    }
+  }, [page, pagination.totalPages]);
 
   useEffect(() => {
     if (!projects.length) {
@@ -654,20 +741,24 @@ const AdminBugsPage = () => {
         status: statusQuery.status,
         lifecycle: nextLifecycle,
         filter: dashboardFilter,
+        teamId: currentParams.get("teamId") || (nextProjectId !== current.projectId ? "all" : current.teamId),
+        testerId: currentParams.get("testerId") || (nextProjectId !== current.projectId ? "all" : current.testerId),
+        developerId: currentParams.get("developerId") || (nextProjectId !== current.projectId ? "all" : current.developerId),
+        severity: currentParams.get("severity") || "all",
+        epicId: currentParams.get("epicId") || (nextProjectId !== current.projectId ? "all" : current.epicId),
+        sprintId: currentParams.get("sprintId") || (nextProjectId !== current.projectId ? "all" : current.sprintId),
         dateFrom: currentParams.get("dateFrom") || "",
         dateTo: currentParams.get("dateTo") || "",
         search: currentParams.get("search") || "",
-        teamId: nextProjectId !== current.projectId ? "all" : current.teamId,
-        testerId: nextProjectId !== current.projectId ? "all" : current.testerId,
-        developerId: nextProjectId !== current.projectId ? "all" : current.developerId,
-        epicId: nextProjectId !== current.projectId ? "all" : current.epicId,
-        sprintId: nextProjectId !== current.projectId ? "all" : current.sprintId,
       };
 
       return Object.entries(nextFilters).every(([key, value]) => current[key] === value)
         ? current
         : nextFilters;
     });
+    setPage(normalizePageNumber(currentParams.get("page")));
+    setPageSize(normalizePageSize(currentParams.get("pageSize")));
+    setSortBy(currentParams.get("sortBy") || "updated:desc");
   }, [filters.projectId, projects, searchParamString]);
 
   useEffect(() => {

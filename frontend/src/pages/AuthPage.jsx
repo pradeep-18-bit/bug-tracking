@@ -47,10 +47,10 @@ const isAdminDefaultLoginEnabledOnClient =
   import.meta.env.VITE_ENABLE_ADMIN_DEFAULT_LOGIN !== "false";
 
 const inputClassName =
-  "auth-input h-11 rounded-xl border border-white/25 bg-slate-950/70 pl-11 pr-4 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-400/35 disabled:text-slate-50 disabled:opacity-100";
+  "auth-input h-10 rounded-xl border border-white/25 bg-slate-950/70 pl-11 pr-4 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-400/35 disabled:text-slate-50 disabled:opacity-100";
 
 const passwordInputClassName =
-  "auth-input h-11 rounded-xl border border-white/25 bg-slate-950/70 pl-11 pr-12 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-400/35 disabled:text-slate-50 disabled:opacity-100";
+  "auth-input h-10 rounded-xl border border-white/25 bg-slate-950/70 pl-11 pr-12 text-sm text-slate-50 placeholder:text-slate-300 caret-white opacity-100 shadow-none transition duration-200 focus-visible:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-400/35 disabled:text-slate-50 disabled:opacity-100";
 
 const getSafeRedirectPath = (search = "") => {
   const redirect = new URLSearchParams(search).get("redirect") || "";
@@ -461,24 +461,24 @@ const AuthPage = () => {
       <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(3,26,51,0.96)_0%,rgba(2,18,37,0.98)_52%,rgba(1,11,24,1)_100%)]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_25%,rgba(14,116,144,0.18)_0%,transparent_34%),radial-gradient(circle_at_48%_88%,rgba(37,99,235,0.16)_0%,transparent_32%)]" />
 
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-8 sm:px-6">
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-3 sm:px-6 sm:py-4">
         <div className="auth-fade-in w-full max-w-[430px] lg:max-w-[420px]">
-          <div className="relative flex max-h-[calc(100svh-4rem)] w-full flex-col overflow-hidden rounded-3xl border border-white/18 bg-slate-950/[0.56] p-6 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.86)] backdrop-blur-[26px] sm:p-8">
+          <div className="relative flex max-h-[calc(100svh-1.5rem)] w-full flex-col overflow-hidden rounded-[28px] border border-white/18 bg-slate-950/[0.56] p-4 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.86)] backdrop-blur-[26px] sm:p-5">
             <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/60 to-transparent" />
             <div className="pointer-events-none absolute -right-20 -top-20 h-44 w-44 rounded-full bg-cyan-400/10 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-24 -left-16 h-44 w-44 rounded-full bg-amber-400/10 blur-3xl" />
             <div className="relative flex min-h-0 flex-col">
-            <div className="shrink-0 space-y-2.5">
+            <div className="shrink-0 space-y-2">
               <div className="flex items-center">
                 <img
                   src={pirnavLogo}
                   alt="Pirnav Software Solutions Pvt. Ltd."
-                  className="mb-3 h-9 w-auto object-contain"
+                  className="mb-2 h-8 w-auto object-contain"
                 />
               </div>
-              <p className="text-sm font-medium text-white/72">{eyebrowCopy}</p>
+              <p className="text-[13px] font-medium text-white/72">{eyebrowCopy}</p>
               <h1
-                className="text-[29px] font-semibold leading-tight text-white sm:text-[33px]"
+                className="text-[25px] font-semibold leading-tight text-white sm:text-[30px]"
                 style={{ fontFamily: '"Poppins", sans-serif' }}
               >
                 {titleCopy}
@@ -487,7 +487,7 @@ const AuthPage = () => {
 
             {mode === "forgot" ? (
               <form
-                className="auth-card-scroll -mr-2 mt-7 min-h-0 flex-1 space-y-[18px] overflow-y-auto pr-2"
+                className="auth-card-scroll -mr-2 mt-4 min-h-0 flex-1 space-y-3.5 overflow-y-auto pr-2"
                 onSubmit={handlePasswordResetSubmit}
               >
                 {successMessage ? (
@@ -634,7 +634,7 @@ const AuthPage = () => {
                 ) : null}
 
                 <Button
-                  className="group mt-2 h-[48px] w-full rounded-xl border border-cyan-200/24 bg-[linear-gradient(100deg,#2563EB_0%,#0891B2_52%,#F97316_150%)] text-sm font-bold text-white shadow-[0_20px_45px_-16px_rgba(14,165,233,0.68)] transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:border-cyan-100/36 hover:shadow-[0_26px_58px_-14px_rgba(14,165,233,0.78)] active:translate-y-0 active:scale-[0.99]"
+                  className="group mt-2 h-11 w-full rounded-xl border border-cyan-200/24 bg-[linear-gradient(100deg,#2563EB_0%,#0891B2_52%,#F97316_150%)] text-sm font-bold text-white shadow-[0_20px_45px_-16px_rgba(14,165,233,0.68)] transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:border-cyan-100/36 hover:shadow-[0_26px_58px_-14px_rgba(14,165,233,0.78)] active:translate-y-0 active:scale-[0.99]"
                   disabled={isResetPending}
                   type="submit"
                 >
@@ -657,7 +657,7 @@ const AuthPage = () => {
               </form>
             ) : (
               <form
-                className="auth-card-scroll -mr-2 mt-7 min-h-0 flex-1 space-y-[18px] overflow-y-auto pr-2"
+                className="mt-4 space-y-3.5"
                 onSubmit={handleSubmit}
               >
                 {successMessage ? (
@@ -737,21 +737,21 @@ const AuthPage = () => {
                 </div>
 
                 {mode === "login" ? (
-                  <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/[0.05] px-3.5 py-3 text-sm text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] sm:flex-row sm:items-center sm:justify-between">
-                    <label className="flex min-w-0 cursor-pointer items-center gap-3">
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-[13px] text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08]">
+                    <label className="flex min-w-0 cursor-pointer items-center gap-2.5">
                       <input
                         checked={rememberMe}
-                        className="h-4 w-4 rounded border-white/30 bg-slate-950 text-sky-500 focus:ring-2 focus:ring-sky-400/30"
+                        className="h-4 w-4 shrink-0 rounded border-white/30 bg-slate-950 text-sky-500 focus:ring-2 focus:ring-sky-400/30"
                         disabled={authMutation.isPending}
                         type="checkbox"
                         onChange={(event) => setRememberMe(event.target.checked)}
                       />
-                      <span className="font-medium">Remember me</span>
-                      <span className="text-xs text-slate-300">30 days</span>
+                      <span className="truncate font-medium">Remember me</span>
+                      <span className="shrink-0 text-[12px] text-slate-300">30 days</span>
                     </label>
                     <button
                       type="button"
-                      className="shrink-0 text-left text-sm font-semibold text-sky-200 transition hover:text-white disabled:opacity-70 sm:text-right"
+                      className="shrink-0 text-right text-[13px] font-semibold text-sky-200 transition hover:text-white disabled:opacity-70"
                       disabled={authMutation.isPending}
                       onClick={openForgotPassword}
                     >
@@ -778,7 +778,7 @@ const AuthPage = () => {
                 ) : null}
 
                 <Button
-                  className="group mt-2 h-[48px] w-full rounded-xl border border-cyan-200/24 bg-[linear-gradient(100deg,#2563EB_0%,#0891B2_52%,#F97316_150%)] text-sm font-bold text-white shadow-[0_20px_45px_-16px_rgba(14,165,233,0.68)] transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:border-cyan-100/36 hover:shadow-[0_26px_58px_-14px_rgba(14,165,233,0.78)] active:translate-y-0 active:scale-[0.99]"
+                  className="group mt-2 h-11 w-full rounded-xl border border-cyan-200/24 bg-[linear-gradient(100deg,#2563EB_0%,#0891B2_52%,#F97316_150%)] text-sm font-bold text-white shadow-[0_20px_45px_-16px_rgba(14,165,233,0.68)] transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.01] hover:border-cyan-100/36 hover:shadow-[0_26px_58px_-14px_rgba(14,165,233,0.78)] active:translate-y-0 active:scale-[0.99]"
                   disabled={authMutation.isPending}
                   type="submit"
                 >
