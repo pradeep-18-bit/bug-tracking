@@ -1769,7 +1769,7 @@ const AdminBugsPage = () => {
         <DistributionPanel title="Developer Resolution Rate" rows={developerRows} />
       </section>
 
-      <Card className="flex max-h-[calc(100svh-7rem)] min-h-[520px] flex-col overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl md:max-h-[calc(100vh-7.5rem)]">
+      <Card className="flex max-h-[calc(100svh-5rem)] min-h-[520px] flex-col overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl md:max-h-[calc(100vh-5.5rem)]">
         <CardContent className="flex min-h-0 flex-col p-0">
           <div className="shrink-0 space-y-3 border-b border-slate-200/90 bg-white p-3.5 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -1936,7 +1936,7 @@ const AdminBugsPage = () => {
               ))}
             </div>
           ) : visibleBugs.length ? (
-            <div className="h-full min-h-[360px] overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
+            <div className="dashboard-scrollbar h-[min(58vh,620px)] min-h-[360px] overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
               <table className="w-full table-fixed border-separate border-spacing-0 text-left">
                 <colgroup>
                   <col className="w-[6%]" />
