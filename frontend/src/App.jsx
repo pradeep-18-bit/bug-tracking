@@ -1,11 +1,14 @@
 import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AppShell from "@/components/layout/AppShell";
+import ActivityTracker from "@/components/presence/ActivityTracker";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PresenceProvider } from "@/context/PresenceContext";
 import { useAuth } from "@/hooks/use-auth";
 import {
   ADMIN_PANEL_ROLES,
   getDashboardPathByRole,
+  ROLE_ADMIN,
   ROLE_DEVELOPER,
   ROLE_TEAM_LEAD,
   ROLE_TESTER,
@@ -27,6 +30,7 @@ const TasksPage = lazy(() => import("@/pages/TasksPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 const UserSettingsPage = lazy(() => import("@/pages/UserSettingsPage"));
 const TeamDetailsPage = lazy(() => import("@/pages/TeamDetailsPage"));
+const TeamActivityPage = lazy(() => import("@/pages/TeamActivityPage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 
 const PublicRouteFallback = () => (
@@ -133,7 +137,9 @@ const BugsRoute = () => {
 };
 
 const App = () => (
-  <Routes>
+  <PresenceProvider>
+    <ActivityTracker />
+    <Routes>
     <Route path="/" element={<RootRoute />} />
     <Route
       path="/login"
@@ -196,6 +202,14 @@ const App = () => (
         element={
           <ProtectedRoute roles={ADMIN_PANEL_ROLES}>
             <DashboardPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/team-activity"
+        element={
+          <ProtectedRoute roles={[ROLE_ADMIN]}>
+            <TeamActivityPage />
           </ProtectedRoute>
         }
       />
@@ -318,7 +332,8 @@ const App = () => (
       <Route path="/reports" element={<ReportsPage />} />
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />
-  </Routes>
+    </Routes>
+  </PresenceProvider>
 );
 
 export default App;

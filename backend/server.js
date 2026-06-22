@@ -1,9 +1,11 @@
 const path = require("path");
 require("./config/env");
+require("./utils/redis");
 
 const cors = require("cors");
 const express = require("express");
 const http = require("http");
+const activityRoutes = require("./routes/activityRoutes");
 const analyticsRoutes = require("./routes/analyticsRoutes");
 const backlogRoutes = require("./routes/backlogRoutes");
 const bugRoutes = require("./routes/bugRoutes");
@@ -62,6 +64,7 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/activity", activityRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/workspaces", workspaceRoutes);

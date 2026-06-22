@@ -4,6 +4,7 @@ import { Check, Hash, MessageCircle, Plus, Search, UsersRound, X } from "lucide-
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import StatusIndicator from "@/components/presence/StatusIndicator";
 import { cn, getInitials } from "@/lib/utils";
 
 const getId = (value) => String(value?._id || value?.id || value || "");
@@ -90,6 +91,9 @@ const ConversationButton = memo(
                 isOnline ? "bg-emerald-500" : "bg-slate-300"
               )}
             />
+          ) : null}
+          {conversation.type === "direct" ? (
+            <StatusIndicator userId={getId(directUser)} className="absolute -bottom-0.5 -right-0.5" />
           ) : null}
         </div>
 
@@ -315,11 +319,14 @@ const ChatSidebar = memo(
                     }}
                     className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left text-sm transition hover:bg-blue-50"
                   >
-                    <Avatar className="h-9 w-9 rounded-2xl">
-                      <AvatarFallback className="text-xs">
-                        {getInitials(user.name)}
-                      </AvatarFallback>
-                    </Avatar>
+                    <span className="relative">
+                      <Avatar className="h-9 w-9 rounded-2xl">
+                        <AvatarFallback className="text-xs">
+                          {getInitials(user.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <StatusIndicator userId={getId(user)} className="absolute -bottom-0.5 -right-0.5" />
+                    </span>
                     <span className="min-w-0">
                       <span className="block truncate font-bold text-slate-800">
                         {user.name}

@@ -11,12 +11,14 @@ const {
   loadConversationForUser,
   markConversationSeen,
 } = require("./controllers/chat.controller");
+const { setPresence } = require("./services/presenceService");
 const { normalizeWorkspaceId } = require("./utils/workspace");
 
 const onlineUsersByWorkspace = new Map();
 const callPresenceByWorkspace = new Map();
 const activeCalls = new Map();
 const socketUsers = new Map();
+const activeCallSockets = new Map();
 let socketServer = null;
 
 const getAllowedOrigins = () => {
@@ -40,6 +42,41 @@ const workspaceRoomName = (workspaceId) =>
   `workspace:${normalizeWorkspaceId(workspaceId)}`;
 
 const objectIdString = (value) => String(value?._id || value?.id || value || "");
+const callSocketKey = (callId, userId) =>
+  `${objectIdString(callId)}:${objectIdString(userId)}`;
+
+const registerCallSocket = (callId, userId, socketId) => {
+  if (!callId || !userId || !socketId) {
+    return;
+  }
+  activeCallSockets.set(callSocketKey(callId, userId), socketId);
+};
+
+const unregisterSocketFromCalls = (socketId) => {
+  for (const [key, registeredSocketId] of activeCallSockets.entries()) {
+    if (registeredSocketId === socketId) {
+      activeCallSockets.delete(key);
+    }
+  }
+};
+
+const emitToCallParticipant = (io, { callId, targetUserId, eventName, payload }) => {
+  const targetSocketId = activeCallSockets.get(callSocketKey(callId, targetUserId));
+
+  if (targetSocketId && io.sockets.sockets.has(targetSocketId)) {
+    io.to(targetSocketId).emit(eventName, payload);
+    return {
+      target: "socket",
+      targetSocketId,
+    };
+  }
+
+  io.to(userRoomName(targetUserId)).emit(eventName, payload);
+  return {
+    target: "user-room",
+    targetSocketId: null,
+  };
+};
 
 const addOnlineUser = (user, socketId) => {
   const workspaceId = normalizeWorkspaceId(user.workspaceId);
@@ -100,6 +137,26 @@ const emitOnlineUsers = (io, workspaceId) => {
   );
 
   io.to(workspaceRoomName(normalizedWorkspaceId)).emit("online_users", onlineUsers);
+};
+
+const emitPresenceUpdate = (io, presence) => {
+  if (!presence?.workspaceId || !presence?.userId) {
+    return;
+  }
+
+  io.to(workspaceRoomName(presence.workspaceId)).emit("presence:update", presence);
+};
+
+const updateSocketPresence = async (io, socket, status, source = "socket") => {
+  const presence = await setPresence({
+    user: socket.user,
+    status,
+    socketId: socket.id,
+    source,
+  });
+
+  emitPresenceUpdate(io, presence);
+  return presence;
 };
 
 const setCallPresence = (io, workspaceId, userIds = [], status = "online") => {
@@ -289,6 +346,7 @@ const setupChatSocket = (server) => {
     addOnlineUser(socket.user, socket.id);
     socket.join(userRoomName(socket.user._id));
     socket.join(workspaceRoomName(socket.user.workspaceId));
+    await updateSocketPresence(io, socket, "active", "connect");
     emitOnlineUsers(io, socket.user.workspaceId);
 
     const joinConversation = async (conversationId, callback) => {
@@ -344,6 +402,7 @@ const setupChatSocket = (server) => {
 
     socket.on("send_message", async (payload = {}, callback) => {
       try {
+        await updateSocketPresence(io, socket, "active", "chat");
         const conversation = await joinConversation(payload.conversationId);
 
         if (!conversation) {
@@ -384,6 +443,7 @@ const setupChatSocket = (server) => {
     });
 
     socket.on("typing", async (payload = {}) => {
+      await updateSocketPresence(io, socket, "active", "chat");
       const conversation = await Conversation.findOne({
         _id: payload.conversationId,
         workspaceId: socket.user.workspaceId,
@@ -436,6 +496,7 @@ const setupChatSocket = (server) => {
 
     socket.on("mark_seen", async (payload = {}, callback) => {
       try {
+        await updateSocketPresence(io, socket, "active", "chat");
         const conversationId = payload.conversationId || payload;
         const result = await markConversationSeen({
           conversationId,
@@ -565,6 +626,9 @@ const setupChatSocket = (server) => {
           ).lean();
 
           activeCalls.delete(objectIdString(call._id));
+          [socket.user._id, receiverId].forEach((participantId) => {
+            activeCallSockets.delete(callSocketKey(call._id, participantId));
+          });
           setCallPresence(io, socket.user.workspaceId, [socket.user._id, receiverId], "online");
           io.to([userRoomName(socket.user._id), userRoomName(receiverId)]).emit(
             "call:missed",
@@ -589,6 +653,7 @@ const setupChatSocket = (server) => {
           timeoutId: isGroupCall ? null : timeoutId,
         });
         socket.join(callRoomName(call._id));
+        registerCallSocket(call._id, socket.user._id, socket.id);
         setCallPresence(
           io,
           socket.user.workspaceId,
@@ -667,6 +732,8 @@ const setupChatSocket = (server) => {
           workspaceId: call.workspaceId,
           status: "Answered",
         });
+        socket.join(callRoomName(call._id));
+        registerCallSocket(call._id, socket.user._id, socket.id);
         setCallPresence(io, call.workspaceId, [call.callerId, call.receiverId], "in-call");
         io.to([userRoomName(call.callerId), userRoomName(call.receiverId)]).emit(
           "call:accepted",
@@ -732,6 +799,7 @@ const setupChatSocket = (server) => {
         );
 
         socket.join(callRoomName(call._id));
+        registerCallSocket(call._id, socket.user._id, socket.id);
         const activeCall = activeCalls.get(objectIdString(call._id)) || {
           scope: "group",
           workspaceId: call.workspaceId,
@@ -822,6 +890,9 @@ const setupChatSocket = (server) => {
         call.duration = 0;
         await call.save();
         activeCalls.delete(objectIdString(call._id));
+        [call.callerId, call.receiverId].forEach((participantId) => {
+          activeCallSockets.delete(callSocketKey(call._id, participantId));
+        });
         setCallPresence(io, call.workspaceId, [call.callerId, call.receiverId], "online");
         io.to([userRoomName(call.callerId), userRoomName(call.receiverId)]).emit(
           "call:rejected",
@@ -871,6 +942,7 @@ const setupChatSocket = (server) => {
           }
         );
         socket.leave(callRoomName(call._id));
+        activeCallSockets.delete(callSocketKey(call._id, socket.user._id));
         const activeCall = activeCalls.get(objectIdString(call._id));
         activeCall?.participants?.delete(userId);
         setCallPresence(io, call.workspaceId, [socket.user._id], "online");
@@ -956,6 +1028,9 @@ const setupChatSocket = (server) => {
         }
         await call.save();
         activeCalls.delete(objectIdString(call._id));
+        (call.participants || [call.callerId, call.receiverId]).forEach((participantId) => {
+          activeCallSockets.delete(callSocketKey(call._id, participantId));
+        });
         setCallPresence(
           io,
           call.workspaceId,
@@ -1000,11 +1075,35 @@ const setupChatSocket = (server) => {
           return;
         }
 
+        console.log(`[Socket][Call] ${eventName} received`, {
+          callId: objectIdString(call._id),
+          fromUserId: objectIdString(socket.user._id),
+          targetUserId: objectIdString(payload.targetUserId),
+          descriptionType: payload.description?.type,
+          hasCandidate: Boolean(payload.candidate),
+          iceRestart: Boolean(payload.iceRestart),
+        });
+
         const targetUserId = objectIdString(payload.targetUserId);
         const participantIds = (call.participants || []).map(objectIdString);
         const activeParticipantIds = (call.activeParticipantIds || []).map(objectIdString);
+        const fromUserId = objectIdString(socket.user._id);
+
+        if (!targetUserId || targetUserId === fromUserId) {
+          console.warn(`[Socket][Call] ${eventName} ignored invalid target`, {
+            callId: objectIdString(call._id),
+            fromUserId,
+            targetUserId,
+          });
+          return;
+        }
 
         if (!participantIds.includes(targetUserId)) {
+          console.warn(`[Socket][Call] ${eventName} ignored non-participant target`, {
+            callId: objectIdString(call._id),
+            fromUserId,
+            targetUserId,
+          });
           return;
         }
 
@@ -1014,14 +1113,122 @@ const setupChatSocket = (server) => {
             !activeParticipantIds.includes(targetUserId) ||
             call.status !== "Active")
         ) {
+          console.warn(`[Socket][Call] ${eventName} ignored inactive group participant`, {
+            callId: objectIdString(call._id),
+            fromUserId,
+            targetUserId,
+            activeParticipantIds,
+            status: call.status,
+          });
           return;
         }
 
-        socket.to(userRoomName(targetUserId)).emit(`call:${eventName}`, {
-          ...payload,
-          fromUserId: objectIdString(socket.user._id),
-          startTime: call.startTime,
+        const route = emitToCallParticipant(io, {
+          callId: call._id,
+          targetUserId,
+          eventName: `call:${eventName}`,
+          payload: {
+            ...payload,
+            fromUserId,
+            startTime: call.startTime,
+          },
         });
+
+        console.log(`[Socket][Call] ${eventName} routed`, {
+          callId: objectIdString(call._id),
+          fromUserId,
+          targetUserId,
+          target: route.target,
+          targetSocketId: route.targetSocketId,
+        });
+      });
+    });
+
+    socket.on("user:active", async (_payload = {}, callback) => {
+      try {
+        addOnlineUser(socket.user, socket.id);
+        await updateSocketPresence(io, socket, "active", "activity");
+        emitOnlineUsers(io, socket.user.workspaceId);
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ ok: false, error: "Unable to update activity" });
+      }
+    });
+
+    socket.on("user:idle", async (_payload = {}, callback) => {
+      try {
+        await updateSocketPresence(io, socket, "idle", "activity");
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ ok: false, error: "Unable to update activity" });
+      }
+    });
+
+    socket.on("user:offline", async (_payload = {}, callback) => {
+      try {
+        const offlineUser = socket.user;
+
+        removeOnlineUser(socket.id);
+        if (!isUserOnline(offlineUser.workspaceId, offlineUser._id)) {
+          await updateSocketPresence(io, socket, "offline", "logout");
+        }
+        emitOnlineUsers(io, offlineUser.workspaceId);
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ ok: false, error: "Unable to update activity" });
+      }
+    });
+
+    ["screen-share-started", "screen-share-stopped"].forEach((eventName) => {
+      socket.on(`call:${eventName}`, async (payload = {}) => {
+        const call = await CallLog.findOne({
+          _id: payload.callId,
+          workspaceId: socket.user.workspaceId,
+          participants: socket.user._id,
+          status: {
+            $in: ["Active", "Answered"],
+          },
+        })
+          .select("_id conversationId participants activeParticipantIds scope status")
+          .lean();
+
+        if (!call) {
+          return;
+        }
+
+        const userId = objectIdString(socket.user._id);
+        const activeParticipantIds = (call.activeParticipantIds || []).map(objectIdString);
+
+        if (call.scope === "group" && !activeParticipantIds.includes(userId)) {
+          return;
+        }
+
+        console.log(`[Socket][Call] ${eventName}`, {
+          callId: objectIdString(call._id),
+          userId,
+        });
+
+        const eventPayload = {
+          callId: objectIdString(call._id),
+          userId,
+        };
+
+        if (call.scope === "group") {
+          socket.to(callRoomName(call._id)).emit(`call:${eventName}`, eventPayload);
+          return;
+        }
+
+        (call.participants || [])
+          .map(objectIdString)
+          .filter((participantId) => participantId !== userId)
+          .forEach((participantId) => {
+            emitToCallParticipant(io, {
+              callId: call._id,
+              targetUserId: participantId,
+              eventName: `call:${eventName}`,
+              payload: eventPayload,
+            });
+          });
       });
     });
 
@@ -1049,8 +1256,15 @@ const setupChatSocket = (server) => {
 
     socket.on("disconnect", (reason) => {
       console.log(`[Socket] Client disconnected: ${socket.id} (Reason: ${reason})`);
+      const disconnectedUser = socket.user;
+      unregisterSocketFromCalls(socket.id);
       removeOnlineUser(socket.id);
-      emitOnlineUsers(io, socket.user.workspaceId);
+      if (!isUserOnline(disconnectedUser.workspaceId, disconnectedUser._id)) {
+        updateSocketPresence(io, socket, "offline", "disconnect").catch((error) => {
+          console.error("[presence] disconnect update failed", error.message);
+        });
+      }
+      emitOnlineUsers(io, disconnectedUser.workspaceId);
     });
   });
 

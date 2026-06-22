@@ -35,6 +35,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me}
 
       MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-bugtracker}:${MONGO_ROOT_PASSWORD:-bugtracker}@mongo:27017/${MONGO_APP_DATABASE:-bugtracker}?authSource=admin
+      REDIS_URL: redis://redis:6379
 
       ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-admin123}
       ENABLE_ADMIN_DEFAULT_LOGIN: ${ENABLE_ADMIN_DEFAULT_LOGIN:-true}
@@ -54,6 +55,7 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
     depends_on:
+      - redis
       - mongo
 
     ports:
@@ -62,6 +64,32 @@ services:
     volumes:
       - ./backend/uploads:/app/uploads
 
+  redis:
+    image: redis:7-alpine
+    container_name: bug-tracking-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  coturn:
+    image: coturn/coturn
+    container_name: coturn
+    restart: unless-stopped
+    network_mode: host
+    command: >
+      -n
+      --realm=app.renivval.com
+      --external-ip=65.2.115.155
+      --listening-port=3478
+      --tls-listening-port=5349
+      --min-port=49160
+      --max-port=49200
+      --lt-cred-mech
+      --user=turnuser:StrongTurnPassword123
+      --fingerprint
+      --no-multicast-peers
+      --no-cli
+  
   frontend:
     build:
       context: ./frontend
@@ -69,6 +97,11 @@ services:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
         VITE_ENABLE_ADMIN_DEFAULT_LOGIN: ${VITE_ENABLE_ADMIN_DEFAULT_LOGIN:-true}
         VITE_DEBUG_TEAM_SELECTION: ${VITE_DEBUG_TEAM_SELECTION:-false}
+        VITE_STUN_URL: ${VITE_STUN_URL:-stun:stun.l.google.com:19302}
+        VITE_TURN_URL: ${VITE_TURN_URL:-turn:app.renivval.com:3478?transport=udp}
+        VITE_TURN_USERNAME: ${VITE_TURN_USERNAME:-turnuser}
+        VITE_TURN_CREDENTIAL: ${VITE_TURN_CREDENTIAL:-StrongTurnPassword123}
+        VITE_ICE_TRANSPORT_POLICY: ${VITE_ICE_TRANSPORT_POLICY:-all}
 
     container_name: bug-tracking-frontend
 

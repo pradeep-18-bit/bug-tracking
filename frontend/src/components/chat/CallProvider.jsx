@@ -27,6 +27,36 @@ import { cn, getInitials } from "@/lib/utils";
 
 const CallContext = createContext(null);
 const getId = (value) => String(value?._id || value?.id || value || "");
+const getDescriptionKey = (description = {}) =>
+  `${description.type || ""}:${description.sdp || ""}`;
+const getCandidateKey = (candidate = {}) =>
+  [
+    candidate.candidate || "",
+    candidate.sdpMid || "",
+    candidate.sdpMLineIndex ?? "",
+    candidate.usernameFragment || "",
+  ].join("|");
+const getCandidateSummary = (candidate = {}) => {
+  const text = candidate.candidate || "";
+  const parts = text.split(" ");
+
+  return {
+    candidateType: candidate.type || parts[7] || "",
+    protocol: candidate.protocol || parts[2] || "",
+    address: candidate.address || parts[4] || "",
+    port: candidate.port || parts[5] || "",
+  };
+};
+const isLiveTrack = (track) => track?.readyState === "live";
+const hasLiveTrack = (stream, kind) =>
+  Boolean(stream?.getTracks().some((track) => track.kind === kind && isLiveTrack(track)));
+const callLog = (message, details = null) => {
+  if (details === null || details === undefined) {
+    console.log(`[Call] ${message}`);
+    return;
+  }
+  console.log(`[Call] ${message}`, details);
+};
 
 const rtcConfig = {
   iceServers: [
@@ -80,38 +110,95 @@ const playRingtone = () => {
   };
 };
 
-const RemoteMedia = ({ stream, muted }) => {
+const RemoteMedia = ({ stream, muted, onVideoStalled, onVideoStateChange }) => {
   const videoRef = useRef(null);
   const audioRef = useRef(null);
   const [hasVideo, setHasVideo] = useState(false);
 
   useEffect(() => {
-    const updateHasVideo = () =>
-      setHasVideo(stream?.getVideoTracks().some((track) => track.readyState === "live"));
+    let stallTimerId;
+    let lastVideoTime = 0;
+    let unchangedTicks = 0;
+    const updateHasVideo = () => {
+      const nextHasVideo = Boolean(
+        stream?.getVideoTracks().some((track) => track.readyState === "live" && !track.muted)
+      );
+      setHasVideo(nextHasVideo);
+      onVideoStateChange?.(nextHasVideo);
+    };
 
-    if (videoRef.current) {
+    const playElement = (element, label) => {
+      element?.play?.().catch((playError) => {
+        callLog(`remote ${label} autoplay blocked`, playError?.message || playError);
+      });
+    };
+
+    if (videoRef.current && videoRef.current.srcObject !== stream) {
       videoRef.current.srcObject = stream;
-      videoRef.current.play?.().catch(() => {});
+      videoRef.current.onloadedmetadata = () => {
+        playElement(videoRef.current, "video");
+        updateHasVideo();
+      };
+      playElement(videoRef.current, "video");
     }
     if (audioRef.current) {
-      audioRef.current.srcObject = stream;
+      if (audioRef.current.srcObject !== stream) {
+        audioRef.current.srcObject = stream;
+      }
       audioRef.current.muted = muted;
-      audioRef.current.play?.().catch(() => {});
+      playElement(audioRef.current, "audio");
     }
+    const watchedTracks = stream?.getTracks() || [];
+    watchedTracks.forEach((track) => {
+      track.addEventListener?.("mute", updateHasVideo);
+      track.addEventListener?.("unmute", updateHasVideo);
+      track.addEventListener?.("ended", updateHasVideo);
+    });
     updateHasVideo();
     stream?.addEventListener?.("addtrack", updateHasVideo);
     stream?.addEventListener?.("removetrack", updateHasVideo);
+    stallTimerId = window.setInterval(() => {
+      const element = videoRef.current;
+      if (!element || element.paused || !hasLiveTrack(stream, "video")) {
+        unchangedTicks = 0;
+        return;
+      }
+      if (element.currentTime === lastVideoTime) {
+        unchangedTicks += 1;
+      } else {
+        unchangedTicks = 0;
+        lastVideoTime = element.currentTime;
+      }
+      if (unchangedTicks >= 4) {
+        callLog("remote video appears stalled", {
+          currentTime: element.currentTime,
+          readyState: element.readyState,
+          videoWidth: element.videoWidth,
+          videoHeight: element.videoHeight,
+        });
+        playElement(element, "video");
+        updateHasVideo();
+        onVideoStalled?.();
+        unchangedTicks = 0;
+      }
+    }, 2000);
 
     return () => {
+      window.clearInterval(stallTimerId);
+      watchedTracks.forEach((track) => {
+        track.removeEventListener?.("mute", updateHasVideo);
+        track.removeEventListener?.("unmute", updateHasVideo);
+        track.removeEventListener?.("ended", updateHasVideo);
+      });
       stream?.removeEventListener?.("addtrack", updateHasVideo);
       stream?.removeEventListener?.("removetrack", updateHasVideo);
     };
-  }, [muted, stream]);
+  }, [muted, onVideoStalled, onVideoStateChange, stream]);
 
   return (
     <>
       {!hasVideo ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-800 text-xs font-bold text-white/45">
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-800 text-xs font-bold text-white/45">
           Connecting video
         </div>
       ) : null}
@@ -169,32 +256,68 @@ export const CallProvider = ({ children }) => {
   const [duration, setDuration] = useState(0);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
+  const [screenSharers, setScreenSharers] = useState({});
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [peerStatuses, setPeerStatuses] = useState({});
   const peersRef = useRef(new Map());
   const pendingCandidatesRef = useRef(new Map());
+  const processedCandidatesRef = useRef(new Map());
+  const processedOffersRef = useRef(new Map());
+  const processedAnswersRef = useRef(new Map());
   const localStreamRef = useRef(null);
+  const cameraTrackRef = useRef(null);
   const outboundVideoTrackRef = useRef(null);
   const stopRingtoneRef = useRef(null);
   const activeCallRef = useRef(null);
   const screenRef = useRef(null);
   const stageRef = useRef(null);
+  const negotiatingPeersRef = useRef(new Set());
+  const restartingPeersRef = useRef(new Set());
+  const makingOfferRef = useRef(new Map());
+  const ignoredOfferRef = useRef(new Map());
+  const mediaRequestRef = useRef(null);
+  const mediaKindRef = useRef(null);
+  const remoteStreamVersionsRef = useRef(new Map());
+  const videoStallTimersRef = useRef(new Map());
 
   useEffect(() => {
     activeCallRef.current = activeCall;
   }, [activeCall]);
 
   const updateRemoteStream = useCallback((userId, stream) => {
+    const normalizedUserId = String(userId);
+    const version = (remoteStreamVersionsRef.current.get(normalizedUserId) || 0) + 1;
+    remoteStreamVersionsRef.current.set(normalizedUserId, version);
     setRemoteStreams((current) => ({
       ...current,
-      [userId]: stream,
+      [normalizedUserId]: {
+        stream,
+        version,
+      },
     }));
   }, []);
 
   const cleanupPeer = useCallback((userId) => {
     const peer = peersRef.current.get(userId);
+    if (peer) {
+      peer.ontrack = null;
+      peer.onicecandidate = null;
+      peer.onsignalingstatechange = null;
+      peer.oniceconnectionstatechange = null;
+      peer.onconnectionstatechange = null;
+      peer.onnegotiationneeded = null;
+    }
     peer?.close();
     peersRef.current.delete(userId);
     pendingCandidatesRef.current.delete(userId);
+    processedCandidatesRef.current.delete(userId);
+    processedOffersRef.current.delete(userId);
+    processedAnswersRef.current.delete(userId);
+    makingOfferRef.current.delete(userId);
+    ignoredOfferRef.current.delete(userId);
+    restartingPeersRef.current.delete(userId);
+    window.clearTimeout(videoStallTimersRef.current.get(userId));
+    videoStallTimersRef.current.delete(userId);
     setPeerStatuses((current) => {
       const next = { ...current };
       delete next[userId];
@@ -205,12 +328,31 @@ export const CallProvider = ({ children }) => {
       delete next[userId];
       return next;
     });
+    negotiatingPeersRef.current.delete(userId);
   }, []);
 
   const cleanupAllPeers = useCallback(() => {
-    peersRef.current.forEach((peer) => peer.close());
+    peersRef.current.forEach((peer) => {
+      peer.ontrack = null;
+      peer.onicecandidate = null;
+      peer.onsignalingstatechange = null;
+      peer.oniceconnectionstatechange = null;
+      peer.onconnectionstatechange = null;
+      peer.onnegotiationneeded = null;
+      peer.close();
+    });
     peersRef.current.clear();
     pendingCandidatesRef.current.clear();
+    processedCandidatesRef.current.clear();
+    processedOffersRef.current.clear();
+    processedAnswersRef.current.clear();
+    makingOfferRef.current.clear();
+    ignoredOfferRef.current.clear();
+    negotiatingPeersRef.current.clear();
+    restartingPeersRef.current.clear();
+    videoStallTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    videoStallTimersRef.current.clear();
+    remoteStreamVersionsRef.current.clear();
     setRemoteStreams({});
     setPeerStatuses({});
   }, []);
@@ -219,10 +361,120 @@ export const CallProvider = ({ children }) => {
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     screenRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
+    cameraTrackRef.current = null;
     outboundVideoTrackRef.current = null;
     screenRef.current = null;
+    mediaRequestRef.current = null;
+    mediaKindRef.current = null;
     setLocalStream(null);
+    setIsScreenSharing(false);
+    setScreenSharers({});
   }, []);
+
+  const applyQueuedCandidates = useCallback(async (userId, peer) => {
+    const normalizedUserId = String(userId);
+    const queuedCandidates = pendingCandidatesRef.current.get(normalizedUserId) || [];
+
+    if (!peer?.remoteDescription || !queuedCandidates.length) {
+      return;
+    }
+
+    callLog("applying queued ICE candidates", {
+      fromUserId: normalizedUserId,
+      count: queuedCandidates.length,
+      signalingState: peer.signalingState,
+      connectionState: peer.connectionState,
+      iceConnectionState: peer.iceConnectionState,
+    });
+
+    for (const candidate of queuedCandidates) {
+      const candidateKey = getCandidateKey(candidate);
+      const processedSet =
+        processedCandidatesRef.current.get(normalizedUserId) || new Set();
+
+      if (processedSet.has(candidateKey)) {
+        callLog("skipping duplicate queued ICE candidate", {
+          fromUserId: normalizedUserId,
+          candidateKey,
+        });
+        continue;
+      }
+
+      try {
+        await peer.addIceCandidate(candidate);
+        processedSet.add(candidateKey);
+        processedCandidatesRef.current.set(normalizedUserId, processedSet);
+        callLog("queued ICE candidate applied", {
+          fromUserId: normalizedUserId,
+          ...getCandidateSummary(candidate),
+        });
+      } catch (candidateError) {
+        callLog("queued ICE candidate failed", {
+          fromUserId: normalizedUserId,
+          error: candidateError?.message || candidateError,
+        });
+      }
+    }
+
+    pendingCandidatesRef.current.delete(normalizedUserId);
+  }, []);
+
+  const negotiatePeer = useCallback(
+    async (targetUserId, options = {}) => {
+      const currentCall = activeCallRef.current;
+      const peer = peersRef.current.get(String(targetUserId));
+
+      if (!currentCall?.callId || !peer || peer.connectionState === "closed") {
+        return;
+      }
+
+      if (peer.signalingState !== "stable" || negotiatingPeersRef.current.has(String(targetUserId))) {
+        callLog("skipping negotiation while peer is not stable", {
+          targetUserId,
+          signalingState: peer.signalingState,
+        });
+        return;
+      }
+
+      negotiatingPeersRef.current.add(String(targetUserId));
+      makingOfferRef.current.set(String(targetUserId), true);
+      try {
+        const offer = await peer.createOffer(options);
+        callLog(options.iceRestart ? "offer created for ICE restart" : "offer created", {
+          targetUserId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
+        if (peer.signalingState !== "stable") {
+          callLog("offer discarded because signaling state changed", {
+            targetUserId,
+            signalingState: peer.signalingState,
+          });
+          return;
+        }
+        await peer.setLocalDescription(offer);
+        callLog("local offer set", {
+          targetUserId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
+        getChatSocket(token)?.emit("call:offer", {
+          callId: currentCall.callId,
+          targetUserId: String(targetUserId),
+          description: peer.localDescription || offer,
+          iceRestart: Boolean(options.iceRestart),
+        });
+      } catch (error) {
+        callLog("offer negotiation failed", { targetUserId, error });
+      } finally {
+        makingOfferRef.current.set(String(targetUserId), false);
+        negotiatingPeersRef.current.delete(String(targetUserId));
+      }
+    },
+    [token]
+  );
 
   const closeCallUi = useCallback(() => {
     stopRingtoneRef.current?.();
@@ -264,63 +516,259 @@ export const CallProvider = ({ children }) => {
     }
   }, []);
 
-  const getMedia = useCallback(async (callType) => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video:
-          callType === "video"
-            ? {
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-                frameRate: { ideal: 24, max: 30 },
-              }
-            : false,
-      });
-      localStreamRef.current = stream;
-      outboundVideoTrackRef.current = stream.getVideoTracks()[0] || null;
-      setLocalStream(stream);
-      return stream;
-    } catch (mediaError) {
-      setError(
-        callType === "video"
-          ? "Camera or microphone permission was denied."
-          : "Microphone permission was denied."
-      );
-      throw mediaError;
+  const attachLocalTrackHandlers = useCallback((track) => {
+    if (!track || track.__bugTrackerHandled) {
+      return;
     }
+
+    track.__bugTrackerHandled = true;
+    track.enabled = track.enabled !== false;
+    track.addEventListener?.("ended", () => {
+      callLog("local media track ended", {
+        kind: track.kind,
+        label: track.label,
+        readyState: track.readyState,
+      });
+      if (track.kind === "audio") {
+        setIsMuted(true);
+      }
+      if (track.kind === "video" && outboundVideoTrackRef.current === track) {
+        setIsCameraOff(true);
+      }
+    });
+    track.addEventListener?.("mute", () => {
+      callLog("local media track muted by browser", { kind: track.kind, label: track.label });
+    });
+    track.addEventListener?.("unmute", () => {
+      callLog("local media track unmuted by browser", { kind: track.kind, label: track.label });
+    });
   }, []);
+
+  const getMedia = useCallback(async (callType) => {
+    const needsVideo = callType === "video";
+    const existingStream = localStreamRef.current;
+    const existingHasAudio = hasLiveTrack(existingStream, "audio");
+    const existingHasVideo = hasLiveTrack(existingStream, "video");
+
+    if (existingHasAudio && (!needsVideo || existingHasVideo)) {
+      callLog("reusing existing local media", {
+        callType,
+        audioTracks: existingStream.getAudioTracks().length,
+        videoTracks: existingStream.getVideoTracks().length,
+      });
+      existingStream.getTracks().forEach(attachLocalTrackHandlers);
+      setLocalStream(new MediaStream(existingStream.getTracks().filter(isLiveTrack)));
+      return existingStream;
+    }
+
+    if (mediaRequestRef.current && mediaKindRef.current === callType) {
+      callLog("waiting for in-flight local media request", { callType });
+      return mediaRequestRef.current;
+    }
+
+    mediaKindRef.current = callType;
+    mediaRequestRef.current = (async () => {
+      try {
+        callLog("requesting local media", { callType, needsVideo });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: existingHasAudio
+            ? false
+            : {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              },
+          video:
+            needsVideo && !existingHasVideo
+              ? {
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                  frameRate: { ideal: 24, max: 30 },
+                }
+              : false,
+        });
+        const mergedStream = new MediaStream([
+          ...(existingStream?.getTracks().filter(isLiveTrack) || []),
+          ...stream.getTracks(),
+        ]);
+
+        mergedStream.getTracks().forEach((track) => {
+          attachLocalTrackHandlers(track);
+          callLog("local media track acquired", {
+            kind: track.kind,
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+            label: track.label,
+          });
+        });
+
+        localStreamRef.current = mergedStream;
+        cameraTrackRef.current = mergedStream.getVideoTracks().find(isLiveTrack) || null;
+        outboundVideoTrackRef.current =
+          isScreenSharing && screenRef.current?.getVideoTracks()[0]
+            ? screenRef.current.getVideoTracks()[0]
+            : cameraTrackRef.current;
+        setLocalStream(new MediaStream(mergedStream.getTracks().filter(isLiveTrack)));
+        return mergedStream;
+      } catch (mediaError) {
+        callLog("local media request failed", mediaError);
+        setError(
+          callType === "video"
+            ? "Camera or microphone permission was denied."
+            : "Microphone permission was denied."
+        );
+        throw mediaError;
+      } finally {
+        mediaRequestRef.current = null;
+        mediaKindRef.current = null;
+      }
+    })();
+
+    return mediaRequestRef.current;
+  }, [attachLocalTrackHandlers, isScreenSharing]);
 
   const createPeer = useCallback(
     ({ callId, targetUserId, stream }) => {
       const normalizedTargetId = String(targetUserId);
-      if (peersRef.current.has(normalizedTargetId)) {
-        return peersRef.current.get(normalizedTargetId);
+      const existingPeer = peersRef.current.get(normalizedTargetId);
+
+      if (existingPeer && existingPeer.connectionState !== "closed") {
+        callLog("reusing existing peer connection", {
+          targetUserId: normalizedTargetId,
+          signalingState: existingPeer.signalingState,
+          connectionState: existingPeer.connectionState,
+          iceConnectionState: existingPeer.iceConnectionState,
+        });
+        return existingPeer;
       }
 
+      if (existingPeer) {
+        callLog("discarding closed peer connection before recreate", {
+          targetUserId: normalizedTargetId,
+        });
+        cleanupPeer(normalizedTargetId);
+      }
+
+      callLog("creating peer connection", { callId, targetUserId: normalizedTargetId });
       const peer = new RTCPeerConnection(rtcConfig);
       const nextRemoteStream = new MediaStream();
       updateRemoteStream(normalizedTargetId, nextRemoteStream);
-      stream.getTracks().forEach((track) => {
+      stream?.getTracks().filter(isLiveTrack).forEach((track) => {
         const outboundTrack =
           track.kind === "video" ? outboundVideoTrackRef.current || track : track;
+        if (peer.getSenders().some((sender) => sender.track?.id === outboundTrack.id)) {
+          return;
+        }
+        callLog("adding local track to peer", {
+          targetUserId: normalizedTargetId,
+          kind: outboundTrack.kind,
+          readyState: outboundTrack.readyState,
+          enabled: outboundTrack.enabled,
+        });
         peer.addTrack(outboundTrack, stream);
       });
       peer.ontrack = (event) => {
-        event.streams?.[0]?.getTracks().forEach((track) => {
-          nextRemoteStream.addTrack(track);
+        callLog("track received", {
+          fromUserId: normalizedTargetId,
+          kind: event.track?.kind,
+          streams: event.streams?.length || 0,
+          readyState: event.track?.readyState,
         });
+        const incomingTracks = event.streams?.[0]?.getTracks()?.length
+          ? event.streams[0].getTracks()
+          : [event.track].filter(Boolean);
+        incomingTracks.forEach((track) => {
+          if (!nextRemoteStream.getTracks().some((item) => item.id === track.id)) {
+            nextRemoteStream.addTrack(track);
+          }
+          const refreshRemoteStream = () => {
+            updateRemoteStream(normalizedTargetId, nextRemoteStream);
+          };
+          track.addEventListener?.("unmute", () => {
+            callLog("remote track unmuted", { fromUserId: normalizedTargetId, kind: track.kind });
+            refreshRemoteStream();
+          });
+          track.addEventListener?.("mute", () => {
+            callLog("remote track muted", { fromUserId: normalizedTargetId, kind: track.kind });
+            refreshRemoteStream();
+          });
+          track.addEventListener?.("ended", () => {
+            callLog("remote track ended", {
+              fromUserId: normalizedTargetId,
+              kind: track.kind,
+              readyState: track.readyState,
+            });
+            refreshRemoteStream();
+            if (track.kind === "video") {
+              window.setTimeout(() => {
+                const stillMissing = !nextRemoteStream
+                  .getVideoTracks()
+                  .some((item) => item.readyState === "live" && !item.muted);
+                if (stillMissing && peer.connectionState !== "closed") {
+                  negotiatePeer(normalizedTargetId, { iceRestart: true });
+                }
+              }, 800);
+            }
+          });
+        });
+        updateRemoteStream(normalizedTargetId, nextRemoteStream);
       };
       peer.onicecandidate = (event) => {
         if (event.candidate) {
+          callLog("ICE candidate sent", {
+            targetUserId: normalizedTargetId,
+            ...getCandidateSummary(event.candidate),
+          });
           getChatSocket(token)?.emit("call:ice-candidate", {
             callId,
             targetUserId: normalizedTargetId,
             candidate: event.candidate,
+          });
+        }
+      };
+      const logSelectedCandidatePair = async () => {
+        try {
+          const stats = await peer.getStats();
+          let selectedPair = null;
+          stats.forEach((report) => {
+            if (report.type === "transport" && report.selectedCandidatePairId) {
+              selectedPair = stats.get(report.selectedCandidatePairId);
+            }
+            if (report.type === "candidate-pair" && report.selected) {
+              selectedPair = report;
+            }
+          });
+
+          if (!selectedPair) {
+            return;
+          }
+
+          const localCandidate = stats.get(selectedPair.localCandidateId);
+          const remoteCandidate = stats.get(selectedPair.remoteCandidateId);
+          callLog("selected ICE candidate pair", {
+            targetUserId: normalizedTargetId,
+            local: localCandidate
+              ? {
+                  candidateType: localCandidate.candidateType,
+                  protocol: localCandidate.protocol,
+                  address: localCandidate.address || localCandidate.ip,
+                  port: localCandidate.port,
+                }
+              : null,
+            remote: remoteCandidate
+              ? {
+                  candidateType: remoteCandidate.candidateType,
+                  protocol: remoteCandidate.protocol,
+                  address: remoteCandidate.address || remoteCandidate.ip,
+                  port: remoteCandidate.port,
+                }
+              : null,
+          });
+        } catch (statsError) {
+          callLog("selected ICE candidate pair lookup failed", {
+            targetUserId: normalizedTargetId,
+            error: statsError?.message || statsError,
           });
         }
       };
@@ -330,38 +778,71 @@ export const CallProvider = ({ children }) => {
         if (
           !currentCall?.callId ||
           peer.signalingState !== "stable" ||
-          peer.connectionState === "closed"
+          peer.connectionState === "closed" ||
+          restartingPeersRef.current.has(normalizedTargetId)
         ) {
           return;
         }
 
+        restartingPeersRef.current.add(normalizedTargetId);
         try {
+          await getMedia(currentCall.callType || "audio");
           peer.restartIce?.();
-          const offer = await peer.createOffer({ iceRestart: true });
-          await peer.setLocalDescription(offer);
-          getChatSocket(token)?.emit("call:offer", {
-            callId: currentCall.callId,
+          await negotiatePeer(normalizedTargetId, { iceRestart: true });
+        } catch (restartError) {
+          callLog("ICE restart failed", {
             targetUserId: normalizedTargetId,
-            description: offer,
-            iceRestart: true,
+            error: restartError?.message || restartError,
           });
-        } catch {
           cleanupPeer(normalizedTargetId);
+        } finally {
+          window.setTimeout(() => restartingPeersRef.current.delete(normalizedTargetId), 2500);
         }
+      };
+      peer.onnegotiationneeded = () => {
+        callLog("negotiationneeded", {
+          targetUserId: normalizedTargetId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
+        negotiatePeer(normalizedTargetId);
+      };
+      peer.onsignalingstatechange = () => {
+        callLog("signalingState changed", {
+          targetUserId: normalizedTargetId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
       };
       peer.oniceconnectionstatechange = () => {
         const state = peer.iceConnectionState;
+        callLog("iceConnectionState changed", {
+          targetUserId: normalizedTargetId,
+          iceConnectionState: state,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+        });
         setPeerStatuses((current) => ({
           ...current,
           [normalizedTargetId]: state,
         }));
 
-        if (state === "failed") {
+        if (["connected", "completed"].includes(state)) {
+          logSelectedCandidatePair();
+        } else if (["failed", "disconnected"].includes(state)) {
           restartIce();
         }
       };
       peer.onconnectionstatechange = () => {
         const state = peer.connectionState;
+        callLog("connectionState changed", {
+          targetUserId: normalizedTargetId,
+          connectionState: state,
+          iceConnectionState: peer.iceConnectionState,
+          signalingState: peer.signalingState,
+        });
         setPeerStatuses((current) => ({
           ...current,
           [normalizedTargetId]: state,
@@ -386,7 +867,7 @@ export const CallProvider = ({ children }) => {
       peersRef.current.set(normalizedTargetId, peer);
       return peer;
     },
-    [cleanupPeer, token, updateRemoteStream]
+    [cleanupPeer, getMedia, negotiatePeer, token, updateRemoteStream]
   );
 
   const startCall = useCallback(
@@ -512,49 +993,155 @@ export const CallProvider = ({ children }) => {
     setIsMuted(nextMuted);
   }, [isMuted]);
 
-  const toggleCamera = useCallback(() => {
+  const toggleCamera = useCallback(async () => {
     const nextOff = !isCameraOff;
-    localStreamRef.current?.getVideoTracks().forEach((track) => {
-      track.enabled = !nextOff;
-    });
+    let cameraTrack = cameraTrackRef.current || localStreamRef.current?.getVideoTracks()[0];
+
+    if (!cameraTrack && !nextOff) {
+      await getMedia("video");
+      cameraTrack = cameraTrackRef.current || localStreamRef.current?.getVideoTracks()[0];
+    }
+
+    if (cameraTrack) {
+      cameraTrack.enabled = !nextOff;
+      if (!nextOff && !isScreenSharing) {
+        outboundVideoTrackRef.current = cameraTrack;
+        peersRef.current.forEach((peer, targetUserId) => {
+          const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+          if (sender) {
+            sender.replaceTrack(cameraTrack).catch((replaceError) => {
+              callLog("camera replaceTrack failed", {
+                targetUserId,
+                error: replaceError?.message || replaceError,
+              });
+            });
+          } else {
+            peer.addTrack(cameraTrack, localStreamRef.current);
+            negotiatePeer(targetUserId);
+          }
+        });
+      }
+    }
     setIsCameraOff(nextOff);
-  }, [isCameraOff]);
+  }, [getMedia, isCameraOff, isScreenSharing, negotiatePeer]);
+
+  const stopScreenShare = useCallback(() => {
+    const call = activeCallRef.current;
+    const cameraTrack = cameraTrackRef.current || localStreamRef.current?.getVideoTracks()[0];
+
+    screenRef.current?.getTracks().forEach((track) => {
+      track.onended = null;
+      track.stop();
+    });
+    screenRef.current = null;
+    setIsScreenSharing(false);
+
+    if (cameraTrack) {
+      outboundVideoTrackRef.current = cameraTrack;
+      peersRef.current.forEach((peer, targetUserId) => {
+        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+        if (sender) {
+          sender.replaceTrack(cameraTrack).catch((replaceError) => {
+            callLog("restore camera replaceTrack failed", {
+              targetUserId,
+              error: replaceError?.message || replaceError,
+            });
+          });
+        } else {
+          peer.addTrack(cameraTrack, localStreamRef.current);
+          negotiatePeer(targetUserId);
+        }
+      });
+      setLocalStream(
+        new MediaStream(localStreamRef.current?.getTracks().filter(isLiveTrack) || [])
+      );
+    } else {
+      peersRef.current.forEach((peer, targetUserId) => {
+        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+        sender?.replaceTrack(null).catch((replaceError) => {
+          callLog("clear screen sender failed", {
+            targetUserId,
+            error: replaceError?.message || replaceError,
+          });
+        });
+      });
+    }
+
+    if (call?.callId) {
+      getChatSocket(token)?.emit("call:screen-share-stopped", { callId: call.callId });
+    }
+    callLog("screen share stopped");
+  }, [negotiatePeer, token]);
 
   const shareScreen = useCallback(async () => {
     if (!navigator.mediaDevices?.getDisplayMedia) {
       return;
     }
 
-    const displayStream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        frameRate: { ideal: 15, max: 24 },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-      },
-      audio: false,
-    });
-    screenRef.current = displayStream;
-    const screenTrack = displayStream.getVideoTracks()[0];
-    outboundVideoTrackRef.current = screenTrack || outboundVideoTrackRef.current;
+    if (isScreenSharing) {
+      stopScreenShare();
+      return;
+    }
 
-    peersRef.current.forEach((peer) => {
-      const sender = peer.getSenders().find((item) => item.track?.kind === "video");
-      if (sender && screenTrack) {
-        sender.replaceTrack(screenTrack);
-      }
-    });
-    screenTrack.onended = () => {
-      const cameraTrack = localStreamRef.current?.getVideoTracks()[0];
-      if (!cameraTrack) {
+    try {
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          cursor: "always",
+          frameRate: { ideal: 15, max: 24 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+      const screenTrack = displayStream.getVideoTracks()[0];
+      if (!screenTrack) {
         return;
       }
-      outboundVideoTrackRef.current = cameraTrack;
-      peersRef.current.forEach((peer) => {
-        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
-        sender?.replaceTrack(cameraTrack);
+
+      screenRef.current = displayStream;
+      outboundVideoTrackRef.current = screenTrack;
+      setIsScreenSharing(true);
+      callLog("screen share started", {
+        label: screenTrack.label,
+        readyState: screenTrack.readyState,
       });
-    };
-  }, []);
+
+      const replacementPromises = [];
+      peersRef.current.forEach((peer, targetUserId) => {
+        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+        if (sender) {
+          replacementPromises.push(
+            sender.replaceTrack(screenTrack).catch((replaceError) => {
+              callLog("screen replaceTrack failed", {
+                targetUserId,
+                error: replaceError?.message || replaceError,
+              });
+            })
+          );
+        } else {
+          peer.addTrack(screenTrack, localStreamRef.current || displayStream);
+          negotiatePeer(targetUserId);
+        }
+      });
+      await Promise.all(replacementPromises);
+      setLocalStream(
+        new MediaStream([
+          ...(localStreamRef.current?.getAudioTracks().filter(isLiveTrack) || []),
+          screenTrack,
+        ])
+      );
+
+      const call = activeCallRef.current;
+      if (call?.callId) {
+        getChatSocket(token)?.emit("call:screen-share-started", { callId: call.callId });
+      }
+
+      screenTrack.onended = stopScreenShare;
+    } catch (screenError) {
+      callLog("screen share failed", screenError);
+      setError("Screen sharing could not be started.");
+    }
+  }, [isScreenSharing, negotiatePeer, stopScreenShare, token]);
 
   const toggleRaiseHand = useCallback(() => {
     const call = activeCallRef.current;
@@ -650,14 +1237,8 @@ export const CallProvider = ({ children }) => {
 
       const stream = localStreamRef.current || (await getMedia(currentCall.callType));
       const targetUserId = getId(currentCall.peer);
-      const peer = createPeer({ callId: payload.callId, targetUserId, stream });
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      socket.emit("call:offer", {
-        callId: payload.callId,
-        targetUserId,
-        description: offer,
-      });
+      createPeer({ callId: payload.callId, targetUserId, stream });
+      await negotiatePeer(targetUserId);
       setActiveCall({ ...currentCall, status: "connected", startedAt: payload.startTime });
     };
     const handleJoined = (payload) => {
@@ -672,6 +1253,22 @@ export const CallProvider = ({ children }) => {
         status: "connected",
         startedAt: payload.call.startTime || currentCall.startedAt,
       });
+      window.setTimeout(async () => {
+        const stream = localStreamRef.current || (await getMedia(currentCall.callType));
+        (payload.existingParticipantIds || [])
+          .map(String)
+          .filter((participantId) => participantId && participantId !== getId(user))
+          .forEach((participantId) => {
+            if (!peersRef.current.has(participantId)) {
+              createPeer({
+                callId: payload.call.callId,
+                targetUserId: participantId,
+                stream,
+              });
+              negotiatePeer(participantId);
+            }
+          });
+      }, 1500);
     };
     const handleParticipantJoined = async (payload) => {
       const currentCall = activeCallRef.current;
@@ -686,76 +1283,234 @@ export const CallProvider = ({ children }) => {
       }
 
       const stream = localStreamRef.current || (await getMedia(currentCall.callType));
-      const peer = createPeer({
+      createPeer({
         callId: currentCall.callId,
         targetUserId: joinedUserId,
         stream,
       });
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      socket.emit("call:offer", {
-        callId: currentCall.callId,
-        targetUserId: joinedUserId,
-        description: offer,
-      });
+      await negotiatePeer(joinedUserId);
     };
     const handleParticipantLeft = (payload) => {
       cleanupPeer(String(payload.userId || ""));
     };
     const handleOffer = async (payload) => {
       const currentCall = activeCallRef.current;
-      if (!currentCall || currentCall.callId !== payload.callId) {
+      if (!currentCall || currentCall.callId !== payload.callId || payload.description?.type !== "offer") {
         return;
       }
 
       const fromUserId = String(payload.fromUserId);
+      const descriptionKey = getDescriptionKey(payload.description);
+      const processedOfferSet = processedOffersRef.current.get(fromUserId) || new Set();
+
+      if (processedOfferSet.has(descriptionKey)) {
+        callLog("skipping duplicate offer", {
+          fromUserId,
+          signalingState: peersRef.current.get(fromUserId)?.signalingState,
+          connectionState: peersRef.current.get(fromUserId)?.connectionState,
+          iceConnectionState: peersRef.current.get(fromUserId)?.iceConnectionState,
+        });
+        return;
+      }
+      processedOfferSet.add(descriptionKey);
+      processedOffersRef.current.set(fromUserId, processedOfferSet);
+
       const stream = localStreamRef.current || (await getMedia(currentCall.callType));
       const peer = createPeer({
         callId: payload.callId,
         targetUserId: fromUserId,
         stream,
       });
-      if (peer.signalingState !== "stable") {
-        await Promise.all([
-          peer.setLocalDescription({ type: "rollback" }).catch(() => {}),
-        ]);
+      const isPolite = getId(user).localeCompare(fromUserId) < 0;
+      const offerCollision =
+        makingOfferRef.current.get(fromUserId) || peer.signalingState !== "stable";
+
+      ignoredOfferRef.current.set(fromUserId, !isPolite && offerCollision);
+      if (ignoredOfferRef.current.get(fromUserId)) {
+        callLog("ignoring offer collision from impolite peer", {
+          fromUserId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
+        return;
       }
+
+      if (offerCollision) {
+        callLog("rolling back local description before applying offer", {
+          fromUserId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
+        await peer.setLocalDescription({ type: "rollback" }).catch((rollbackError) => {
+          callLog("rollback before offer failed", {
+            fromUserId,
+            error: rollbackError?.message || rollbackError,
+          });
+        });
+      }
+      callLog("setRemoteDescription(offer) starting", {
+        fromUserId,
+        signalingState: peer.signalingState,
+        connectionState: peer.connectionState,
+        iceConnectionState: peer.iceConnectionState,
+        iceRestart: Boolean(payload.iceRestart),
+      });
       await peer.setRemoteDescription(payload.description);
-      const pendingCandidates = pendingCandidatesRef.current.get(fromUserId) || [];
-      await Promise.all(
-        pendingCandidates.map((candidate) => peer.addIceCandidate(candidate).catch(() => {}))
-      );
-      pendingCandidatesRef.current.delete(fromUserId);
+      callLog("remote description set", {
+        fromUserId,
+        type: payload.description?.type,
+        signalingState: peer.signalingState,
+        connectionState: peer.connectionState,
+        iceConnectionState: peer.iceConnectionState,
+        iceRestart: Boolean(payload.iceRestart),
+      });
+      await applyQueuedCandidates(fromUserId, peer);
+      if (peer.signalingState !== "have-remote-offer") {
+        callLog("skipping answer because offer was not applied", {
+          fromUserId,
+          signalingState: peer.signalingState,
+        });
+        return;
+      }
       const answer = await peer.createAnswer();
+      callLog("answer created", {
+        targetUserId: fromUserId,
+        signalingState: peer.signalingState,
+      });
       await peer.setLocalDescription(answer);
+      callLog("local answer set", {
+        targetUserId: fromUserId,
+        signalingState: peer.signalingState,
+        connectionState: peer.connectionState,
+        iceConnectionState: peer.iceConnectionState,
+      });
       socket.emit("call:answer", {
         callId: payload.callId,
         targetUserId: fromUserId,
-        description: answer,
+        description: peer.localDescription || answer,
       });
       setActiveCall({ ...currentCall, status: "connected", startedAt: payload.startTime });
     };
     const handleAnswer = async (payload) => {
+      if (payload.description?.type !== "answer") {
+        return;
+      }
+
       const fromUserId = String(payload.fromUserId);
       const peer = peersRef.current.get(fromUserId);
-      if (peer && activeCallRef.current?.callId === payload.callId) {
-        await peer.setRemoteDescription(payload.description);
-        const pendingCandidates = pendingCandidatesRef.current.get(fromUserId) || [];
-        await Promise.all(
-          pendingCandidates.map((candidate) => peer.addIceCandidate(candidate).catch(() => {}))
-        );
-        pendingCandidatesRef.current.delete(fromUserId);
+
+      if (!peer || activeCallRef.current?.callId !== payload.callId) {
+        return;
       }
+
+      const descriptionKey = getDescriptionKey(payload.description);
+      const processedAnswerSet = processedAnswersRef.current.get(fromUserId) || new Set();
+
+      if (processedAnswerSet.has(descriptionKey)) {
+        callLog("skipping duplicate answer", {
+          fromUserId,
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+        });
+        return;
+      }
+
+      if (peer.signalingState !== "have-local-offer") {
+        callLog("skipping answer in wrong signaling state", {
+          fromUserId,
+          expected: "have-local-offer",
+          signalingState: peer.signalingState,
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+          descriptionType: payload.description?.type,
+        });
+        return;
+      }
+      processedAnswerSet.add(descriptionKey);
+      processedAnswersRef.current.set(fromUserId, processedAnswerSet);
+
+      callLog("setRemoteDescription(answer) starting", {
+        fromUserId,
+        signalingState: peer.signalingState,
+        connectionState: peer.connectionState,
+        iceConnectionState: peer.iceConnectionState,
+      });
+      await peer.setRemoteDescription(payload.description);
+      callLog("remote description set", {
+        fromUserId,
+        type: payload.description?.type,
+        signalingState: peer.signalingState,
+        connectionState: peer.connectionState,
+        iceConnectionState: peer.iceConnectionState,
+      });
+      await applyQueuedCandidates(fromUserId, peer);
     };
     const handleCandidate = async (payload) => {
+      if (!payload.candidate || activeCallRef.current?.callId !== payload.callId) {
+        return;
+      }
+
       const fromUserId = String(payload.fromUserId);
+      if (ignoredOfferRef.current.get(fromUserId)) {
+        callLog("skipping ICE candidate for ignored offer", { fromUserId });
+        return;
+      }
       const candidate = new RTCIceCandidate(payload.candidate);
+      const candidateKey = getCandidateKey(payload.candidate);
+      const processedSet = processedCandidatesRef.current.get(fromUserId) || new Set();
       const peer = peersRef.current.get(fromUserId);
+
+      if (processedSet.has(candidateKey)) {
+        callLog("skipping duplicate ICE candidate", {
+          fromUserId,
+          candidateKey,
+        });
+        return;
+      }
+
+      callLog("ICE candidate received", {
+        fromUserId,
+        ...getCandidateSummary(payload.candidate),
+        signalingState: peer?.signalingState,
+        connectionState: peer?.connectionState,
+        iceConnectionState: peer?.iceConnectionState,
+      });
       if (peer?.remoteDescription) {
-        await peer.addIceCandidate(candidate).catch(() => {});
+        try {
+          await peer.addIceCandidate(candidate);
+          processedSet.add(candidateKey);
+          processedCandidatesRef.current.set(fromUserId, processedSet);
+          callLog("ICE candidate applied", {
+            fromUserId,
+            ...getCandidateSummary(payload.candidate),
+          });
+        } catch (candidateError) {
+          callLog("ICE candidate apply failed", {
+            fromUserId,
+            error: candidateError?.message || candidateError,
+          });
+        }
       } else {
+        const pendingCandidates = pendingCandidatesRef.current.get(fromUserId) || [];
+
+        if (pendingCandidates.some((item) => getCandidateKey(item) === candidateKey)) {
+          callLog("skipping duplicate pending ICE candidate", {
+            fromUserId,
+            candidateKey,
+          });
+          return;
+        }
+
+        callLog("queueing ICE candidate until remoteDescription is set", {
+          fromUserId,
+          ...getCandidateSummary(payload.candidate),
+          queuedCount: pendingCandidates.length + 1,
+        });
         pendingCandidatesRef.current.set(fromUserId, [
-          ...(pendingCandidatesRef.current.get(fromUserId) || []),
+          ...pendingCandidates,
           candidate,
         ]);
       }
@@ -765,6 +1520,19 @@ export const CallProvider = ({ children }) => {
         ...current,
         [String(payload.userId)]: Boolean(payload.raised),
       }));
+    };
+    const handleScreenShareStarted = (payload = {}) => {
+      setScreenSharers((current) => ({
+        ...current,
+        [String(payload.userId)]: true,
+      }));
+    };
+    const handleScreenShareStopped = (payload = {}) => {
+      setScreenSharers((current) => {
+        const next = { ...current };
+        delete next[String(payload.userId)];
+        return next;
+      });
     };
     const handleEnded = (payload = {}) => {
       if (payload.conversationId) {
@@ -784,7 +1552,52 @@ export const CallProvider = ({ children }) => {
       }
       closeCallUi();
     };
+    const handleSocketReconnect = async () => {
+      const currentCall = activeCallRef.current;
 
+      if (!currentCall?.callId) {
+        return;
+      }
+
+      callLog("socket reconnected during call", {
+        callId: currentCall.callId,
+        scope: currentCall.scope,
+        peerCount: peersRef.current.size,
+      });
+
+      if (currentCall.scope === "group") {
+        socket.emit("call:join", { callId: currentCall.callId });
+      }
+
+      const stream = await getMedia(currentCall.callType || "audio").catch(() => null);
+      peersRef.current.forEach((peer, targetUserId) => {
+        stream?.getTracks().filter(isLiveTrack).forEach((track) => {
+          const sender = peer.getSenders().find((item) => item.track?.kind === track.kind);
+          const outboundTrack =
+            track.kind === "video" ? outboundVideoTrackRef.current || track : track;
+          if (sender && sender.track?.id !== outboundTrack.id) {
+            sender.replaceTrack(outboundTrack).catch((replaceError) => {
+              callLog("reconnect replaceTrack failed", {
+                targetUserId,
+                kind: outboundTrack.kind,
+                error: replaceError?.message || replaceError,
+              });
+            });
+          } else if (!sender) {
+            peer.addTrack(outboundTrack, stream);
+            negotiatePeer(targetUserId);
+          }
+        });
+        if (
+          ["disconnected", "failed"].includes(peer.connectionState) ||
+          ["disconnected", "failed"].includes(peer.iceConnectionState)
+        ) {
+          negotiatePeer(targetUserId, { iceRestart: true });
+        }
+      });
+    };
+
+    socket.on("connect", handleSocketReconnect);
     socket.on("call:incoming", handleIncomingCall);
     socket.on("call:outgoing", handleOutgoingCall);
     socket.on("call:channel-active", handleChannelActive);
@@ -798,6 +1611,8 @@ export const CallProvider = ({ children }) => {
     socket.on("call:answer", handleAnswer);
     socket.on("call:ice-candidate", handleCandidate);
     socket.on("call:raise-hand", handleRaiseHand);
+    socket.on("call:screen-share-started", handleScreenShareStarted);
+    socket.on("call:screen-share-stopped", handleScreenShareStopped);
     socket.on("call:ended", handleEnded);
     socket.on("call:rejected", handleEnded);
     socket.on("call:missed", handleMissed);
@@ -817,16 +1632,21 @@ export const CallProvider = ({ children }) => {
       socket.off("call:answer", handleAnswer);
       socket.off("call:ice-candidate", handleCandidate);
       socket.off("call:raise-hand", handleRaiseHand);
+      socket.off("call:screen-share-started", handleScreenShareStarted);
+      socket.off("call:screen-share-stopped", handleScreenShareStopped);
       socket.off("call:ended", handleEnded);
       socket.off("call:rejected", handleEnded);
       socket.off("call:missed", handleMissed);
       socket.off("call:left", handleEnded);
+      socket.off("connect", handleSocketReconnect);
     };
   }, [
+    applyQueuedCandidates,
     cleanupPeer,
     closeCallUi,
     createPeer,
     getMedia,
+    negotiatePeer,
     notifyIncomingCall,
     token,
     user,
@@ -883,6 +1703,30 @@ export const CallProvider = ({ children }) => {
     (!isGroupCall ||
       getId(activeCall.createdBy || activeCall.callerId) === getId(user) ||
       ["Admin", "Manager"].includes(user?.role));
+  const joinedParticipantCount =
+    participants.filter((item) => item.status === "Joined").length ||
+    (remoteEntries.length + (activeCall ? 1 : 0));
+  const stageTileCount = Math.max(1, remoteEntries.length || 1);
+  const stageGridClass =
+    stageTileCount === 1
+      ? "grid-cols-1"
+      : stageTileCount === 2
+        ? "grid-cols-1 md:grid-cols-2"
+        : stageTileCount <= 4
+          ? "grid-cols-1 sm:grid-cols-2"
+          : stageTileCount <= 9
+            ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+            : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+  const getConnectionLabel = (userId) => {
+    const status = peerStatuses[userId];
+    if (["connected", "completed"].includes(status)) {
+      return "Good";
+    }
+    if (["failed", "disconnected"].includes(status)) {
+      return "Reconnecting";
+    }
+    return "Connecting";
+  };
 
   return (
     <CallContext.Provider value={value}>
@@ -950,51 +1794,78 @@ export const CallProvider = ({ children }) => {
               </Button>
             </div>
 
-            <div ref={stageRef} className="grid min-h-0 flex-1 bg-slate-900 lg:grid-cols-[1fr_260px]">
+            <div ref={stageRef} className="relative min-h-0 flex-1 overflow-hidden bg-slate-900">
               <div
                 className={cn(
-                  "grid min-h-0 gap-3 p-3",
-                  isGroupCall
-                    ? "auto-rows-fr grid-cols-1 sm:grid-cols-2 xl:grid-cols-3"
-                    : "grid-cols-1"
+                  "relative grid h-full min-h-0 gap-2 overflow-y-auto p-2 sm:gap-3 sm:p-3",
+                  remoteEntries.length ? stageGridClass : "grid-cols-1"
                 )}
               >
-                <div className="relative min-h-[180px] overflow-hidden rounded-2xl border border-white/10 bg-slate-800">
-                  {localStream && activeCall.callType === "video" ? (
+                <div
+                  className={cn(
+                    "relative min-h-[240px] overflow-hidden rounded-lg border border-white/10 bg-slate-800",
+                    !remoteEntries.length && "min-h-full",
+                    remoteEntries.length &&
+                      "absolute bottom-4 right-4 z-20 h-28 min-h-0 w-40 shadow-2xl sm:h-36 sm:w-56"
+                  )}
+                >
+                  {localStream && !isCameraOff ? (
                     <LocalVideo stream={localStream} />
                   ) : (
                     <div className="flex h-full flex-col items-center justify-center">
-                      <Avatar className="h-20 w-20 rounded-[28px] border border-white/15">
+                      <Avatar className="h-20 w-20 rounded-lg border border-white/15">
                         <AvatarFallback className="bg-blue-500 text-2xl text-white">
                           {getInitials(user?.name)}
                         </AvatarFallback>
                       </Avatar>
                     </div>
                   )}
-                  <span className="absolute bottom-3 left-3 rounded-full bg-black/55 px-3 py-1 text-xs font-bold">
+                  <span className="absolute bottom-3 left-3 max-w-[75%] truncate rounded-full bg-black/60 px-3 py-1 text-xs font-bold">
                     You {isMuted ? "· muted" : ""}
                   </span>
+                  {isScreenSharing ? (
+                    <span className="absolute right-2 top-2 rounded-full bg-emerald-400 px-2 py-1 text-[10px] font-black uppercase text-slate-950">
+                      Sharing
+                    </span>
+                  ) : null}
                 </div>
 
                 {remoteEntries.length ? (
-                  remoteEntries.map(([userId, stream]) => {
+                  remoteEntries.map(([userId, remoteMedia]) => {
+                    const stream = remoteMedia?.stream || remoteMedia;
                     const participant = participantById.get(userId);
-                    const userName = participant?.user?.name || "Participant";
+                    const userName =
+                      participant?.user?.name ||
+                      (!isGroupCall ? activeCall.peer?.name : "") ||
+                      "Participant";
 
                     return (
                       <div
                         key={userId}
                         className={cn(
-                          "relative min-h-[180px] overflow-hidden rounded-2xl border bg-slate-800",
-                          raisedHands[userId] ? "border-amber-300" : "border-white/10"
+                          "relative min-h-[210px] overflow-hidden rounded-lg border bg-slate-800 shadow-lg",
+                          stageTileCount === 1 && "min-h-full",
+                          raisedHands[userId] ||
+                            ["connected", "completed"].includes(peerStatuses[userId])
+                            ? "border-emerald-300/70"
+                            : "border-white/10"
                         )}
                       >
-                        <RemoteMedia stream={stream} muted={isSpeakerOff} />
-                        <span className="absolute bottom-3 left-3 rounded-full bg-black/55 px-3 py-1 text-xs font-bold">
-                          {userName}
+                        <RemoteMedia
+                          key={`${userId}-${remoteMedia?.version || 0}`}
+                          stream={stream}
+                          muted={isSpeakerOff}
+                          onVideoStalled={() => negotiatePeer(userId, { iceRestart: true })}
+                        />
+                        <div className="absolute bottom-3 left-3 flex max-w-[75%] items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs font-bold">
+                          <span className="truncate">{userName}</span>
+                          {screenSharers[userId] ? <MonitorUp className="h-3.5 w-3.5" /> : null}
+                        </div>
+                        <span className="absolute right-3 top-3 rounded-full bg-black/55 px-2 py-1 text-[10px] font-black uppercase text-white/70">
+                          {getConnectionLabel(userId)}
                         </span>
                         {raisedHands[userId] ? (
-                          <span className="absolute right-3 top-3 rounded-full bg-amber-400 px-2 py-1 text-xs font-black text-slate-950">
+                          <span className="absolute right-3 top-11 rounded-full bg-amber-400 px-2 py-1 text-xs font-black text-slate-950">
                             Hand
                           </span>
                         ) : null}
@@ -1002,13 +1873,13 @@ export const CallProvider = ({ children }) => {
                     );
                   })
                 ) : (
-                  <div className="flex min-h-[180px] items-center justify-center rounded-2xl border border-dashed border-white/15 bg-slate-800/70 px-6 text-center text-sm font-semibold text-white/55">
+                  <div className="hidden">
                     {isGroupCall ? "Waiting for participants to join" : "Waiting for remote media"}
                   </div>
                 )}
               </div>
 
-              {isGroupCall ? (
+              {false && isGroupCall ? (
                 <aside className="hidden border-l border-white/10 bg-slate-950/70 p-4 lg:block">
                   <div className="flex items-center gap-2 text-sm font-extrabold">
                     <UsersRound className="h-4 w-4" />
@@ -1056,7 +1927,6 @@ export const CallProvider = ({ children }) => {
                 onClick={toggleCamera}
                 title="Toggle camera"
                 aria-label="Toggle camera"
-                disabled={activeCall.callType !== "video"}
               >
                 {isCameraOff ? <CameraOff className="h-5 w-5" /> : <Camera className="h-5 w-5" />}
               </Button>
@@ -1068,7 +1938,6 @@ export const CallProvider = ({ children }) => {
                 onClick={shareScreen}
                 title="Share screen"
                 aria-label="Share screen"
-                disabled={activeCall.callType !== "video"}
               >
                 <MonitorUp className="h-5 w-5" />
               </Button>
