@@ -204,7 +204,9 @@ const IssueDetailsDialog = ({
   }, [issue]);
 
   useEffect(() => {
-    if (!previewAttachment) {
+    const issueId = issue?._id;
+
+    if (!issueId || !previewAttachment) {
       return undefined;
     }
 
@@ -217,7 +219,7 @@ const IssueDetailsDialog = ({
       setPreviewLoadingId(previewAttachment._id);
 
       try {
-        const blob = await fetchAttachmentBlob(previewAttachment, issue._id);
+        const blob = await fetchAttachmentBlob(previewAttachment, issueId);
         objectUrl = URL.createObjectURL(blob);
 
         if (isCurrent) {
@@ -245,7 +247,7 @@ const IssueDetailsDialog = ({
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [issue._id, previewAttachment]);
+  }, [issue?._id, previewAttachment]);
 
   useEffect(() => {
     if (!open) {
