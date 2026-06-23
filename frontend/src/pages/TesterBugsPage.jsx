@@ -593,60 +593,63 @@ const TesterBugsPage = () => {
         }
       />
       <Dialog open={Boolean(deleteCandidate)} onOpenChange={(open) => !open && setDeleteCandidate(null)}>
-        <DialogContent className="max-w-sm gap-0 rounded-[22px] border-rose-100 p-0 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.5)]">
-          <DialogHeader className="space-y-2.5 border-b border-slate-100 px-5 pb-3.5 pt-5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600">
+        <DialogContent className="max-w-2xl gap-0 rounded-[22px] border-rose-100 p-0 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.5)]">
+          <div className="grid gap-4 px-5 pb-4 pt-5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-start sm:pr-14">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 sm:mt-0.5">
               <AlertTriangle className="h-4 w-4" />
             </div>
-            <div className="space-y-1.5">
-              <DialogTitle className="text-lg">Delete Bug</DialogTitle>
-              <DialogDescription className="leading-5">
-                Are you sure you want to delete this bug? This action cannot be undone.
-              </DialogDescription>
-            </div>
-          </DialogHeader>
 
-          <div className="px-5 py-3.5">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-              <p className="text-xs font-semibold uppercase text-slate-500">Bug</p>
-              <p className="mt-1 line-clamp-2 text-sm font-semibold text-slate-950">
-                {deleteCandidate?.title || getIssueDisplayKey(deleteCandidate) || "Selected bug"}
-              </p>
+            <div className="min-w-0 space-y-3">
+              <DialogHeader className="space-y-1.5">
+                <DialogTitle className="text-lg">Delete Bug</DialogTitle>
+                <DialogDescription className="leading-5">
+                  Are you sure you want to delete this bug? This action cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <p className="text-xs font-semibold uppercase text-slate-500">Bug</p>
+                  <p className="mt-1 truncate text-sm font-semibold text-slate-950">
+                    {deleteCandidate?.title || getIssueDisplayKey(deleteCandidate) || "Selected bug"}
+                  </p>
+                </div>
+
+                <DialogFooter className="gap-2 sm:flex-row sm:justify-end">
+                  <Button
+                    className="h-9 rounded-xl px-4"
+                    type="button"
+                    variant="outline"
+                    disabled={deleteIssueMutation.isPending}
+                    onClick={() => setDeleteCandidate(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="h-9 rounded-xl px-4"
+                    type="button"
+                    variant="destructive"
+                    disabled={deleteIssueMutation.isPending || !deleteCandidate?._id}
+                    onClick={async () => {
+                      if (!deleteCandidate?._id) {
+                        return;
+                      }
+
+                      await deleteIssueMutation.mutateAsync(deleteCandidate._id);
+                      setDeleteCandidate(null);
+                    }}
+                  >
+                    {deleteIssueMutation.isPending ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                    {deleteIssueMutation.isPending ? "Deleting..." : "Delete Bug"}
+                  </Button>
+                </DialogFooter>
+              </div>
             </div>
           </div>
-
-          <DialogFooter className="gap-2 border-t border-slate-100 px-5 py-3.5 sm:justify-end">
-            <Button
-              className="h-9 rounded-xl px-4"
-              type="button"
-              variant="outline"
-              disabled={deleteIssueMutation.isPending}
-              onClick={() => setDeleteCandidate(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="h-9 rounded-xl px-4"
-              type="button"
-              variant="destructive"
-              disabled={deleteIssueMutation.isPending || !deleteCandidate?._id}
-              onClick={async () => {
-                if (!deleteCandidate?._id) {
-                  return;
-                }
-
-                await deleteIssueMutation.mutateAsync(deleteCandidate._id);
-                setDeleteCandidate(null);
-              }}
-            >
-              {deleteIssueMutation.isPending ? (
-                <LoaderCircle className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
-              {deleteIssueMutation.isPending ? "Deleting..." : "Delete Bug"}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
       <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
