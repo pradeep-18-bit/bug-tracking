@@ -526,6 +526,50 @@ const IssueDetailsDialog = ({
         </Button>
       </div>
 
+      {previewAttachment ? (
+        <div className="rounded-[20px] border border-blue-100 bg-blue-50/50 p-3 shadow-sm">
+          <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-gray-900">
+                {previewAttachment.fileName || "Image preview"}
+              </p>
+              <p className="text-xs text-gray-500">Preview</p>
+            </div>
+            <Button
+              className="h-8 rounded-lg px-3 text-xs"
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setPreviewAttachment(null);
+                setPreviewError("");
+                setPreviewImageUrl("");
+              }}
+            >
+              Close
+            </Button>
+          </div>
+
+          {previewLoadingId === previewAttachment._id ? (
+            <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-blue-100 bg-white text-sm text-gray-500">
+              <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+              Loading preview
+            </div>
+          ) : previewError ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-6 text-sm text-rose-700">
+              {previewError}
+            </div>
+          ) : previewImageUrl ? (
+            <div className="max-h-[62vh] overflow-auto rounded-2xl border border-blue-100 bg-white p-2">
+              <img
+                alt={previewAttachment.fileName || "Attachment preview"}
+                className="mx-auto max-h-[58vh] max-w-full rounded-xl object-contain"
+                src={previewImageUrl}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="space-y-3">
         {isAttachmentsLoading ? (
           <Skeleton className="h-16 w-full" />
