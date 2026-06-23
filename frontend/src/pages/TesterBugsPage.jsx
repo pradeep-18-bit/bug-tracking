@@ -593,21 +593,21 @@ const TesterBugsPage = () => {
         }
       />
       <Dialog open={Boolean(deleteCandidate)} onOpenChange={(open) => !open && setDeleteCandidate(null)}>
-        <DialogContent className="max-w-md rounded-[28px] border-rose-100 p-0 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.5)]">
-          <DialogHeader className="space-y-3 border-b border-slate-100 px-6 pb-4 pt-6">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 text-rose-600">
-              <AlertTriangle className="h-5 w-5" />
+        <DialogContent className="max-w-sm gap-0 rounded-[22px] border-rose-100 p-0 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.5)]">
+          <DialogHeader className="space-y-2.5 border-b border-slate-100 px-5 pb-3.5 pt-5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600">
+              <AlertTriangle className="h-4 w-4" />
             </div>
-            <div className="space-y-2">
-              <DialogTitle>Delete Bug</DialogTitle>
-              <DialogDescription>
+            <div className="space-y-1.5">
+              <DialogTitle className="text-lg">Delete Bug</DialogTitle>
+              <DialogDescription className="leading-5">
                 Are you sure you want to delete this bug? This action cannot be undone.
               </DialogDescription>
             </div>
           </DialogHeader>
 
-          <div className="px-6 py-4">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <div className="px-5 py-3.5">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
               <p className="text-xs font-semibold uppercase text-slate-500">Bug</p>
               <p className="mt-1 line-clamp-2 text-sm font-semibold text-slate-950">
                 {deleteCandidate?.title || getIssueDisplayKey(deleteCandidate) || "Selected bug"}
@@ -615,8 +615,9 @@ const TesterBugsPage = () => {
             </div>
           </div>
 
-          <DialogFooter className="border-t border-slate-100 px-6 py-4">
+          <DialogFooter className="gap-2 border-t border-slate-100 px-5 py-3.5 sm:justify-end">
             <Button
+              className="h-9 rounded-xl px-4"
               type="button"
               variant="outline"
               disabled={deleteIssueMutation.isPending}
@@ -625,6 +626,7 @@ const TesterBugsPage = () => {
               Cancel
             </Button>
             <Button
+              className="h-9 rounded-xl px-4"
               type="button"
               variant="destructive"
               disabled={deleteIssueMutation.isPending || !deleteCandidate?._id}
