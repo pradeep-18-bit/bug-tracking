@@ -428,8 +428,7 @@ const isBugReportedAndUnpicked = (issue) => {
       BUG_STATUS.OPEN,
       BUG_STATUS.TRIAGED,
     ].includes(status) &&
-    !getBugDeveloperAssignmentId(issue) &&
-    !issue.startedAt
+    !getBugDeveloperAssignmentId(issue)
   );
 };
 
