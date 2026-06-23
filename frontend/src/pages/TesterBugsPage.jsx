@@ -285,12 +285,20 @@ const TesterBugsPage = () => {
 
   const deleteIssueMutation = useMutation({
     mutationFn: deleteIssue,
-    onSuccess: () => {
+    onSuccess: (_data, deletedIssueId) => {
+      queryClient.setQueryData(["issues", "tester-bugs", testerId], (current = []) =>
+        Array.isArray(current)
+          ? current.filter((issue) => String(issue?._id || "") !== String(deletedIssueId))
+          : current
+      );
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       showToast("success", "Bug deleted successfully.");
-      setSelectedIssue(null);
+      setDeleteCandidate(null);
+      setSelectedIssue((current) =>
+        String(current?._id || "") === String(deletedIssueId) ? null : current
+      );
     },
     onError: (error) => {
       showToast("error", error.response?.data?.message || "Unable to delete bug.");
@@ -369,6 +377,18 @@ const TesterBugsPage = () => {
         block: "start",
       });
     });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteCandidate?._id || deleteIssueMutation.isPending) {
+      return;
+    }
+
+    try {
+      await deleteIssueMutation.mutateAsync(deleteCandidate._id);
+    } catch (error) {
+      // The mutation onError shows the toast and keeps the dialog open.
+    }
   };
 
   const error = projectsError || issuesError;
@@ -630,14 +650,7 @@ const TesterBugsPage = () => {
                     type="button"
                     variant="destructive"
                     disabled={deleteIssueMutation.isPending || !deleteCandidate?._id}
-                    onClick={async () => {
-                      if (!deleteCandidate?._id) {
-                        return;
-                      }
-
-                      await deleteIssueMutation.mutateAsync(deleteCandidate._id);
-                      setDeleteCandidate(null);
-                    }}
+                    onClick={handleConfirmDelete}
                   >
                     {deleteIssueMutation.isPending ? (
                       <LoaderCircle className="h-4 w-4 animate-spin" />
