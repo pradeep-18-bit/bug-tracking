@@ -834,7 +834,6 @@ const DashboardPage = () => {
     );
   }
 
-  const mainKpiCards = kpiCards.filter((c) => c.key !== "closed" && c.key !== "rate");
   const headerKpiCards = kpiCards.filter((c) => c.key === "closed" || c.key === "rate");
 
   return (
@@ -902,21 +901,6 @@ const DashboardPage = () => {
           </div>
         </CardContent>
       </Card>
-
-      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-        {mainKpiCards.map((card) => (
-          <AnalyticsKpiCard
-            key={card.key}
-            title={card.title}
-            value={card.value}
-            icon={card.icon}
-            tone={card.tone}
-            helper={card.helper}
-            trend={card.trend}
-            onClick={card.onClick}
-          />
-        ))}
-      </section>
 
       <section className="space-y-4">
         {bugsError ? (
