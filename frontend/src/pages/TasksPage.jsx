@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import {
   ListTodo,
 } from "lucide-react";
@@ -15,6 +16,10 @@ import {
 } from "@/lib/issues";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import TaskKanbanBoard from "@/components/tasks/TaskKanbanBoard";
+import {
+  TASK_BOARD_STATUS,
+  getTaskBoardStatus,
+} from "@/components/tasks/taskBoardStatus";
 import EmptyState from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +34,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 const TasksPage = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [selectedIssue, setSelectedIssue] = useState(null);
+  const statusFilter = useMemo(() => {
+    const value = String(searchParams.get("status") || "all").trim().toUpperCase();
+
+    return Object.values(TASK_BOARD_STATUS).includes(value) ? value : "all";
+  }, [searchParams]);
 
   const {
     data: projects = [],
@@ -62,6 +73,14 @@ const TasksPage = () => {
       setSelectedIssue(nextIssue);
     }
   }, [selectedIssue, taskIssues]);
+
+  const visibleTaskIssues = useMemo(
+    () =>
+      statusFilter === "all"
+        ? taskIssues
+        : taskIssues.filter((issue) => getTaskBoardStatus(issue) === statusFilter),
+    [statusFilter, taskIssues]
+  );
 
   const updateIssueMutation = useMutation({
     mutationFn: updateIssue,
@@ -120,7 +139,7 @@ const TasksPage = () => {
           <CardContent className="p-4 sm:p-5">
             {taskIssues.length ? (
               <TaskKanbanBoard
-                issues={taskIssues}
+                issues={visibleTaskIssues}
                 updatingId={
                   updateTaskStatusMutation.isPending
                     ? updateTaskStatusMutation.variables?.id
