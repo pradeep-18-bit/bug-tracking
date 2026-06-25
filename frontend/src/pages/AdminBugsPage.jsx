@@ -2314,8 +2314,17 @@ const AdminBugsPage = () => {
                         className="cursor-pointer border-b border-slate-100 transition hover:bg-blue-50/50"
                         onClick={() => setSelectedBug(bugIssue)}
                       >
-                        <td className="break-words border-b border-slate-100 px-2 py-3 font-mono text-[11px] font-semibold leading-5 text-slate-600">
-                          {getIssueDisplayKey(bugIssue)}
+                        <td className="break-words border-b border-slate-100 px-2 py-3">
+                          <button
+                            className="max-w-full break-words text-left font-mono text-[11px] font-semibold leading-5 text-slate-600 transition hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedBug(bugIssue);
+                            }}
+                          >
+                            {getIssueDisplayKey(bugIssue)}
+                          </button>
                         </td>
                         <td className="border-b border-slate-100 px-2 py-3">
                           <p className="truncate text-[13px] font-semibold text-slate-950 xl:text-sm">{bugIssue.title}</p>
