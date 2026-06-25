@@ -46,6 +46,7 @@ import {
   getHighPriorityIssues,
   getOpenIssues,
   getReopenedIssues,
+  normalizeIssueStatus,
   normalizeBugStatusForIssue,
   resolveBugDetails,
   resolveIssueProjectId,
@@ -90,6 +91,75 @@ const BUG_PRIORITY_META = [
   { key: "Critical", className: "bg-rose-500", tone: "text-rose-700" },
 ];
 
+const TASK_STATUS_META = [
+  {
+    key: ISSUE_STATUS.TODO,
+    label: "To Do",
+    helper: "Not started",
+    className: "bg-slate-400",
+  },
+  {
+    key: ISSUE_STATUS.IN_PROGRESS,
+    label: "In Progress",
+    helper: "Active task work",
+    className: "bg-blue-500",
+  },
+  {
+    key: ISSUE_STATUS.DONE,
+    label: "Done",
+    helper: "Completed tasks",
+    className: "bg-emerald-500",
+  },
+];
+
+const BUG_STATUS_CARD_META = [
+  {
+    key: "bucket",
+    label: "Bug Bucket",
+    helper: "Unassigned pickup queue",
+    icon: Layers3,
+    tone: "cyan",
+    className: "bg-cyan-500",
+    routeParams: { view: "bucket" },
+  },
+  {
+    key: "assigned",
+    label: "Assigned Bugs",
+    helper: "Picked but not started",
+    icon: Users2,
+    tone: "blue",
+    className: "bg-blue-500",
+    routeParams: { view: "assigned" },
+  },
+  {
+    key: "closed",
+    label: "Closed Bugs",
+    helper: "Verified and closed",
+    icon: CheckCircle2,
+    tone: "emerald",
+    className: "bg-emerald-500",
+    routeParams: { view: "closed" },
+  },
+  {
+    key: "inProgress",
+    label: "In Progress",
+    helper: "Active bug fixes",
+    icon: TimerReset,
+    tone: "violet",
+    className: "bg-violet-500",
+    routeParams: { view: "inprogress" },
+  },
+  {
+    key: "reopened",
+    label: "Reopen",
+    helper: "Returned by QA",
+    icon: RefreshCcw,
+    tone: "rose",
+    className: "bg-rose-500",
+    routeParams: { view: "reopen" },
+  },
+];
+
 const BUG_RESOLVED_STATUSES = [
   ISSUE_STATUS.FIXED,
   ISSUE_STATUS.QA,
@@ -111,10 +181,39 @@ const getBugAssigneeName = (bug) => {
 const getBugSeverity = (bug) => resolveBugDetails(bug)?.severity || "";
 const isCriticalBug = (bug) => getCriticalIssues([bug]).length > 0;
 const isOpenBug = (bug) => !BUG_CLOSED_STATUSES.includes(normalizeBugStatusForIssue(bug));
+const isClosedBug = (bug) =>
+  BUG_CLOSED_STATUSES.includes(normalizeBugStatusForIssue(bug));
 const isResolvedBug = (bug) =>
   BUG_RESOLVED_STATUSES.includes(normalizeBugStatusForIssue(bug));
 const isReopenedBug = (bug) =>
   getReopenedIssues([bug]).length > 0;
+const isBugBucketItem = (bug) => {
+  const developer = resolveBugDetails(bug)?.developerLead || bug?.assignee || bug?.assignedDeveloperId;
+  const status = normalizeBugStatusForIssue(bug);
+
+  return (
+    !developer &&
+    [
+      ISSUE_STATUS.NEW,
+      ISSUE_STATUS.OPEN,
+      ISSUE_STATUS.TRIAGED,
+      ISSUE_STATUS.AVAILABLE_QUEUE,
+    ].includes(status)
+  );
+};
+const getTaskDashboardStatus = (issue) => {
+  const status = normalizeIssueStatus(issue?.status, "");
+
+  if ([ISSUE_STATUS.DONE, ISSUE_STATUS.CLOSED, ISSUE_STATUS.RESOLVED].includes(status)) {
+    return ISSUE_STATUS.DONE;
+  }
+
+  if (status === ISSUE_STATUS.IN_PROGRESS) {
+    return ISSUE_STATUS.IN_PROGRESS;
+  }
+
+  return ISSUE_STATUS.TODO;
+};
 
 const startOfDay = (date) => {
   const value = new Date(date);
@@ -468,17 +567,25 @@ const DashboardPage = () => {
   console.log("Dashboard Open Count", issueStats.open);
   console.log("Dashboard Closed Count", issueStats.closed);
   const trends = analytics.overview?.trends || {};
-  const statusRows = useMemo(
-    () =>
-      (analytics.overview?.statusDistribution || []).filter((row) => row.count > 0),
-    [analytics.overview?.statusDistribution]
-  );
   const projects = analytics.projects?.projects || [];
   const teams = analytics.teams?.teams || [];
   const activity = analytics.recentActivity?.activity || [];
   const activeProjects = projects;
   const highestWorkloadTeam = teams[0] || null;
-  const maxStatusCount = Math.max(...statusRows.map((row) => row.count), 0);
+  const taskStatusRows = useMemo(() => {
+    const total = issues.length;
+
+    return TASK_STATUS_META.map((item) => {
+      const count = issues.filter((issue) => getTaskDashboardStatus(issue) === item.key).length;
+
+      return {
+        ...item,
+        count,
+        percentage: total ? Math.round((count / total) * 100) : 0,
+      };
+    });
+  }, [issues]);
+  const maxTaskStatusCount = Math.max(...taskStatusRows.map((row) => row.count), 0);
   const now = useMemo(() => new Date(), []);
   const weekStart = useMemo(() => startOfWeek(now), [now]);
   const previousWeekStart = useMemo(() => {
@@ -507,13 +614,21 @@ const DashboardPage = () => {
       }
     });
 
-    navigate(`/bugs${searchParams.toString() ? `?${searchParams}` : ""}`);
+    navigate(`/admin/bugs${searchParams.toString() ? `?${searchParams}` : ""}`);
   };
   const bugMetrics = useMemo(() => {
     const openBugs = bugs.filter(isOpenBug);
     const criticalBugs = bugs.filter(isCriticalBug);
     const resolvedBugs = bugs.filter(isResolvedBug);
     const reopenedBugs = bugs.filter(isReopenedBug);
+    const bucketBugs = bugs.filter(isBugBucketItem);
+    const assignedBugs = bugs.filter(
+      (bug) => normalizeBugStatusForIssue(bug) === ISSUE_STATUS.ASSIGNED
+    );
+    const inProgressBugs = bugs.filter(
+      (bug) => normalizeBugStatusForIssue(bug) === ISSUE_STATUS.IN_PROGRESS
+    );
+    const closedBugs = bugs.filter(isClosedBug);
     const thisWeek = countBetween(bugs, (bug) => bug.createdAt, weekStart);
     const previousWeek = countBetween(bugs, (bug) => bug.createdAt, previousWeekStart, weekStart);
     const resolvedThisWeek = countBetween(
@@ -539,6 +654,10 @@ const DashboardPage = () => {
       critical: criticalBugs.length,
       resolved: resolvedBugs.length,
       reopened: reopenedBugs.length,
+      bucket: bucketBugs.length,
+      assigned: assignedBugs.length,
+      inProgress: inProgressBugs.length,
+      closed: closedBugs.length,
       thisWeek,
       previousWeek,
       resolvedThisWeek,
@@ -546,6 +665,18 @@ const DashboardPage = () => {
       resolvedToday,
     };
   }, [bugs, previousWeekStart, todayStart, weekStart]);
+  const bugStatusRows = useMemo(
+    () =>
+      BUG_STATUS_CARD_META.map((item) => ({
+        ...item,
+        count: bugMetrics[item.key] || 0,
+        percentage: bugMetrics.total
+          ? Math.round(((bugMetrics[item.key] || 0) / bugMetrics.total) * 100)
+          : 0,
+      })),
+    [bugMetrics]
+  );
+  const maxBugStatusCount = Math.max(...bugStatusRows.map((row) => row.count), 0);
   const bugProjectRows = useMemo(() => {
     const rowsByProject = new Map();
 
@@ -598,6 +729,15 @@ const DashboardPage = () => {
     [bugs]
   );
   const bugKpiCards = [
+    ...BUG_STATUS_CARD_META.map((item) => ({
+      key: item.key,
+      title: item.label,
+      value: formatCompactNumber(bugMetrics[item.key] || 0),
+      helper: item.helper,
+      icon: item.icon,
+      tone: item.tone,
+      onClick: () => navigateToBugs(item.routeParams),
+    })),
     {
       key: "total-bugs",
       title: "Total Bugs",
@@ -607,62 +747,6 @@ const DashboardPage = () => {
       tone: "blue",
       trend: buildTrend(bugMetrics.thisWeek, bugMetrics.previousWeek),
       onClick: () => navigateToBugs(),
-    },
-    {
-      key: "open-bugs",
-      title: "Open Bugs",
-      value: formatCompactNumber(bugMetrics.open),
-      helper: "Needs action",
-      icon: TimerReset,
-      tone: "amber",
-      trend: { direction: bugMetrics.open ? "up" : "flat", label: `${bugMetrics.open} active` },
-      onClick: () => navigateToBugs({ status: "open" }),
-    },
-    {
-      key: "critical-bugs",
-      title: "Critical Bugs",
-      value: formatCompactNumber(bugMetrics.critical),
-      helper: "High risk",
-      icon: AlertTriangle,
-      tone: "rose",
-      trend: {
-        direction: bugMetrics.critical ? "up" : "flat",
-        label: `${bugMetrics.critical} urgent`,
-      },
-      onClick: () => navigateToBugs({ filter: "critical" }),
-    },
-    {
-      key: "resolved-bugs",
-      title: "Resolved Bugs",
-      value: formatCompactNumber(bugMetrics.resolved),
-      helper: "Fixed / closed",
-      icon: CheckCircle2,
-      tone: "emerald",
-      trend: buildTrend(bugMetrics.resolvedThisWeek, bugMetrics.resolvedLastWeek, "resolved this week"),
-      onClick: () => navigateToBugs({ status: "resolved" }),
-    },
-    {
-      key: "reopened-bugs",
-      title: "Reopened Bugs",
-      value: formatCompactNumber(bugMetrics.reopened),
-      helper: "Needs review",
-      icon: RefreshCcw,
-      tone: "violet",
-      trend: { direction: bugMetrics.reopened ? "up" : "flat", label: `${bugMetrics.reopened} reopened` },
-      onClick: () => navigateToBugs({ filter: "reopened" }),
-    },
-    {
-      key: "bugs-this-week",
-      title: "Bugs This Week",
-      value: formatCompactNumber(bugMetrics.thisWeek),
-      helper: "New reports",
-      icon: Activity,
-      tone: "cyan",
-      trend: {
-        direction: bugMetrics.resolvedToday ? "down" : "flat",
-        label: `${bugMetrics.resolvedToday} resolved today`,
-      },
-      onClick: () => navigateToBugs({ dateFrom: weekStart.toISOString().slice(0, 10) }),
     },
   ];
   const kpiCards = [
@@ -934,19 +1018,19 @@ const DashboardPage = () => {
 
       <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
         <AnalyticsPanel
-          title="Issue Status"
-          description="Distribution of active and resolved workload from live issue data."
+          title="Task Status"
+          description="Task workload only: To Do, In Progress, and Done."
           action={
             <Badge className="border-white/60 bg-white/72 text-slate-600">
               {issueStats.total || 0} total
             </Badge>
           }
         >
-          {statusRows.length ? (
+          {taskStatusRows.length ? (
             <div className="space-y-3">
-              {statusRows.map((row) => {
-                const width = maxStatusCount
-                  ? Math.max(Math.round((row.count / maxStatusCount) * 100), 8)
+              {taskStatusRows.map((row) => {
+                const width = maxTaskStatusCount
+                  ? Math.max(Math.round((row.count / maxTaskStatusCount) * 100), row.count ? 8 : 0)
                   : 0;
 
                 return (
@@ -963,21 +1047,21 @@ const DashboardPage = () => {
                       <span
                         className={cn(
                           "h-3 w-3 shrink-0 rounded-full",
-                          statusTone[row.key] || "bg-slate-400"
+                          row.className || statusTone[row.key] || "bg-slate-400"
                         )}
                       />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
                           {row.label}
                         </p>
-                        <p className="text-xs text-slate-500">{row.percentage}% of scope</p>
+                        <p className="text-xs text-slate-500">{row.helper}</p>
                       </div>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                       <div
                         className={cn(
                           "h-full rounded-full transition-all duration-500",
-                          statusTone[row.key] || "bg-slate-400"
+                          row.className || statusTone[row.key] || "bg-slate-400"
                         )}
                         style={{ width: `${width}%` }}
                       />
@@ -995,11 +1079,74 @@ const DashboardPage = () => {
           ) : (
             <AnalyticsEmptyState
               icon={Layers3}
-              title="No issue status data yet"
-              description="Create issues to populate the operational status overview."
+              title="No task status data yet"
+              description="Create task work to populate the task status overview."
             />
           )}
         </AnalyticsPanel>
+
+        <AnalyticsPanel
+          title="Bug Status"
+          description="Bug lifecycle cards synced with the admin Bugs page."
+          action={
+            <Badge className="border-white/60 bg-white/72 text-slate-600">
+              {bugMetrics.total || 0} bugs
+            </Badge>
+          }
+        >
+          {bugStatusRows.length ? (
+            <div className="space-y-3">
+              {bugStatusRows.map((row) => {
+                const width = maxBugStatusCount
+                  ? Math.max(Math.round((row.count / maxBugStatusCount) * 100), row.count ? 8 : 0)
+                  : 0;
+
+                return (
+                  <button
+                    key={row.key}
+                    type="button"
+                    onClick={() => navigateToBugs(row.routeParams)}
+                    className={cn(
+                      ANALYTICS_SUBPANEL_CLASS,
+                      "grid w-full gap-3 px-3 py-2 text-left md:grid-cols-[180px_minmax(0,1fr)_90px] md:items-center"
+                    )}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className={cn("h-3 w-3 shrink-0 rounded-full", row.className)} />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+                          {row.label}
+                        </p>
+                        <p className="text-xs text-slate-500">{row.helper}</p>
+                      </div>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                      <div
+                        className={cn("h-full rounded-full transition-all duration-500", row.className)}
+                        style={{ width: `${width}%` }}
+                      />
+                    </div>
+                    <div className="text-left md:text-right">
+                      <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">
+                        {row.count}
+                      </p>
+                      <p className="text-xs text-slate-500">bugs</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <AnalyticsEmptyState
+              icon={Bug}
+              title="No bug status data yet"
+              description="Bug lifecycle counts appear once bugs are reported."
+            />
+          )}
+        </AnalyticsPanel>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
 
         <AnalyticsPanel
           title="Active Projects"
