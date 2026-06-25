@@ -8,8 +8,6 @@ import {
   Bell,
   Bug,
   CalendarClock,
-  ChevronLeft,
-  ChevronRight,
   CheckCircle2,
   CircleDotDashed,
   ClipboardList,
@@ -978,18 +976,7 @@ const ActivityList = ({ activity, compact = false, fallbackIssues = [], onOpenIs
 };
 
 const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAllBugs, pickingId }) => {
-  const pageSize = 5;
-  const [page, setPage] = useState(1);
   const sortedIssues = useMemo(() => sortAvailableBugQueue(issues), [issues]);
-  const pageCount = Math.max(1, Math.ceil(sortedIssues.length / pageSize));
-  const safePage = Math.min(page, pageCount);
-  const startIndex = (safePage - 1) * pageSize;
-  const visibleIssues = sortedIssues.slice(startIndex, startIndex + pageSize);
-  const endIndex = Math.min(startIndex + visibleIssues.length, sortedIssues.length);
-
-  useEffect(() => {
-    setPage((current) => Math.min(current, pageCount));
-  }, [pageCount]);
 
   return (
     <Card className="overflow-hidden border-cyan-100/80 bg-white/94 shadow-[0_28px_80px_-42px_rgba(8,145,178,0.5)] ring-1 ring-cyan-100/70 backdrop-blur-xl">
@@ -1040,7 +1027,7 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
                 <span className="text-right">Action</span>
               </div>
               <div className="divide-y divide-cyan-100/70">
-                {visibleIssues.map((issue) => {
+                {sortedIssues.map((issue) => {
                   const canPick = issue.canPick !== false && issue.pickupEligibility?.canPick !== false;
                   const pickDisabled = pickingId === issue._id || !canPick;
                   const pickLabel = pickingId === issue._id ? "Picking" : canPick ? "Pick Bug" : "Not Eligible";
@@ -1114,38 +1101,9 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
               </div>
             </div>
 
-            {sortedIssues.length > pageSize ? (
-              <div className="flex flex-col gap-3 border-t border-cyan-100/80 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs font-medium text-slate-500">
-                  Showing {startIndex + 1}-{endIndex} of {sortedIssues.length} bugs
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    className="h-8 rounded-xl px-2 text-xs"
-                    type="button"
-                    variant="outline"
-                    disabled={safePage === 1}
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
-                  >
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                    Previous
-                  </Button>
-                  <span className="min-w-[4rem] text-center text-xs font-semibold text-slate-600">
-                    Page {safePage} of {pageCount}
-                  </span>
-                  <Button
-                    className="h-8 rounded-xl px-2 text-xs"
-                    type="button"
-                    variant="outline"
-                    disabled={safePage === pageCount}
-                    onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-                  >
-                    Next
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ) : null}
+            <p className="border-t border-cyan-100/80 pt-3 text-xs font-medium text-slate-500">
+              Showing all {sortedIssues.length} available bugs
+            </p>
           </>
         ) : (
           <EmptyState
