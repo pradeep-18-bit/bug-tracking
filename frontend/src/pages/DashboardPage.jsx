@@ -1018,19 +1018,19 @@ const DashboardPage = () => {
 
       <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
         <AnalyticsPanel
-          title="Issue Status"
-          description="Distribution of active and resolved workload from live issue data."
+          title="Task Status"
+          description="Task workload only: To Do, In Progress, and Done."
           action={
             <Badge className="border-white/60 bg-white/72 text-slate-600">
               {issueStats.total || 0} total
             </Badge>
           }
         >
-          {statusRows.length ? (
+          {taskStatusRows.length ? (
             <div className="space-y-3">
-              {statusRows.map((row) => {
-                const width = maxStatusCount
-                  ? Math.max(Math.round((row.count / maxStatusCount) * 100), 8)
+              {taskStatusRows.map((row) => {
+                const width = maxTaskStatusCount
+                  ? Math.max(Math.round((row.count / maxTaskStatusCount) * 100), row.count ? 8 : 0)
                   : 0;
 
                 return (
@@ -1047,21 +1047,21 @@ const DashboardPage = () => {
                       <span
                         className={cn(
                           "h-3 w-3 shrink-0 rounded-full",
-                          statusTone[row.key] || "bg-slate-400"
+                          row.className || statusTone[row.key] || "bg-slate-400"
                         )}
                       />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
                           {row.label}
                         </p>
-                        <p className="text-xs text-slate-500">{row.percentage}% of scope</p>
+                        <p className="text-xs text-slate-500">{row.helper}</p>
                       </div>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                       <div
                         className={cn(
                           "h-full rounded-full transition-all duration-500",
-                          statusTone[row.key] || "bg-slate-400"
+                          row.className || statusTone[row.key] || "bg-slate-400"
                         )}
                         style={{ width: `${width}%` }}
                       />
@@ -1079,11 +1079,74 @@ const DashboardPage = () => {
           ) : (
             <AnalyticsEmptyState
               icon={Layers3}
-              title="No issue status data yet"
-              description="Create issues to populate the operational status overview."
+              title="No task status data yet"
+              description="Create task work to populate the task status overview."
             />
           )}
         </AnalyticsPanel>
+
+        <AnalyticsPanel
+          title="Bug Status"
+          description="Bug lifecycle cards synced with the admin Bugs page."
+          action={
+            <Badge className="border-white/60 bg-white/72 text-slate-600">
+              {bugMetrics.total || 0} bugs
+            </Badge>
+          }
+        >
+          {bugStatusRows.length ? (
+            <div className="space-y-3">
+              {bugStatusRows.map((row) => {
+                const width = maxBugStatusCount
+                  ? Math.max(Math.round((row.count / maxBugStatusCount) * 100), row.count ? 8 : 0)
+                  : 0;
+
+                return (
+                  <button
+                    key={row.key}
+                    type="button"
+                    onClick={() => navigateToBugs(row.routeParams)}
+                    className={cn(
+                      ANALYTICS_SUBPANEL_CLASS,
+                      "grid w-full gap-3 px-3 py-2 text-left md:grid-cols-[180px_minmax(0,1fr)_90px] md:items-center"
+                    )}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className={cn("h-3 w-3 shrink-0 rounded-full", row.className)} />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+                          {row.label}
+                        </p>
+                        <p className="text-xs text-slate-500">{row.helper}</p>
+                      </div>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                      <div
+                        className={cn("h-full rounded-full transition-all duration-500", row.className)}
+                        style={{ width: `${width}%` }}
+                      />
+                    </div>
+                    <div className="text-left md:text-right">
+                      <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">
+                        {row.count}
+                      </p>
+                      <p className="text-xs text-slate-500">bugs</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <AnalyticsEmptyState
+              icon={Bug}
+              title="No bug status data yet"
+              description="Bug lifecycle counts appear once bugs are reported."
+            />
+          )}
+        </AnalyticsPanel>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
 
         <AnalyticsPanel
           title="Active Projects"
