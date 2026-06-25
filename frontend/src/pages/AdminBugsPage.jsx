@@ -484,8 +484,19 @@ const BUG_CARD_VIEWS = [
   },
 ];
 
+const TOTAL_BUGS_VIEW = {
+  id: "total",
+  label: "Total Bugs",
+  description: "All bugs across every status",
+  icon: Bug,
+  metricKey: "total",
+  tone: "bg-slate-100 text-slate-700",
+};
+
 const getBugCardView = (value) =>
-  BUG_CARD_VIEWS.find((view) => view.id === String(value || "").trim().toLowerCase()) ||
+  [...BUG_CARD_VIEWS, TOTAL_BUGS_VIEW].find(
+    (view) => view.id === String(value || "").trim().toLowerCase()
+  ) ||
   BUG_CARD_VIEWS[0];
 
 const getCardViewFilterState = (viewId) => {
@@ -1148,7 +1159,7 @@ const AdminBugsPage = () => {
     [cardSummary, pagination.total, summary, visibleBugs]
   );
   const activeCard =
-    BUG_CARD_VIEWS.find((view) => view.id === activeCardView) || {
+    [...BUG_CARD_VIEWS, TOTAL_BUGS_VIEW].find((view) => view.id === activeCardView) || {
       label: "Filtered Bugs",
       description: "Quick filter results",
     };
@@ -1742,7 +1753,14 @@ const AdminBugsPage = () => {
             onClick={() => applyCardView(view.id)}
           />
         ))}
-        <MetricTile icon={Bug} label="Total Bugs" value={metrics.total} tone="bg-slate-100 text-slate-700" />
+        <MetricTile
+          active={activeCardView === TOTAL_BUGS_VIEW.id}
+          icon={TOTAL_BUGS_VIEW.icon}
+          label={TOTAL_BUGS_VIEW.label}
+          value={metrics.total}
+          tone={TOTAL_BUGS_VIEW.tone}
+          onClick={() => applyCardView(TOTAL_BUGS_VIEW.id)}
+        />
       </section>
 
       {false ? (
