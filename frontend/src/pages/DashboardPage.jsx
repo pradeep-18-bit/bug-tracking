@@ -98,7 +98,7 @@ const TASK_STATUS_META = [
     helper: "Ready for pickup",
     className: "bg-slate-400",
     icon: Layers3,
-    routeStatus: "OPEN",
+    routeParams: { status: ISSUE_STATUS.TODO },
     tone: "blue",
   },
   {
@@ -107,7 +107,7 @@ const TASK_STATUS_META = [
     helper: "Active task work",
     className: "bg-blue-500",
     icon: TimerReset,
-    routeStatus: "IN_PROGRESS",
+    routeParams: { status: ISSUE_STATUS.IN_PROGRESS },
     tone: "amber",
   },
   {
@@ -116,7 +116,7 @@ const TASK_STATUS_META = [
     helper: "Completed tasks",
     className: "bg-emerald-500",
     icon: CheckCircle2,
-    routeStatus: "DONE",
+    routeParams: { statusGroup: "closed" },
     tone: "emerald",
   },
 ];
@@ -634,7 +634,7 @@ const DashboardPage = () => {
       }
     });
 
-    navigate(`/tasks${searchParams.toString() ? `?${searchParams}` : ""}`);
+    navigate(`/issues${searchParams.toString() ? `?${searchParams}` : ""}`);
   };
   const bugMetrics = useMemo(() => {
     const openBugs = bugs.filter(isOpenBug);
@@ -776,7 +776,7 @@ const DashboardPage = () => {
     helper: item.helper,
     icon: item.icon,
     tone: item.tone,
-    onClick: () => navigateToTasks({ status: item.routeStatus }),
+    onClick: () => navigateToTasks(item.routeParams),
   }));
   const kpiCards = [
     {
