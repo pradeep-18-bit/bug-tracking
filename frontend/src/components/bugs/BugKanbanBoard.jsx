@@ -64,6 +64,7 @@ const BugKanbanBoard = ({
   const boardGridStyle = useMemo(
     () => ({
       gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(260px, 1fr))`,
+      minWidth: `${Math.max(columns.length, 1) * 292}px`,
     }),
     [columns.length]
   );
@@ -133,9 +134,9 @@ const BugKanbanBoard = ({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveIssueId("")}
     >
-      <div className="-mx-1 overflow-x-auto pb-3 lg:overflow-visible">
+      <div className="-mx-1 overflow-x-auto overscroll-x-contain pb-3 [scrollbar-gutter:stable]">
         <div
-          className="grid min-w-[1040px] gap-3 px-1 lg:min-w-0"
+          className="grid gap-3 px-1"
           style={boardGridStyle}
         >
           {columnModels.map((column) => (
