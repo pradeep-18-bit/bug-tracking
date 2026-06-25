@@ -1531,8 +1531,11 @@ const getBugListSummary = async (query) => {
   const [
     total,
     open,
+    bucket,
+    assigned,
     critical,
     unassigned,
+    inProgress,
     reopened,
     readyForQa,
     closed,
@@ -1542,6 +1545,17 @@ const getBugListSummary = async (query) => {
   ] = await Promise.all([
     Issue.countDocuments(query),
     Issue.countDocuments({ ...query, ...buildOpenIssueCondition() }),
+    Issue.countDocuments({
+      ...query,
+      type: ISSUE_TYPES.BUG,
+      assignee: null,
+      assignedDeveloperId: null,
+      "bugDetails.developerLead": null,
+      status: {
+        $in: AVAILABLE_BUG_QUEUE_STATUSES,
+      },
+    }),
+    Issue.countDocuments({ ...query, status: ISSUE_STATUS.ASSIGNED }),
     Issue.countDocuments({
       ...query,
       $and: [...(query.$and || []), buildCriticalIssueCondition()],
@@ -1564,6 +1578,7 @@ const getBugListSummary = async (query) => {
         },
       ],
     }),
+    Issue.countDocuments({ ...query, status: ISSUE_STATUS.IN_PROGRESS }),
     Issue.countDocuments({ ...query, ...buildReopenedIssueCondition() }),
     Issue.countDocuments({
       ...query,
@@ -1580,8 +1595,11 @@ const getBugListSummary = async (query) => {
   return {
     total,
     open,
+    bucket,
+    assigned,
     critical,
     unassigned,
+    inProgress,
     reopened,
     readyForQa,
     closed,

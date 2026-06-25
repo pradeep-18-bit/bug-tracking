@@ -61,6 +61,12 @@ const BugKanbanBoard = ({
       })),
     [columns, issues, pendingColumns]
   );
+  const boardGridStyle = useMemo(
+    () => ({
+      gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(260px, 1fr))`,
+    }),
+    [columns.length]
+  );
 
   const handleDragStart = (event) => {
     setActiveIssueId(String(event.active.id || ""));
@@ -128,7 +134,10 @@ const BugKanbanBoard = ({
       onDragCancel={() => setActiveIssueId("")}
     >
       <div className="-mx-1 overflow-x-auto pb-3 lg:overflow-visible">
-        <div className="grid min-w-[1040px] grid-cols-5 gap-3 px-1 lg:min-w-0">
+        <div
+          className="grid min-w-[1040px] gap-3 px-1 lg:min-w-0"
+          style={boardGridStyle}
+        >
           {columnModels.map((column) => (
             <BugKanbanColumn
               key={column.key}
