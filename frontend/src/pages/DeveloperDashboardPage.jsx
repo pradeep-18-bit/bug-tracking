@@ -1320,8 +1320,14 @@ const WorkTable = ({
                 key={issue._id}
                 className="h-[52px] bg-white/58 transition hover:bg-blue-50/42"
               >
-                <td className="truncate px-3 py-2 align-middle font-mono text-[11px] font-semibold text-slate-500" title={getIssueDisplayKey(issue)}>
-                  {getIssueDisplayKey(issue)}
+                <td className="truncate px-3 py-2 align-middle" title={getIssueDisplayKey(issue)}>
+                  <button
+                    className="block max-w-full truncate text-left font-mono text-[11px] font-semibold text-slate-500 transition hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    type="button"
+                    onClick={() => onOpenIssue(issue)}
+                  >
+                    {getIssueDisplayKey(issue)}
+                  </button>
                 </td>
                 <td className="px-3 py-2 align-middle">
                   <button
