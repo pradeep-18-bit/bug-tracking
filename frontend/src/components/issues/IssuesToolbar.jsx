@@ -52,7 +52,7 @@ const IssuesToolbar = ({
             onClick={onCreateIssue}
           >
             <Plus className="h-4 w-4" />
-            Create Work Item
+            Assign task
           </Button>
         </div>
 
