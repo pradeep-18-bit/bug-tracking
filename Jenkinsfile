@@ -12,7 +12,17 @@ pipeline {
                     git reset --hard origin/dev2 &&
                     docker compose down &&
                     docker compose build --no-cache &&
-                    docker compose up -d --force-recreate
+                    docker compose up -d --force-recreate &&
+                    FRONTEND_PORT=\$(grep -E '^FRONTEND_PORT=' .env | tail -n 1 | cut -d= -f2) &&
+                    FRONTEND_PORT=\${FRONTEND_PORT:-3000} &&
+                    for attempt in \$(seq 1 30); do
+                        curl -fsS http://localhost:\$FRONTEND_PORT/api/health && exit 0
+                        echo Waiting for API health check... \$attempt/30
+                        sleep 5
+                    done
+                    docker compose ps
+                    docker compose logs --tail=120 backend
+                    exit 1
                 "
                 '''
             }
