@@ -10,11 +10,23 @@ pipeline {
 
                     cd /home/ubuntu/bug-tracking
 
+                    ENV_FILE=/home/ubuntu/bug-tracking/.env
+                    ENV_BACKUP=$(mktemp)
+
+                    if [ ! -f "$ENV_FILE" ]; then
+                        echo "Production .env is missing at $ENV_FILE"
+                        echo "Create it on the server before deploying; do not commit production .env to Git."
+                        exit 1
+                    fi
+
+                    cp "$ENV_FILE" "$ENV_BACKUP"
+
                     dump_diagnostics() {
                         status=$?
                         echo "Deploy failed with exit code ${status}"
                         docker compose ps || true
                         docker compose logs --tail=160 backend || true
+                        rm -f "$ENV_BACKUP" || true
                         exit "$status"
                     }
 
@@ -23,6 +35,9 @@ pipeline {
                     git checkout dev2
                     git fetch origin
                     git reset --hard origin/dev2
+                    cp "$ENV_BACKUP" "$ENV_FILE"
+                    chmod 600 "$ENV_FILE"
+                    rm -f "$ENV_BACKUP"
 
                     docker compose down
                     docker compose build --no-cache
