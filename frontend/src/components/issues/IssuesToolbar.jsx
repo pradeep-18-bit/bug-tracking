@@ -173,7 +173,7 @@ const IssuesToolbar = ({
 
           <label className="space-y-2">
             <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
-              Filter Tasks
+              Filter Task
             </span>
             <div className="relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
