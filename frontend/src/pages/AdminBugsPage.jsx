@@ -17,6 +17,7 @@ import {
   Paperclip,
   RefreshCcw,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   TimerReset,
   UserPlus,
@@ -441,6 +442,128 @@ const quickFilterChips = [
   ["backend", "Backend"],
 ];
 
+const BUG_CARD_VIEWS = [
+  {
+    id: "bucket",
+    label: "Bug Bucket",
+    description: "Unassigned bugs ready for pickup",
+    icon: Layers3,
+    metricKey: "bucket",
+    tone: "bg-cyan-50 text-cyan-700",
+  },
+  {
+    id: "assigned",
+    label: "Assigned Bugs",
+    description: "Bugs assigned but not started",
+    icon: UserPlus,
+    metricKey: "assigned",
+    tone: "bg-blue-50 text-blue-700",
+  },
+  {
+    id: "closed",
+    label: "Closed Bugs",
+    description: "Completed bug work",
+    icon: CheckCircle2,
+    metricKey: "closed",
+    tone: "bg-emerald-50 text-emerald-700",
+  },
+  {
+    id: "inprogress",
+    label: "In Progress",
+    description: "Bugs actively being fixed",
+    icon: TimerReset,
+    metricKey: "inProgress",
+    tone: "bg-indigo-50 text-indigo-700",
+  },
+  {
+    id: "readyqa",
+    label: "Ready For QA",
+    description: "Waiting for tester verification",
+    icon: ShieldCheck,
+    metricKey: "readyForQa",
+    tone: "bg-cyan-50 text-cyan-700",
+  },
+  {
+    id: "reopen",
+    label: "Reopen",
+    description: "Bugs returned after QA",
+    icon: RefreshCcw,
+    metricKey: "reopened",
+    tone: "bg-pink-50 text-pink-700",
+  },
+];
+
+const TOTAL_BUGS_VIEW = {
+  id: "total",
+  label: "Total Bugs",
+  description: "All bugs across every status",
+  icon: Bug,
+  metricKey: "total",
+  tone: "bg-slate-100 text-slate-700",
+};
+
+const getBugCardView = (value) =>
+  [...BUG_CARD_VIEWS, TOTAL_BUGS_VIEW].find(
+    (view) => view.id === String(value || "").trim().toLowerCase()
+  ) ||
+  BUG_CARD_VIEWS[0];
+
+const getCardViewFilterState = (viewId) => {
+  const view = getBugCardView(viewId);
+  const baseFilters = {
+    bucket: "all",
+    filter: "all",
+    lifecycle: "all",
+    status: "all",
+    developerId: "all",
+  };
+
+  if (view.id === "bucket") {
+    return {
+      ...baseFilters,
+      bucket: "available",
+    };
+  }
+
+  if (view.id === "assigned") {
+    return {
+      ...baseFilters,
+      status: ISSUE_STATUS.ASSIGNED,
+    };
+  }
+
+  if (view.id === "closed") {
+    return {
+      ...baseFilters,
+      status: ISSUE_STATUS.CLOSED,
+    };
+  }
+
+  if (view.id === "inprogress") {
+    return {
+      ...baseFilters,
+      status: ISSUE_STATUS.IN_PROGRESS,
+    };
+  }
+
+  if (view.id === "readyqa") {
+    return {
+      ...baseFilters,
+      lifecycle: "fixed",
+    };
+  }
+
+  if (view.id === "reopen") {
+    return {
+      ...baseFilters,
+      filter: "reopened",
+      lifecycle: "reopened",
+    };
+  }
+
+  return baseFilters;
+};
+
 const TRIAGE_ACTION_MENU_WIDTH = 248;
 const TRIAGE_ACTION_MENU_HEIGHT = 286;
 const TRIAGE_ACTION_MENU_GUTTER = 12;
@@ -467,23 +590,31 @@ const getTriageActionMenuPosition = (triggerRect) => {
   };
 };
 
-const MetricTile = ({ icon: Icon, label, tone, value }) => (
-  <Card className="overflow-hidden rounded-[14px] border-white/70 bg-white/86 shadow-[0_14px_34px_-26px_rgba(15,23,42,0.3)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-26px_rgba(15,23,42,0.32)]">
-    <CardContent className="p-3.5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-            {label}
-          </p>
-          <p className="mt-1.5 text-2xl font-semibold leading-none text-slate-950">{value}</p>
-        </div>
-        <span className={cn("flex h-9 w-9 items-center justify-center rounded-[12px]", tone)}>
-          <Icon className="h-4 w-4" />
-        </span>
+const MetricTile = ({ active = false, icon: Icon, label, tone, value, onClick }) => {
+  const Component = onClick ? "button" : "div";
+
+  return (
+    <Component
+      className={cn(
+        "group flex min-h-[64px] w-full items-center justify-between gap-3 rounded-xl border border-l-4 border-slate-200 bg-white px-3 py-2.5 text-left shadow-sm transition duration-150 hover:-translate-y-px hover:border-blue-200 hover:bg-blue-50/30 hover:shadow-md",
+        onClick && "cursor-pointer",
+        active && "border-blue-200 border-l-blue-500 bg-blue-50/40"
+      )}
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+    >
+      <div className="min-w-0">
+        <p className="truncate text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+          {label}
+        </p>
+        <p className="mt-1 text-2xl font-semibold leading-none text-slate-950">{value}</p>
       </div>
-    </CardContent>
-  </Card>
-);
+      <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", tone)}>
+        <Icon className="h-4 w-4" />
+      </span>
+    </Component>
+  );
+};
 
 const DistributionPanel = ({ title, rows }) => {
   const maxCount = Math.max(...rows.map((row) => row.count), 1);
@@ -517,6 +648,104 @@ const DistributionPanel = ({ title, rows }) => {
   );
 };
 
+const BugResultRow = ({ bugIssue, projects, onOpen, onActionMenu }) => {
+  const reporter = getReporter(bugIssue);
+  const reporterName = getUserLabel(reporter, "Unknown tester");
+  const developer = getBugDeveloper(bugIssue);
+  const developerName = getUserLabel(developer);
+  const status = normalizeBugStatusForIssue(bugIssue);
+  const details = resolveBugDetails(bugIssue);
+  const severity = getSeverity(bugIssue);
+  const moduleTag = getModuleTag(bugIssue);
+  const attachmentCount = getAttachmentCount(bugIssue);
+
+  return (
+    <article
+      className={cn(
+        "group relative grid gap-3 rounded-xl border border-l-4 border-slate-200 bg-white px-3 py-2.5 shadow-sm transition hover:border-blue-200 hover:bg-blue-50/30 md:grid-cols-[minmax(260px,1.25fr)_minmax(170px,0.7fr)_minmax(150px,0.62fr)_minmax(150px,0.62fr)_minmax(150px,0.7fr)_120px_82px] md:items-center",
+        severityAccentClassName(severity)
+      )}
+    >
+      <button className="min-w-0 text-left" type="button" onClick={() => onOpen(bugIssue)}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">
+            {getIssueDisplayKey(bugIssue)}
+          </span>
+          <span className={cn("inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none", statusBadgeClassName(status))}>
+            {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
+          </span>
+        </div>
+        <h3 className="mt-1 truncate text-sm font-semibold text-slate-950 group-hover:text-blue-700">
+          {bugIssue.title || "Untitled bug"}
+        </h3>
+        <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">
+          {getProjectName(bugIssue, projects)} / {details.moduleName || "Unmapped module"}
+        </p>
+      </button>
+
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <p className="truncate text-xs font-semibold text-slate-800">{details.moduleName || "Unmapped"}</p>
+          <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-600">{moduleTag}</span>
+        </div>
+        <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">{getIssueCategory(bugIssue)}</p>
+      </div>
+
+      <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-[10px] text-white">{getInitials(reporterName)}</span>
+        <span className="truncate">{reporterName}</span>
+      </span>
+
+      <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white">{getInitials(developerName)}</span>
+        <span className="truncate">{developerName}</span>
+      </span>
+
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <span className={severityBadgeClassName(severity)}>{severity}</span>
+        <span className={priorityBadgeClassName(bugIssue.priority || "Medium")}>{bugIssue.priority || "Medium"}</span>
+        {isReopenedBug(bugIssue) ? (
+          <span className="inline-flex h-5 items-center rounded-full border border-rose-200 bg-rose-50 px-2 text-[10px] font-bold uppercase text-rose-700">Reopened</span>
+        ) : null}
+      </div>
+
+      <div className="min-w-0 text-[11px] font-medium text-slate-600">
+        <span className="block truncate">{formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}</span>
+        {attachmentCount ? (
+          <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-slate-500">
+            <Paperclip className="h-3 w-3" />
+            {attachmentCount}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="relative flex items-center justify-end gap-1">
+        <Button
+          className="h-8 w-8 rounded-lg p-0"
+          type="button"
+          size="icon"
+          variant="outline"
+          onClick={() => onOpen(bugIssue)}
+          aria-label="View bug"
+        >
+          <Eye className="h-4 w-4" />
+        </Button>
+        <Button
+          data-triage-action-trigger
+          className="h-8 w-8 rounded-lg p-0"
+          type="button"
+          size="icon"
+          variant="outline"
+          onClick={(event) => onActionMenu(event, bugIssue._id)}
+          aria-label="More actions"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </div>
+    </article>
+  );
+};
+
 const AdminBugsPage = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -527,6 +756,14 @@ const AdminBugsPage = () => {
   const initialDashboardFilter = getDashboardFilterQueryValue(
     searchParams.get("filter") || searchParams.get("status")
   );
+  const initialCardView = searchParams.get("view")
+    ? getBugCardView(searchParams.get("view")).id
+    : searchParams.get("status") || searchParams.get("filter") || searchParams.get("lifecycle")
+      ? ""
+      : getBugCardView().id;
+  const initialCardFilters = initialCardView
+    ? getCardViewFilterState(initialCardView)
+    : null;
   const [selectedBug, setSelectedBug] = useState(null);
   const [selectedTriageIds, setSelectedTriageIds] = useState([]);
   const [bulkPriority, setBulkPriority] = useState("");
@@ -534,7 +771,9 @@ const AdminBugsPage = () => {
   const [actionMenu, setActionMenu] = useState(null);
   const [areTriageFiltersOpen, setAreTriageFiltersOpen] = useState(false);
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
+  const [activeCardView, setActiveCardView] = useState(initialCardView);
   const [page, setPage] = useState(normalizePageNumber(searchParams.get("page")));
+  const [triagePage, setTriagePage] = useState(1);
   const [pageSize, setPageSize] = useState(normalizePageSize(searchParams.get("pageSize")));
   const [sortBy, setSortBy] = useState(searchParams.get("sortBy") || "updated:desc");
   const [filters, setFilters] = useState({
@@ -544,16 +783,19 @@ const AdminBugsPage = () => {
     developerId: searchParams.get("developerId") || "all",
     severity: searchParams.get("severity") || "all",
     priority: normalizePriorityQueryValue(searchParams.get("priority")),
-    status: initialStatusQuery.status,
+    status: initialCardFilters?.status || initialStatusQuery.status,
     sprintId: "all",
     epicId: "all",
+    bucket: searchParams.get("bucket") || initialCardFilters?.bucket || "all",
     lifecycle:
-      initialDashboardFilter === "reopened"
+      initialCardFilters?.lifecycle && initialCardFilters.lifecycle !== "all"
+        ? initialCardFilters.lifecycle
+        : initialDashboardFilter === "reopened"
         ? "reopened"
         : normalizeLifecycleQueryValue(searchParams.get("lifecycle")) !== "all"
         ? normalizeLifecycleQueryValue(searchParams.get("lifecycle"))
         : initialStatusQuery.lifecycle,
-    filter: initialDashboardFilter,
+    filter: initialCardFilters?.filter || initialDashboardFilter,
     dateFrom: searchParams.get("dateFrom") || "",
     dateTo: searchParams.get("dateTo") || "",
     search: searchParams.get("search") || "",
@@ -627,6 +869,7 @@ const AdminBugsPage = () => {
       filters.status,
       filters.sprintId,
       filters.epicId,
+      filters.bucket,
       filters.severity,
       filters.testerId,
       filters.developerId,
@@ -653,10 +896,41 @@ const AdminBugsPage = () => {
         status: filters.status,
         sprintId: filters.sprintId,
         epicId: filters.epicId,
+        bucket: filters.bucket,
         lifecycle: filters.lifecycle,
         dateFrom: filters.dateFrom,
         dateTo: filters.dateTo,
         filter: filters.filter,
+        search: debouncedSearch.trim(),
+        sortBy,
+    }),
+    keepPreviousData: true,
+  });
+  const { data: cardSummaryData = null } = useQuery({
+    queryKey: [
+      "bugs",
+      "admin-card-summary",
+      filters.projectId,
+      filters.teamId,
+      filters.priority,
+      filters.severity,
+      filters.testerId,
+      filters.dateFrom,
+      filters.dateTo,
+      debouncedSearch,
+    ],
+    queryFn: () =>
+      fetchBugs({
+        paginate: true,
+        page: 1,
+        limit: 1,
+        projectId: filters.projectId === ALL_PROJECTS_VALUE ? "" : filters.projectId,
+        teamId: filters.teamId,
+        testerId: filters.testerId,
+        severity: filters.severity,
+        priority: filters.priority,
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
         search: debouncedSearch.trim(),
         sortBy,
       }),
@@ -682,7 +956,9 @@ const AdminBugsPage = () => {
     };
   }, [bugs.length, bugsData?.pagination?.total, bugsData?.pagination?.totalPages, page, pageSize]);
   const summary = bugsData?.summary || null;
+  const cardSummary = cardSummaryData?.summary || null;
   const actionMenuId = actionMenu?.issueId || "";
+  const visibleBugs = bugs;
 
   useEffect(() => {
     if (!toast?.id) {
@@ -726,8 +1002,19 @@ const AdminBugsPage = () => {
     const dashboardFilter = getDashboardFilterQueryValue(
       currentParams.get("filter") || currentParams.get("status")
     );
+    const hasRequestedCardView = currentParams.has("view");
+    const hasLegacyBugFilter =
+      currentParams.has("status") || currentParams.has("filter") || currentParams.has("lifecycle");
+    const nextCardView = hasRequestedCardView
+      ? getBugCardView(currentParams.get("view"))
+      : hasLegacyBugFilter
+        ? null
+        : getBugCardView();
+    const cardViewFilters = nextCardView ? getCardViewFilterState(nextCardView.id) : null;
     const nextLifecycle =
-      dashboardFilter === "reopened"
+      cardViewFilters?.lifecycle && cardViewFilters.lifecycle !== "all"
+        ? cardViewFilters.lifecycle
+        : dashboardFilter === "reopened"
         ? "reopened"
         : lifecycleQuery !== "all"
           ? lifecycleQuery
@@ -738,15 +1025,19 @@ const AdminBugsPage = () => {
         ...current,
         projectId: nextProjectId,
         priority: normalizePriorityQueryValue(currentParams.get("priority")),
-        status: statusQuery.status,
+        status: cardViewFilters?.status || statusQuery.status,
         lifecycle: nextLifecycle,
-        filter: dashboardFilter,
+        filter: cardViewFilters?.filter || dashboardFilter,
         teamId: currentParams.get("teamId") || (nextProjectId !== current.projectId ? "all" : current.teamId),
         testerId: currentParams.get("testerId") || (nextProjectId !== current.projectId ? "all" : current.testerId),
-        developerId: currentParams.get("developerId") || (nextProjectId !== current.projectId ? "all" : current.developerId),
+        developerId: currentParams.get("developerId") || cardViewFilters?.developerId || (nextProjectId !== current.projectId ? "all" : current.developerId),
         severity: currentParams.get("severity") || "all",
         epicId: currentParams.get("epicId") || (nextProjectId !== current.projectId ? "all" : current.epicId),
         sprintId: currentParams.get("sprintId") || (nextProjectId !== current.projectId ? "all" : current.sprintId),
+        bucket:
+          currentParams.get("bucket") ||
+          cardViewFilters?.bucket ||
+          (hasRequestedCardView ? "all" : current.bucket),
         dateFrom: currentParams.get("dateFrom") || "",
         dateTo: currentParams.get("dateTo") || "",
         search: currentParams.get("search") || "",
@@ -759,6 +1050,9 @@ const AdminBugsPage = () => {
     setPage(normalizePageNumber(currentParams.get("page")));
     setPageSize(normalizePageSize(currentParams.get("pageSize")));
     setSortBy(currentParams.get("sortBy") || "updated:desc");
+    if (hasRequestedCardView || hasLegacyBugFilter) {
+      setActiveCardView(nextCardView?.id || "");
+    }
   }, [filters.projectId, projects, searchParamString]);
 
   useEffect(() => {
@@ -861,17 +1155,30 @@ const AdminBugsPage = () => {
 
   const metrics = useMemo(
     () => ({
-      total: filteredBugs.length,
-      open: filteredBugs.filter((bugIssue) => !isClosedBug(bugIssue)).length,
-      critical: getCriticalIssues(filteredBugs).length,
-      unassigned: filteredBugs.filter((bugIssue) => !resolveUserId(getBugDeveloper(bugIssue))).length,
-      inProgress: filteredBugs.filter(isInProgressBug).length,
-      reopened: getReopenedIssues(filteredBugs).length,
-      readyForQa: filteredBugs.filter(isReadyForQa).length,
-      closed: filteredBugs.filter(isClosedBug).length,
+      total: cardSummary?.total ?? summary?.total ?? pagination.total,
+      bucket:
+        cardSummary?.bucket ??
+        summary?.bucket ??
+        visibleBugs.filter((bugIssue) => !resolveUserId(getBugDeveloper(bugIssue))).length,
+      assigned: cardSummary?.assigned ?? summary?.assigned ?? visibleBugs.filter((bugIssue) => normalizeBugStatusForIssue(bugIssue) === ISSUE_STATUS.ASSIGNED).length,
+      open: cardSummary?.open ?? summary?.open ?? visibleBugs.filter((bugIssue) => !isClosedBug(bugIssue)).length,
+      critical: cardSummary?.critical ?? summary?.critical ?? getCriticalIssues(visibleBugs).length,
+      unassigned:
+        cardSummary?.unassigned ??
+        summary?.unassigned ??
+        visibleBugs.filter((bugIssue) => !resolveUserId(getBugDeveloper(bugIssue))).length,
+      inProgress: cardSummary?.inProgress ?? summary?.inProgress ?? visibleBugs.filter(isInProgressBug).length,
+      reopened: cardSummary?.reopened ?? summary?.reopened ?? getReopenedIssues(visibleBugs).length,
+      readyForQa: cardSummary?.readyForQa ?? summary?.readyForQa ?? visibleBugs.filter(isReadyForQa).length,
+      closed: cardSummary?.closed ?? summary?.closed ?? visibleBugs.filter(isClosedBug).length,
     }),
-    [filteredBugs]
+    [cardSummary, pagination.total, summary, visibleBugs]
   );
+  const activeCard =
+    [...BUG_CARD_VIEWS, TOTAL_BUGS_VIEW].find((view) => view.id === activeCardView) || {
+      label: "Filtered Bugs",
+      description: "Quick filter results",
+    };
 
   const triageBugs = useMemo(
     () =>
@@ -886,6 +1193,26 @@ const AdminBugsPage = () => {
       }),
     [filteredBugs]
   );
+  const triagePageSize = 6;
+  const triagePagination = useMemo(() => {
+    const total = triageBugs.length;
+    const totalPages = Math.max(1, Math.ceil(total / triagePageSize));
+    const safePage = Math.min(triagePage, totalPages);
+    const fromIndex = (safePage - 1) * triagePageSize;
+
+    return {
+      page: safePage,
+      total,
+      totalPages,
+      items: triageBugs.slice(fromIndex, fromIndex + triagePageSize),
+    };
+  }, [triageBugs, triagePage]);
+
+  useEffect(() => {
+    if (triagePage > triagePagination.totalPages) {
+      setTriagePage(triagePagination.totalPages);
+    }
+  }, [triagePage, triagePagination.totalPages]);
 
   const severityRows = useMemo(
     () =>
@@ -1053,6 +1380,12 @@ const AdminBugsPage = () => {
   const isLoading = isProjectsLoading || isBugsLoading;
 
   const updateFilter = (key, value) => {
+    setPage(1);
+    if (searchParams.has("page")) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("page");
+      setSearchParams(nextParams, { replace: true });
+    }
     setFilters((current) => ({
       ...current,
       [key]: value,
@@ -1075,9 +1408,11 @@ const AdminBugsPage = () => {
   };
 
   const applyQuickFilter = (filterId) => {
+    setActiveCardView("");
     setFilters((current) => {
       const baseFilters = {
         ...current,
+        bucket: "all",
         filter: "all",
         lifecycle: "all",
         priority: "all",
@@ -1131,6 +1466,29 @@ const AdminBugsPage = () => {
 
       return baseFilters;
     });
+  };
+
+  const applyCardView = (viewId) => {
+    const nextView = getBugCardView(viewId);
+    const cardFilters = getCardViewFilterState(nextView.id);
+
+    setPage(1);
+    setSelectedTriageIds([]);
+    setActiveCardView(nextView.id);
+    setFilters((current) => ({
+      ...current,
+      ...cardFilters,
+    }));
+    setSearchParams((currentParams) => {
+      const nextParams = new URLSearchParams(currentParams);
+      nextParams.set("view", nextView.id);
+      nextParams.delete("page");
+      nextParams.delete("status");
+      nextParams.delete("filter");
+      nextParams.delete("lifecycle");
+      nextParams.delete("bucket");
+      return nextParams;
+    }, { replace: true });
   };
 
   const isQuickFilterActive = (filterId) => {
@@ -1398,16 +1756,31 @@ const AdminBugsPage = () => {
   }
 
   return (
-    <div className="space-y-4 text-[13px]">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <MetricTile icon={Bug} label="Total Bugs" value={metrics.total} tone="bg-blue-50 text-blue-700" />
-        <MetricTile icon={AlertTriangle} label="Critical" value={metrics.critical} tone="bg-rose-50 text-rose-700" />
-        <MetricTile icon={UserPlus} label="Unassigned" value={metrics.unassigned} tone="bg-slate-100 text-slate-700" />
-        <MetricTile icon={TimerReset} label="In Progress" value={metrics.inProgress} tone="bg-indigo-50 text-indigo-700" />
-        <MetricTile icon={RefreshCcw} label="Reopened" value={metrics.reopened} tone="bg-pink-50 text-pink-700" />
-        <MetricTile icon={CheckCircle2} label="Closed" value={metrics.closed} tone="bg-emerald-50 text-emerald-700" />
+    <div className="flex flex-col gap-4 text-[13px]">
+      <section className="order-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+        {BUG_CARD_VIEWS.map((view) => (
+          <MetricTile
+            key={view.id}
+            active={activeCardView === view.id}
+            icon={view.icon}
+            label={view.label}
+            value={metrics[view.metricKey] ?? 0}
+            tone={view.tone}
+            onClick={() => applyCardView(view.id)}
+          />
+        ))}
+        <MetricTile
+          active={activeCardView === TOTAL_BUGS_VIEW.id}
+          icon={TOTAL_BUGS_VIEW.icon}
+          label={TOTAL_BUGS_VIEW.label}
+          value={metrics.total}
+          tone={TOTAL_BUGS_VIEW.tone}
+          onClick={() => applyCardView(TOTAL_BUGS_VIEW.id)}
+        />
       </section>
 
+      {false ? (
+      <>
       <Card className="flex max-h-[calc(100svh-7rem)] min-h-[520px] flex-col overflow-hidden rounded-[14px] border border-slate-200/90 bg-white shadow-[0_18px_48px_-32px_rgba(15,23,42,0.46)] md:max-h-[calc(100vh-7.5rem)]">
         <CardContent className="flex min-h-0 flex-col p-0">
           <div className="sticky top-0 z-30 shrink-0 rounded-t-[14px] border-b border-slate-300/80 bg-white/95 px-3 py-2 backdrop-blur-xl sm:px-4">
@@ -1759,45 +2132,59 @@ const AdminBugsPage = () => {
         <DistributionPanel title="Bug Trend By Status" rows={statusRows} />
         <DistributionPanel title="Developer Resolution Rate" rows={developerRows} />
       </section>
+      </>
+      ) : null}
 
-      <Card className="flex max-h-[calc(100svh-7rem)] min-h-[520px] flex-col overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl md:max-h-[calc(100vh-7.5rem)]">
+      <Card className="order-4 overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl">
         <CardContent className="flex min-h-0 flex-col p-0">
           <div className="shrink-0 space-y-3 border-b border-slate-200/90 bg-white p-3.5 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <h2 className="flex items-center gap-2 text-base font-semibold text-slate-950">
                 <SlidersHorizontal className="h-4 w-4 text-blue-600" />
-                Bug Tracker
+                {activeCard.label}
               </h2>
               <p className="mt-0.5 text-[12px] text-slate-500">
-                {filteredBugs.length} visible bugs across QA, ownership, and lifecycle filters.
+                Showing {pagination.from}-{pagination.to} of {pagination.total} {activeCard.label.toLowerCase()}.
+                {" "}
+                {activeCard.description}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {[
-                ["mine", "My Bugs"],
-                ["critical", "Critical"],
-                ["unassigned", "Unassigned"],
-                ["reopened", "Reopened"],
-                ["ready", "Ready for QA"],
-              ].map(([id, label]) => (
-                <Button
-                  key={id}
-                  className="h-8 rounded-[10px] px-2.5 text-[11px]"
-                  type="button"
-                  variant="outline"
-                  onClick={() => applyQuickFilter(id)}
-                >
-                  {label}
-                </Button>
-              ))}
+            <div className="grid w-full gap-2 md:grid-cols-[minmax(220px,1.3fr)_minmax(150px,0.75fr)_minmax(140px,0.65fr)_minmax(140px,0.65fr)_auto] xl:w-auto">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <CompactInput
+                  className="pl-9"
+                  placeholder="Search bugs"
+                  value={filters.search}
+                  onChange={(event) => updateFilter("search", event.target.value)}
+                />
+              </div>
+              <CompactSelect value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
+                <option value={ALL_PROJECTS_VALUE}>All projects</option>
+                {projects.map((project) => (
+                  <option key={project._id} value={project._id}>{project.name}</option>
+                ))}
+              </CompactSelect>
+              <CompactSelect value={filters.priority} onChange={(event) => updateFilter("priority", event.target.value)}>
+                <option value="all">Priority</option>
+                {["Critical", "High", "Medium", "Low"].map((priority) => (
+                  <option key={priority} value={priority}>{priority}</option>
+                ))}
+              </CompactSelect>
+              <CompactSelect value={filters.severity} onChange={(event) => updateFilter("severity", event.target.value)}>
+                <option value="all">Severity</option>
+                {BUG_SEVERITY_OPTIONS.map((severity) => (
+                  <option key={severity} value={severity}>{severity}</option>
+                ))}
+              </CompactSelect>
               <Button
-                className="h-8 rounded-[10px] px-2.5 text-[11px]"
+                className="h-9 rounded-[10px] px-2.5 text-[11px]"
                 type="button"
                 onClick={() => setAreFiltersOpen((current) => !current)}
               >
                 <Filter className="h-3.5 w-3.5" />
-                {areFiltersOpen ? "Hide Filters" : "Show Filters"}
+                {areFiltersOpen ? "Less" : "More"}
                 {areFiltersOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               </Button>
             </div>
@@ -1926,8 +2313,47 @@ const AdminBugsPage = () => {
                 <Skeleton key={`bug-row-skeleton-${index}`} className="h-14 rounded-2xl" />
               ))}
             </div>
-          ) : filteredBugs.length ? (
-            <div className="h-full min-h-[360px] overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
+          ) : visibleBugs.length ? (
+            <>
+            <div className="space-y-2 bg-slate-50/80 p-3">
+              {visibleBugs.map((bugIssue) => (
+                <div key={bugIssue._id} className="relative">
+                <BugResultRow
+                  bugIssue={bugIssue}
+                  projects={projects}
+                  onOpen={setSelectedBug}
+                  onActionMenu={handleToggleActionMenu}
+                />
+                {renderTriageActionMenu(bugIssue)}
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-col gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs font-medium text-slate-500">
+                {activeCard.label} page {pagination.page} of {pagination.totalPages}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  className="h-8 rounded-lg px-3 text-xs"
+                  type="button"
+                  variant="outline"
+                  disabled={pagination.page <= 1}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  className="h-8 rounded-lg px-3 text-xs"
+                  type="button"
+                  variant="outline"
+                  disabled={pagination.page >= pagination.totalPages}
+                  onClick={() => setPage((current) => Math.min(pagination.totalPages, current + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+            <div className="hidden">
               <table className="w-full table-fixed border-separate border-spacing-0 text-left">
                 <colgroup>
                   <col className="w-[6%]" />
@@ -1960,7 +2386,7 @@ const AdminBugsPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredBugs.map((bugIssue) => {
+                  {visibleBugs.map((bugIssue) => {
                     const reporter = getReporter(bugIssue);
                     const developer = getBugDeveloper(bugIssue);
                     const status = normalizeBugStatusForIssue(bugIssue);
@@ -1971,8 +2397,17 @@ const AdminBugsPage = () => {
                         className="cursor-pointer border-b border-slate-100 transition hover:bg-blue-50/50"
                         onClick={() => setSelectedBug(bugIssue)}
                       >
-                        <td className="break-words border-b border-slate-100 px-2 py-3 font-mono text-[11px] font-semibold leading-5 text-slate-600">
-                          {getIssueDisplayKey(bugIssue)}
+                        <td className="break-words border-b border-slate-100 px-2 py-3">
+                          <button
+                            className="max-w-full break-words text-left font-mono text-[11px] font-semibold leading-5 text-slate-600 transition hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedBug(bugIssue);
+                            }}
+                          >
+                            {getIssueDisplayKey(bugIssue)}
+                          </button>
                         </td>
                         <td className="border-b border-slate-100 px-2 py-3">
                           <p className="truncate text-[13px] font-semibold text-slate-950 xl:text-sm">{bugIssue.title}</p>
@@ -2037,16 +2472,191 @@ const AdminBugsPage = () => {
                 </tbody>
               </table>
             </div>
+            </>
           ) : (
             <div className="p-8">
               <EmptyState
-                title="No bugs match this view"
-                description="Adjust project, QA, developer, lifecycle, date, or search filters to widen the bug tracker."
+                title={`No ${activeCard.label.toLowerCase()} found`}
+                description="Adjust project, QA, developer, lifecycle, date, or search filters to widen this result set."
                 icon={<Bug className="h-5 w-5" />}
               />
             </div>
           )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="order-2 overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.34)] backdrop-blur-xl">
+        <CardContent className="p-0">
+          <div className="flex flex-col gap-3 border-b border-slate-200/80 bg-white px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-base font-semibold text-slate-950">
+                <ListChecks className="h-4 w-4 text-blue-600" />
+                Triage Board
+              </h2>
+              <p className="mt-0.5 text-xs font-medium text-slate-500">
+                {triagePagination.total} new, open, or unassigned bugs ready for admin review.
+              </p>
+            </div>
+
+            {selectedTriageIds.length ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <CompactSelect
+                  className="h-8 w-[150px]"
+                  value={bulkDeveloperId}
+                  onChange={(event) => setBulkDeveloperId(event.target.value)}
+                >
+                  <option value="">Assign</option>
+                  {developers.map((developer) => (
+                    <option key={resolveUserId(developer)} value={resolveUserId(developer)}>
+                      {getUserLabel(developer)}
+                    </option>
+                  ))}
+                </CompactSelect>
+                <CompactSelect
+                  className="h-8 w-[150px]"
+                  value={bulkPriority}
+                  onChange={(event) => setBulkPriority(event.target.value)}
+                >
+                  <option value="">Priority</option>
+                  {["Critical", "High", "Medium", "Low"].map((priority) => (
+                    <option key={priority} value={priority}>{priority}</option>
+                  ))}
+                </CompactSelect>
+                <Button
+                  className="h-8 rounded-lg px-3 text-xs"
+                  type="button"
+                  disabled={updateIssueMutation.isPending}
+                  onClick={handleBulkTriage}
+                >
+                  Apply
+                </Button>
+              </div>
+            ) : null}
+          </div>
+
+          {isLoading ? (
+            <div className="grid gap-3 bg-slate-50/80 p-3 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={`triage-card-skeleton-${index}`} className="h-40 rounded-xl" />
+              ))}
+            </div>
+          ) : triageBugs.length ? (
+            <>
+            <div className="space-y-2 bg-slate-50/80 p-3">
+              {triagePagination.items.map((bugIssue) => {
+                const status = normalizeBugStatusForIssue(bugIssue);
+                const severity = getSeverity(bugIssue);
+
+                return (
+                  <article
+                    key={bugIssue._id}
+                    className={cn(
+                      "group grid gap-3 rounded-xl border border-l-4 border-slate-200 bg-white px-3 py-2.5 shadow-sm transition hover:border-blue-200 hover:bg-blue-50/30 md:grid-cols-[28px_minmax(260px,1.2fr)_minmax(170px,0.7fr)_minmax(170px,0.7fr)_120px_82px] md:items-center",
+                      severityAccentClassName(severity)
+                    )}
+                  >
+                    <input
+                      aria-label={`Select ${getIssueDisplayKey(bugIssue)}`}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      type="checkbox"
+                      checked={selectedTriageIds.includes(bugIssue._id)}
+                      onChange={(event) => handleToggleTriageBug(bugIssue._id, event.target.checked)}
+                    />
+
+                    <button
+                      className="min-w-0 text-left"
+                      type="button"
+                      onClick={() => setSelectedBug(bugIssue)}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">
+                          {getIssueDisplayKey(bugIssue)}
+                        </span>
+                        <span className={cn("inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-bold", statusBadgeClassName(status))}>
+                          {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
+                        </span>
+                      </div>
+                      <h3 className="mt-1 truncate text-sm font-semibold text-slate-950 group-hover:text-blue-700">
+                        {bugIssue.title || "Untitled bug"}
+                      </h3>
+                    </button>
+
+                    <p className="min-w-0 truncate text-xs font-medium text-slate-500">
+                      {getProjectName(bugIssue, projects)}
+                    </p>
+                    <p className="min-w-0 truncate text-xs font-medium text-slate-500">
+                      {resolveBugDetails(bugIssue)?.moduleName || "Unmapped module"}
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={severityBadgeClassName(severity)}>{severity}</span>
+                      <span className={priorityBadgeClassName(bugIssue.priority || "Medium")}>{bugIssue.priority || "Medium"}</span>
+                    </div>
+
+                    <div className="relative flex items-center justify-end gap-1">
+                      <Button
+                        className="h-8 w-8 rounded-lg p-0"
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        onClick={() => setSelectedBug(bugIssue)}
+                        aria-label="View bug"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        data-triage-action-trigger
+                        className="h-8 w-8 rounded-lg p-0"
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        onClick={(event) => handleToggleActionMenu(event, bugIssue._id)}
+                        aria-label="More actions"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                      {renderTriageActionMenu(bugIssue)}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="flex flex-col gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs font-medium text-slate-500">
+                Triage page {triagePagination.page} of {triagePagination.totalPages}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  className="h-8 rounded-lg px-3 text-xs"
+                  type="button"
+                  variant="outline"
+                  disabled={triagePagination.page <= 1}
+                  onClick={() => setTriagePage((current) => Math.max(1, current - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  className="h-8 rounded-lg px-3 text-xs"
+                  type="button"
+                  variant="outline"
+                  disabled={triagePagination.page >= triagePagination.totalPages}
+                  onClick={() => setTriagePage((current) => Math.min(triagePagination.totalPages, current + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+            </>
+          ) : (
+            <div className="bg-slate-50/80 p-6">
+              <EmptyState
+                title="No bugs need triage"
+                description="New, open, or unassigned bugs will appear here for quick review."
+                icon={<ListChecks className="h-5 w-5" />}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 

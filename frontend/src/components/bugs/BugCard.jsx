@@ -98,10 +98,13 @@ const DraggableBugCard = ({
   onAction,
   onOpen,
 }) => {
+  const isDragDisabled =
+    isUpdating ||
+    (actionMode === "developer" && ["readyForQa", "closed"].includes(columnKey));
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: issue._id,
     data: { issue },
-    disabled: isUpdating,
+    disabled: isDragDisabled,
   });
 
   return (
@@ -114,6 +117,7 @@ const DraggableBugCard = ({
       issue={issue}
       isDragging={isDragging}
       isUpdating={isUpdating}
+      isDragDisabled={isDragDisabled}
       nodeRef={setNodeRef}
       onAction={onAction}
       onOpen={onOpen}
@@ -164,6 +168,7 @@ const buildActions = ({ actionMode, columnKey, currentUserId, issue, onAction, o
         openAction,
       ],
       readyForQa: [openAction],
+      closed: [openAction],
       reopened: [
         {
           label: "Resume Work",
@@ -229,6 +234,7 @@ const BugCardSurface = ({
   dragListeners = {},
   issue,
   isDragging = false,
+  isDragDisabled = false,
   isOverlay = false,
   isUpdating = false,
   nodeRef,
@@ -254,7 +260,8 @@ const BugCardSurface = ({
         "group relative rounded-lg border border-slate-200 bg-white p-3 text-left shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_18px_40px_-30px_rgba(37,99,235,0.34)]",
         isDragging && "opacity-40",
         isOverlay && "rotate-[0.5deg] shadow-[0_24px_54px_-28px_rgba(15,23,42,0.58)]",
-        isUpdating && "pointer-events-none opacity-70"
+        isUpdating && "pointer-events-none opacity-70",
+        isDragDisabled && "cursor-default"
       )}
       role="button"
       style={style}
@@ -287,7 +294,12 @@ const BugCardSurface = ({
             {issue.title || "Untitled bug"}
           </h3>
         </div>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-400 group-hover:border-blue-200 group-hover:text-blue-500">
+        <span
+          className={cn(
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-400 group-hover:border-blue-200 group-hover:text-blue-500",
+            isDragDisabled && "opacity-50"
+          )}
+        >
           <GripVertical className="h-4 w-4" />
         </span>
       </div>
@@ -323,6 +335,12 @@ const BugCardSurface = ({
       {actionMode === "developer" && columnKey === "readyForQa" ? (
         <p className="mt-3 rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs font-medium text-cyan-700">
           Waiting for tester verification.
+        </p>
+      ) : null}
+
+      {actionMode === "developer" && columnKey === "closed" ? (
+        <p className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+          Closed by QA.
         </p>
       ) : null}
 

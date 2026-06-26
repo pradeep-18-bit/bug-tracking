@@ -891,27 +891,30 @@ export const resolveApiAssetUrl = (assetPath = "") => {
   }
 };
 
+export const fetchAttachmentBlob = async (attachment, issueId) => {
+  if (!attachment._id) {
+    throw new Error("Attachment ID is required");
+  }
+
+  if (!issueId) {
+    throw new Error("Issue ID is required");
+  }
+
+  const response = await api.get(
+    `/issues/${issueId}/attachments/${attachment._id}/download`,
+    {
+      responseType: "blob",
+      withCredentials: true,
+    }
+  );
+
+  return response.data;
+};
+
 export const downloadAttachment = async (attachment, issueId) => {
   try {
-    if (!attachment._id) {
-      throw new Error("Attachment ID is required");
-    }
-
-    if (!issueId) {
-      throw new Error("Issue ID is required");
-    }
-
-    // Use authenticated endpoint for downloading
-    const response = await api.get(
-      `/issues/${issueId}/attachments/${attachment._id}/download`,
-      {
-        responseType: "blob",
-        withCredentials: true,
-      }
-    );
-
-    // Create a blob URL and trigger download
-    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const blob = await fetchAttachmentBlob(attachment, issueId);
+    const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
     link.setAttribute("download", attachment.fileName || "attachment");

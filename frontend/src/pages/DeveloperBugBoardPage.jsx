@@ -95,7 +95,6 @@ const DeveloperBugBoardPage = () => {
     queryFn: () =>
       fetchMyIssues({
         type: "Bug",
-        excludeClosedBugs: true,
         limit: 250,
         sortBy: "recently-updated",
       }),
@@ -117,7 +116,7 @@ const DeveloperBugBoardPage = () => {
   const assignedBugIssues = useMemo(
     () =>
       (Array.isArray(myIssues)
-        ? myIssues.filter((issue) => isBugIssue(issue) && !isIssueClosed(issue))
+        ? myIssues.filter((issue) => isBugIssue(issue))
         : []),
     [myIssues]
   );
@@ -248,6 +247,11 @@ const DeveloperBugBoardPage = () => {
       return Promise.reject(new Error("Ready for QA is read-only"));
     }
 
+    if (currentColumnKey === "closed") {
+      setStatusError("Closed bugs are read-only for developers.");
+      return Promise.reject(new Error("Closed bugs are read-only"));
+    }
+
     if (currentColumnKey === "available" && nextColumnKey === "assigned") {
       return pickMutation.mutateAsync(issue);
     }
@@ -342,7 +346,7 @@ const DeveloperBugBoardPage = () => {
           </div>
         </CardHeader>
         <CardContent className="space-y-4 p-4 sm:p-5">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
             {DEVELOPER_BUG_COLUMNS.map((column) => (
               <div key={column.key} className="rounded-lg border border-slate-200 bg-slate-50/80 px-4 py-3">
                 <p className="truncate text-[11px] font-semibold uppercase text-slate-500">{column.label}</p>

@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
-const { uploadToS3 } = require("../utils/s3");
+const { getS3ObjectStream, uploadToS3 } = require("../utils/s3");
 const mongoose = require("mongoose");
 const Comment = require("../models/Comment");
 const Epic = require("../models/Epic");
@@ -840,21 +840,6 @@ const downloadIssueAttachment = asyncHandler(async (req, res) => {
     throw new Error("Attachment does not belong to this issue");
   }
 
-  // Resolve file path
-  const filePath = path.resolve(
-    __dirname,
-    "..",
-    "uploads",
-    "issue-attachments",
-    path.basename(attachment.storagePath)
-  );
-
-  // Verify file exists
-  if (!fs.existsSync(filePath)) {
-    res.status(404);
-    throw new Error("File not found on disk");
-  }
-
   // Set response headers
   res.setHeader("Content-Type", attachment.mimeType || "application/octet-stream");
   res.setHeader(
@@ -865,8 +850,28 @@ const downloadIssueAttachment = asyncHandler(async (req, res) => {
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
 
-  // Stream the file
-  const fileStream = fs.createReadStream(filePath);
+  const isRemoteStorage = /^https?:\/\//i.test(String(attachment.storagePath || ""));
+  let fileStream;
+
+  if (isRemoteStorage) {
+    fileStream = await getS3ObjectStream(attachment.storagePath);
+  } else {
+    const filePath = path.resolve(
+      __dirname,
+      "..",
+      "uploads",
+      "issue-attachments",
+      path.basename(attachment.storagePath)
+    );
+
+    if (!fs.existsSync(filePath)) {
+      res.status(404);
+      throw new Error("File not found on disk");
+    }
+
+    fileStream = fs.createReadStream(filePath);
+  }
+
   fileStream.pipe(res);
 
   fileStream.on("error", (error) => {
