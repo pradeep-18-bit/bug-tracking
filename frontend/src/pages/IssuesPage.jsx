@@ -506,14 +506,7 @@ const IssuesPage = () => {
     [issuesData]
   );
 
-  const filteredIssues = useMemo(() => {
-    const normalizedFilters = {
-      ...filters,
-      search: deferredSearch,
-    };
-
-    return sortIssues(filterIssues(issues, normalizedFilters), "newest");
-  }, [deferredSearch, filters, issues]);
+  const filteredIssues = useMemo(() => sortIssues(issues, "newest"), [issues]);
 
   const visibleBoardColumnKeys = useMemo(() => {
     if (filters.status && filters.status !== "all") {
