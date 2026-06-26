@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   mongo:
     build:
@@ -19,6 +17,13 @@ services:
 
     volumes:
       - mongo-data:/data/db
+
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --username \"$${MONGO_INITDB_ROOT_USERNAME}\" --password \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --eval \"db.adminCommand('ping').ok\" | grep 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   backend:
     build:
@@ -50,13 +55,15 @@ services:
       APP_URL: ${APP_URL:-https://app.renivval.com}
       FRONTEND_URL: ${FRONTEND_URL:-https://app.renivval.com}
 
-      AWS_REGION: ${AWS_REGION}
-      AWS_S3_BUCKET: ${AWS_S3_BUCKET}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     depends_on:
-      - redis
-      - mongo
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
 
     ports:
       - "${BACKEND_PORT:-5000}:5000"
@@ -64,12 +71,24 @@ services:
     volumes:
       - ./backend/uploads:/app/uploads
 
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:5000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 180s
+
   redis:
     image: redis:7-alpine
     container_name: bug-tracking-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   coturn:
     image: coturn/coturn
@@ -108,7 +127,8 @@ services:
     restart: unless-stopped
 
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
     ports:
       - "${FRONTEND_PORT:-3000}:80"
