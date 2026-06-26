@@ -9,6 +9,17 @@ pipeline {
                     set -e
 
                     cd /home/ubuntu/bug-tracking
+
+                    dump_diagnostics() {
+                        status=$?
+                        echo "Deploy failed with exit code ${status}"
+                        docker compose ps || true
+                        docker compose logs --tail=160 backend || true
+                        exit "$status"
+                    }
+
+                    trap dump_diagnostics ERR
+
                     git checkout dev2
                     git fetch origin
                     git reset --hard origin/dev2
