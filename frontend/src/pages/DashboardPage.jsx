@@ -50,6 +50,7 @@ import {
   normalizeBugStatusForIssue,
   resolveBugDetails,
   resolveIssueProjectId,
+  resolveIssueTeamId,
 } from "@/lib/issues";
 import { cn, formatDateTime, getInitials } from "@/lib/utils";
 
@@ -480,73 +481,6 @@ const TriageBoardWidget = ({ bugs, onOpen, onNavigate }) => {
   );
 };
 
-const ActiveProjectCard = ({ project, onOpen }) => {
-  const teams = project.teams || [];
-
-  return (
-    <button
-      type="button"
-      className="group block w-full rounded-xl border border-white/50 bg-white/40 p-3 text-left shadow-sm backdrop-blur-xl transition-all duration-200 hover:bg-white/60 dark:border-white/10 dark:bg-slate-900/40"
-      onClick={() => onOpen(project)}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-            <p className="truncate text-sm font-bold text-slate-950 dark:text-slate-100">
-              {project.name}
-            </p>
-          </div>
-          <p className="mt-0.5 text-[10px] font-medium text-slate-500 uppercase tracking-tight">
-            {project.teamCount || 0} Team{project.teamCount === 1 ? "" : "s"}
-          </p>
-        </div>
-        <span className="shrink-0 rounded-full border border-blue-100 bg-blue-50/50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
-          {project.completionRate}%
-        </span>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <div className="min-w-0 rounded-lg bg-slate-50/50 px-2 py-1.5 border border-slate-100/50">
-          <p className="truncate text-[9px] font-bold text-slate-500 uppercase">Issues</p>
-          <p className="mt-0.5 truncate text-sm font-bold text-slate-900 dark:text-slate-100">
-            {project.totalIssues}
-          </p>
-        </div>
-        <div className="min-w-0 rounded-lg bg-amber-50/50 px-2 py-1.5 border border-amber-100/50">
-          <p className="truncate text-[9px] font-bold text-amber-700 uppercase">Open</p>
-          <p className="mt-0.5 truncate text-sm font-bold text-amber-900 dark:text-amber-200">
-            {project.openIssues}
-          </p>
-        </div>
-        <div className="min-w-0 rounded-lg bg-emerald-50/50 px-2 py-1.5 border border-emerald-100/50">
-          <p className="truncate text-[9px] font-bold text-emerald-700 uppercase">Closed</p>
-          <p className="mt-0.5 truncate text-sm font-bold text-emerald-900 dark:text-emerald-200">
-            {project.closedIssues}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {teams.length ? (
-          teams.map((team) => (
-            <span
-              key={team}
-              className="max-w-full break-words rounded-full border border-white/60 bg-white/72 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-950/46 dark:text-slate-300"
-            >
-              {team}
-            </span>
-          ))
-        ) : (
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500 dark:border-white/10 dark:bg-slate-950/46 dark:text-slate-400">
-            No teams assigned
-          </span>
-        )}
-      </div>
-    </button>
-  );
-};
-
 const DashboardLoading = () => (
   <div className="space-y-6">
     <Skeleton className="h-[120px] rounded-xl bg-slate-100/50" />
@@ -594,10 +528,8 @@ const DashboardPage = () => {
   console.log("Dashboard Open Count", issueStats.open);
   console.log("Dashboard Closed Count", issueStats.closed);
   const trends = analytics.overview?.trends || {};
-  const projects = analytics.projects?.projects || [];
   const teams = analytics.teams?.teams || [];
   const activity = analytics.recentActivity?.activity || [];
-  const activeProjects = projects;
   const highestWorkloadTeam = teams[0] || null;
   const taskStatusRows = useMemo(() => {
     const total = issues.length;
@@ -763,6 +695,34 @@ const DashboardPage = () => {
       }),
     [bugMetrics.total, bugs]
   );
+  const teamTaskRows = useMemo(() => {
+    const rowsByTeam = new Map();
+
+    issues.forEach((issue) => {
+      const teamId = resolveIssueTeamId(issue);
+      const rowKey = teamId || "unassigned";
+      const row = rowsByTeam.get(rowKey) || {
+        teamId,
+        name: issue.teamId?.name || "Unassigned tasks",
+        total: 0,
+        inProgress: 0,
+        done: 0,
+      };
+      const status = getTaskDashboardStatus(issue);
+
+      row.total += 1;
+      row.inProgress += status === ISSUE_STATUS.IN_PROGRESS ? 1 : 0;
+      row.done += status === ISSUE_STATUS.DONE ? 1 : 0;
+      row.open = Math.max(row.total - row.done, 0);
+      row.completionRate = row.total ? Math.round((row.done / row.total) * 100) : 0;
+      rowsByTeam.set(rowKey, row);
+    });
+
+    return Array.from(rowsByTeam.values())
+      .sort((left, right) => right.open - left.open || right.total - left.total)
+      .slice(0, 6);
+  }, [issues]);
+  const maxTeamTaskOpen = Math.max(...teamTaskRows.map((row) => row.open), 0);
   const recentCriticalBugs = useMemo(
     () =>
       bugs
@@ -1203,24 +1163,33 @@ const DashboardPage = () => {
       <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
 
         <AnalyticsPanel
-          title="Active Projects"
-          description="All active projects sorted by issue volume, open workload, and assigned teams."
+          title="Active Project Bugs"
+          description="Bug volume by active project, sorted by open pressure and resolution progress."
           action={
-            activeProjects.length ? (
+            bugProjectRows.length ? (
               <Badge className="border-white/60 bg-white/72 text-slate-600">
-                {activeProjects.length} active
+                {bugProjectRows.length} bug projects
               </Badge>
             ) : null
           }
         >
-          {activeProjects.length ? (
+          {bugProjectRows.length ? (
             <div className="dashboard-scrollbar dashboard-scroll-fade max-h-[500px] space-y-3 overflow-y-auto pr-2">
-              {activeProjects.map((project) => (
-                <ActiveProjectCard
+              {bugProjectRows.map((project) => (
+                <ProjectBugCard
                   key={project.projectId || project.name}
                   project={project}
                   onOpen={(selectedProject) =>
-                    navigateToIssues({ projectId: selectedProject.projectId })
+                    navigateToBugs({
+                      projectId:
+                        selectedProject.projectId === selectedProject.name
+                          ? ""
+                          : selectedProject.projectId,
+                      project:
+                        selectedProject.projectId === selectedProject.name
+                          ? selectedProject.name
+                          : "",
+                    })
                   }
                 />
               ))}
@@ -1228,8 +1197,73 @@ const DashboardPage = () => {
           ) : (
             <AnalyticsEmptyState
               icon={FolderKanban}
-              title="No active project yet"
-              description="Project analytics appear once issues are created."
+              title="No active project bugs yet"
+              description="Project bug analytics appear once bugs are linked."
+            />
+          )}
+        </AnalyticsPanel>
+
+        <AnalyticsPanel
+          title="Team Task Workload"
+          description="Compact active task pressure by team."
+          action={
+            teamTaskRows.length ? (
+              <Badge className="border-white/60 bg-white/72 text-slate-600">
+                {issues.length} tasks
+              </Badge>
+            ) : null
+          }
+        >
+          {teamTaskRows.length ? (
+            <div className="space-y-3">
+              {teamTaskRows.map((row) => {
+                const width = maxTeamTaskOpen
+                  ? Math.max(Math.round((row.open / maxTeamTaskOpen) * 100), row.open ? 8 : 0)
+                  : 0;
+
+                return (
+                  <button
+                    key={row.teamId || row.name}
+                    type="button"
+                    onClick={() => navigateToIssues(row.teamId ? { teamId: row.teamId } : {})}
+                    className={cn(
+                      ANALYTICS_SUBPANEL_CLASS,
+                      "w-full px-3 py-2 text-left hover:border-blue-200/80"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-slate-950 dark:text-slate-100">
+                          {row.name}
+                        </p>
+                        <p className="mt-0.5 text-[10px] font-medium uppercase text-slate-500">
+                          {row.open} open - {row.inProgress} in progress - {row.done} done
+                        </p>
+                      </div>
+                      <Badge className="shrink-0 border-violet-100 bg-violet-50 text-violet-700">
+                        {row.total}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 grid grid-cols-[minmax(0,1fr)_44px] items-center gap-3">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                        <div
+                          className="h-full rounded-full bg-violet-500 transition-all duration-500"
+                          style={{ width: `${width}%` }}
+                        />
+                      </div>
+                      <span className="text-right text-[10px] font-bold text-slate-500">
+                        {row.completionRate}%
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <AnalyticsEmptyState
+              icon={Users2}
+              title="No team tasks yet"
+              description="Team task workload appears once tasks are assigned."
             />
           )}
         </AnalyticsPanel>
