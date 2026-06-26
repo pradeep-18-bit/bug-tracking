@@ -17,6 +17,7 @@ import {
   Paperclip,
   RefreshCcw,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   TimerReset,
   UserPlus,
@@ -475,6 +476,14 @@ const BUG_CARD_VIEWS = [
     tone: "bg-indigo-50 text-indigo-700",
   },
   {
+    id: "readyqa",
+    label: "Ready For QA",
+    description: "Waiting for tester verification",
+    icon: ShieldCheck,
+    metricKey: "readyForQa",
+    tone: "bg-cyan-50 text-cyan-700",
+  },
+  {
     id: "reopen",
     label: "Reopen",
     description: "Bugs returned after QA",
@@ -534,6 +543,13 @@ const getCardViewFilterState = (viewId) => {
     return {
       ...baseFilters,
       status: ISSUE_STATUS.IN_PROGRESS,
+    };
+  }
+
+  if (view.id === "readyqa") {
+    return {
+      ...baseFilters,
+      lifecycle: "fixed",
     };
   }
 
@@ -1741,7 +1757,7 @@ const AdminBugsPage = () => {
 
   return (
     <div className="flex flex-col gap-4 text-[13px]">
-      <section className="order-1 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <section className="order-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
         {BUG_CARD_VIEWS.map((view) => (
           <MetricTile
             key={view.id}
@@ -2119,7 +2135,7 @@ const AdminBugsPage = () => {
       </>
       ) : null}
 
-      <Card className="order-3 overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl">
+      <Card className="order-4 overflow-hidden rounded-[16px] border-white/70 bg-white/95 shadow-[0_16px_42px_-32px_rgba(15,23,42,0.4)] backdrop-blur-xl">
         <CardContent className="flex min-h-0 flex-col p-0">
           <div className="shrink-0 space-y-3 border-b border-slate-200/90 bg-white p-3.5 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
