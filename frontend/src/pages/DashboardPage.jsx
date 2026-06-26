@@ -150,6 +150,15 @@ const BUG_STATUS_CARD_META = [
     routeParams: { view: "inprogress" },
   },
   {
+    key: "readyForQa",
+    label: "Ready For QA",
+    helper: "Waiting for verification",
+    icon: ShieldCheck,
+    tone: "cyan",
+    className: "bg-cyan-500",
+    routeParams: { lifecycle: "fixed" },
+  },
+  {
     key: "reopened",
     label: "Reopen",
     helper: "Returned by QA",
@@ -427,14 +436,23 @@ const TriageBoardWidget = ({ bugs, onOpen, onNavigate }) => {
         {displayBugs.length ? displayBugs.map(bug => {
           const severity = getBugSeverity(bug);
           const severityVariant = severity === "Critical" || severity === "Blocker" ? "danger" : severity === "Major" ? "warning" : "secondary";
+          const description = bug.description || bug.title || "No description added.";
 
           return (
             <button
               key={bug._id}
               onClick={() => onOpen(bug)}
-              className="flex w-full items-center justify-between rounded-lg border border-slate-100 bg-white/50 px-3 py-2 text-left transition-colors hover:bg-slate-50"
+              className="grid w-full grid-cols-[86px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-slate-100 bg-white/50 px-3 py-2 text-left transition-colors hover:bg-slate-50"
             >
               <span className="font-mono text-[11px] font-bold text-slate-500">{getIssueDisplayKey(bug)}</span>
+              <span className="min-w-0">
+                <span className="block truncate text-xs font-semibold text-slate-800">
+                  {bug.title || "Untitled bug"}
+                </span>
+                <span className="mt-0.5 line-clamp-1 text-[11px] font-medium text-slate-500">
+                  {description}
+                </span>
+              </span>
               <Badge variant={severityVariant} className="h-5 px-1.5 text-[9px] font-bold uppercase tracking-wider">
                 {severity || "Medium"}
               </Badge>
@@ -628,6 +646,14 @@ const DashboardPage = () => {
     const inProgressBugs = bugs.filter(
       (bug) => normalizeBugStatusForIssue(bug) === ISSUE_STATUS.IN_PROGRESS
     );
+    const readyForQaBugs = bugs.filter((bug) =>
+      [
+        ISSUE_STATUS.READY_FOR_QA,
+        ISSUE_STATUS.FIXED,
+        ISSUE_STATUS.TESTING,
+        ISSUE_STATUS.QA,
+      ].includes(normalizeBugStatusForIssue(bug))
+    );
     const closedBugs = bugs.filter(isClosedBug);
     const thisWeek = countBetween(bugs, (bug) => bug.createdAt, weekStart);
     const previousWeek = countBetween(bugs, (bug) => bug.createdAt, previousWeekStart, weekStart);
@@ -657,6 +683,7 @@ const DashboardPage = () => {
       bucket: bucketBugs.length,
       assigned: assignedBugs.length,
       inProgress: inProgressBugs.length,
+      readyForQa: readyForQaBugs.length,
       closed: closedBugs.length,
       thisWeek,
       previousWeek,
@@ -953,7 +980,7 @@ const DashboardPage = () => {
                 </Badge>
               </div>
 
-              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-7">
                 {bugKpiCards.map((card) => (
                   <AnalyticsKpiCard
                     key={card.key}
