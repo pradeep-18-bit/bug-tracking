@@ -16,10 +16,9 @@ import {
   ISSUE_TYPES,
   ISSUE_STATUS,
   filterIssues,
-  getClosedIssues,
   getIssueDisplayKey,
   getIssueStatusLabel,
-  getOpenIssues,
+  getIssueWorkflowLane,
   normalizeIssueFilterAlias,
   sortIssues,
 } from "@/lib/issues";
@@ -507,20 +506,30 @@ const IssuesPage = () => {
     [issuesData]
   );
 
-  const filter = searchParams.get("filter") || "";
   const filteredIssues = useMemo(() => {
-    if (filter === "open") {
-      return getOpenIssues(issues);
+    const normalizedFilters = {
+      ...filters,
+      search: deferredSearch,
+    };
+
+    return sortIssues(filterIssues(issues, normalizedFilters), "newest");
+  }, [deferredSearch, filters, issues]);
+
+  const visibleBoardColumnKeys = useMemo(() => {
+    if (filters.status && filters.status !== "all") {
+      return [getIssueWorkflowLane(filters.status)];
     }
 
-    if (filter === "closed") {
-      return getClosedIssues(issues);
+    if (filters.statusGroup === "closed" || filters.filter === "closed") {
+      return [ISSUE_STATUS.DONE];
     }
 
-    return issues;
-  }, [filter, issues]);
-  console.log("Issues Filter", filter);
-  console.log("Filtered Issues", filteredIssues);
+    if (filters.statusGroup === "open" || filters.filter === "open") {
+      return [ISSUE_STATUS.TODO, ISSUE_STATUS.IN_PROGRESS];
+    }
+
+    return [];
+  }, [filters.filter, filters.status, filters.statusGroup]);
 
   const activeStatusLabel = useMemo(() => {
     if (filters.statusGroup === "open") {
@@ -827,6 +836,7 @@ const IssuesPage = () => {
       ) : (
         <IssueBoard
           issues={filteredIssues}
+          visibleColumnKeys={visibleBoardColumnKeys}
           updatingId={updateIssueMutation.isPending ? updateIssueMutation.variables?.id : ""}
           canEditIssue={isAdminView}
           canChangeStatus
