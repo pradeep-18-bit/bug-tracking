@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Select from "react-select";
 import {
   ArrowLeft,
   CalendarDays,
@@ -15,6 +16,11 @@ import {
   fetchWorkspaceUsers,
   removeTeamMember,
 } from "@/lib/api";
+import {
+  buildMemberOption,
+  formatMemberOptionLabel,
+  memberSelectStyles,
+} from "@/components/projects/memberSelectTheme";
 import TeamMemberStack from "@/components/teams/TeamMemberStack";
 import EmptyState from "@/components/shared/EmptyState";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -31,6 +37,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { formatDate, getInitials } from "@/lib/utils";
 import { getWorkspaceScope } from "@/lib/workspace";
+
+const filterMemberOption = (option, inputValue = "") => {
+  const term = String(inputValue).trim().toLowerCase();
+
+  if (!term) {
+    return true;
+  }
+
+  return [option.label, option.data?.email, option.data?.role]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(term));
+};
 
 const TeamDetailsPage = () => {
   const { id } = useParams();
@@ -80,6 +98,14 @@ const TeamDetailsPage = () => {
       .filter((workspaceUser) => !memberIdSet.has(String(workspaceUser._id)))
       .sort((left, right) => (left.name || "").localeCompare(right.name || ""));
   }, [team?.members, workspaceUsers]);
+  const availableUserOptions = useMemo(
+    () => availableUsers.map(buildMemberOption),
+    [availableUsers]
+  );
+  const selectedUserOption = useMemo(
+    () => availableUserOptions.find((option) => option.value === selectedUserId) || null,
+    [availableUserOptions, selectedUserId]
+  );
 
   if (teamError) {
     return (
@@ -258,26 +284,29 @@ const TeamDetailsPage = () => {
               </p>
             </div>
 
-            <label className="space-y-2">
+            <div className="space-y-2">
               <span className="text-sm font-medium text-slate-700">Workspace user</span>
-              <select
-                className="field-select"
-                value={selectedUserId}
-                disabled={isUsersLoading || !availableUsers.length || Boolean(usersError)}
-                onChange={(event) => setSelectedUserId(event.target.value)}
-              >
-                <option value="">
-                  {availableUsers.length
-                    ? "Select a workspace user"
-                    : "No workspace users available to add"}
-                </option>
-                {availableUsers.map((availableUser) => (
-                  <option key={availableUser._id} value={availableUser._id}>
-                    {availableUser.name} - {availableUser.email}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <Select
+                isClearable
+                options={availableUserOptions}
+                value={selectedUserOption}
+                styles={memberSelectStyles}
+                filterOption={filterMemberOption}
+                formatOptionLabel={formatMemberOptionLabel}
+                isDisabled={isUsersLoading || !availableUserOptions.length || Boolean(usersError)}
+                onChange={(option) => setSelectedUserId(option?.value || "")}
+                placeholder={
+                  availableUserOptions.length
+                    ? "Search workspace users..."
+                    : "No workspace users available to add"
+                }
+                noOptionsMessage={({ inputValue }) =>
+                  inputValue
+                    ? "No users match that search."
+                    : "No workspace users available to add."
+                }
+              />
+            </div>
 
             {!availableUsers.length && !isUsersLoading && !usersError ? (
               <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-800">

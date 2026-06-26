@@ -46,9 +46,11 @@ import {
   getHighPriorityIssues,
   getOpenIssues,
   getReopenedIssues,
+  normalizeIssueStatus,
   normalizeBugStatusForIssue,
   resolveBugDetails,
   resolveIssueProjectId,
+  resolveIssueTeamId,
 } from "@/lib/issues";
 import { cn, formatDateTime, getInitials } from "@/lib/utils";
 
@@ -90,6 +92,93 @@ const BUG_PRIORITY_META = [
   { key: "Critical", className: "bg-rose-500", tone: "text-rose-700" },
 ];
 
+const TASK_STATUS_META = [
+  {
+    key: ISSUE_STATUS.TODO,
+    label: "To Do",
+    helper: "Ready for pickup",
+    className: "bg-slate-400",
+    icon: Layers3,
+    routeParams: { status: ISSUE_STATUS.TODO },
+    tone: "blue",
+  },
+  {
+    key: ISSUE_STATUS.IN_PROGRESS,
+    label: "In Progress",
+    helper: "Active task work",
+    className: "bg-blue-500",
+    icon: TimerReset,
+    routeParams: { status: ISSUE_STATUS.IN_PROGRESS },
+    tone: "amber",
+  },
+  {
+    key: ISSUE_STATUS.DONE,
+    label: "Done",
+    helper: "Completed tasks",
+    className: "bg-emerald-500",
+    icon: CheckCircle2,
+    routeParams: { statusGroup: "closed" },
+    tone: "emerald",
+  },
+];
+
+const BUG_STATUS_CARD_META = [
+  {
+    key: "bucket",
+    label: "Bug Bucket",
+    helper: "Unassigned pickup queue",
+    icon: Layers3,
+    tone: "cyan",
+    className: "bg-cyan-500",
+    routeParams: { view: "bucket" },
+  },
+  {
+    key: "assigned",
+    label: "Assigned Bugs",
+    helper: "Picked but not started",
+    icon: Users2,
+    tone: "blue",
+    className: "bg-blue-500",
+    routeParams: { view: "assigned" },
+  },
+  {
+    key: "closed",
+    label: "Closed Bugs",
+    helper: "Verified and closed",
+    icon: CheckCircle2,
+    tone: "emerald",
+    className: "bg-emerald-500",
+    routeParams: { view: "closed" },
+  },
+  {
+    key: "inProgress",
+    label: "In Progress",
+    helper: "Active bug fixes",
+    icon: TimerReset,
+    tone: "violet",
+    className: "bg-violet-500",
+    routeParams: { view: "inprogress" },
+  },
+  {
+    key: "readyForQa",
+    label: "Ready For QA",
+    helper: "Waiting for verification",
+    icon: ShieldCheck,
+    tone: "cyan",
+    className: "bg-cyan-500",
+    routeParams: { lifecycle: "fixed" },
+  },
+  {
+    key: "reopened",
+    label: "Reopen",
+    helper: "Returned by QA",
+    icon: RefreshCcw,
+    tone: "rose",
+    className: "bg-rose-500",
+    routeParams: { view: "reopen" },
+  },
+];
+
 const BUG_RESOLVED_STATUSES = [
   ISSUE_STATUS.FIXED,
   ISSUE_STATUS.QA,
@@ -111,10 +200,39 @@ const getBugAssigneeName = (bug) => {
 const getBugSeverity = (bug) => resolveBugDetails(bug)?.severity || "";
 const isCriticalBug = (bug) => getCriticalIssues([bug]).length > 0;
 const isOpenBug = (bug) => !BUG_CLOSED_STATUSES.includes(normalizeBugStatusForIssue(bug));
+const isClosedBug = (bug) =>
+  BUG_CLOSED_STATUSES.includes(normalizeBugStatusForIssue(bug));
 const isResolvedBug = (bug) =>
   BUG_RESOLVED_STATUSES.includes(normalizeBugStatusForIssue(bug));
 const isReopenedBug = (bug) =>
   getReopenedIssues([bug]).length > 0;
+const isBugBucketItem = (bug) => {
+  const developer = resolveBugDetails(bug)?.developerLead || bug?.assignee || bug?.assignedDeveloperId;
+  const status = normalizeBugStatusForIssue(bug);
+
+  return (
+    !developer &&
+    [
+      ISSUE_STATUS.NEW,
+      ISSUE_STATUS.OPEN,
+      ISSUE_STATUS.TRIAGED,
+      ISSUE_STATUS.AVAILABLE_QUEUE,
+    ].includes(status)
+  );
+};
+const getTaskDashboardStatus = (issue) => {
+  const status = normalizeIssueStatus(issue?.status, "");
+
+  if ([ISSUE_STATUS.DONE, ISSUE_STATUS.CLOSED, ISSUE_STATUS.RESOLVED].includes(status)) {
+    return ISSUE_STATUS.DONE;
+  }
+
+  if (status === ISSUE_STATUS.IN_PROGRESS) {
+    return ISSUE_STATUS.IN_PROGRESS;
+  }
+
+  return ISSUE_STATUS.TODO;
+};
 
 const startOfDay = (date) => {
   const value = new Date(date);
@@ -328,14 +446,23 @@ const TriageBoardWidget = ({ bugs, onOpen, onNavigate }) => {
         {displayBugs.length ? displayBugs.map(bug => {
           const severity = getBugSeverity(bug);
           const severityVariant = severity === "Critical" || severity === "Blocker" ? "danger" : severity === "Major" ? "warning" : "secondary";
+          const description = bug.description || bug.title || "No description added.";
 
           return (
             <button
               key={bug._id}
               onClick={() => onOpen(bug)}
-              className="flex w-full items-center justify-between rounded-lg border border-slate-100 bg-white/50 px-3 py-2 text-left transition-colors hover:bg-slate-50"
+              className="grid w-full grid-cols-[86px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-slate-100 bg-white/50 px-3 py-2 text-left transition-colors hover:bg-slate-50"
             >
               <span className="font-mono text-[11px] font-bold text-slate-500">{getIssueDisplayKey(bug)}</span>
+              <span className="min-w-0">
+                <span className="block truncate text-xs font-semibold text-slate-800">
+                  {bug.title || "Untitled bug"}
+                </span>
+                <span className="mt-0.5 line-clamp-1 text-[11px] font-medium text-slate-500">
+                  {description}
+                </span>
+              </span>
               <Badge variant={severityVariant} className="h-5 px-1.5 text-[9px] font-bold uppercase tracking-wider">
                 {severity || "Medium"}
               </Badge>
@@ -351,73 +478,6 @@ const TriageBoardWidget = ({ bugs, onOpen, onNavigate }) => {
         )}
       </div>
     </AnalyticsPanel>
-  );
-};
-
-const ActiveProjectCard = ({ project, onOpen }) => {
-  const teams = project.teams || [];
-
-  return (
-    <button
-      type="button"
-      className="group block w-full rounded-xl border border-white/50 bg-white/40 p-3 text-left shadow-sm backdrop-blur-xl transition-all duration-200 hover:bg-white/60 dark:border-white/10 dark:bg-slate-900/40"
-      onClick={() => onOpen(project)}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-            <p className="truncate text-sm font-bold text-slate-950 dark:text-slate-100">
-              {project.name}
-            </p>
-          </div>
-          <p className="mt-0.5 text-[10px] font-medium text-slate-500 uppercase tracking-tight">
-            {project.teamCount || 0} Team{project.teamCount === 1 ? "" : "s"}
-          </p>
-        </div>
-        <span className="shrink-0 rounded-full border border-blue-100 bg-blue-50/50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
-          {project.completionRate}%
-        </span>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <div className="min-w-0 rounded-lg bg-slate-50/50 px-2 py-1.5 border border-slate-100/50">
-          <p className="truncate text-[9px] font-bold text-slate-500 uppercase">Issues</p>
-          <p className="mt-0.5 truncate text-sm font-bold text-slate-900 dark:text-slate-100">
-            {project.totalIssues}
-          </p>
-        </div>
-        <div className="min-w-0 rounded-lg bg-amber-50/50 px-2 py-1.5 border border-amber-100/50">
-          <p className="truncate text-[9px] font-bold text-amber-700 uppercase">Open</p>
-          <p className="mt-0.5 truncate text-sm font-bold text-amber-900 dark:text-amber-200">
-            {project.openIssues}
-          </p>
-        </div>
-        <div className="min-w-0 rounded-lg bg-emerald-50/50 px-2 py-1.5 border border-emerald-100/50">
-          <p className="truncate text-[9px] font-bold text-emerald-700 uppercase">Closed</p>
-          <p className="mt-0.5 truncate text-sm font-bold text-emerald-900 dark:text-emerald-200">
-            {project.closedIssues}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {teams.length ? (
-          teams.map((team) => (
-            <span
-              key={team}
-              className="max-w-full break-words rounded-full border border-white/60 bg-white/72 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-950/46 dark:text-slate-300"
-            >
-              {team}
-            </span>
-          ))
-        ) : (
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500 dark:border-white/10 dark:bg-slate-950/46 dark:text-slate-400">
-            No teams assigned
-          </span>
-        )}
-      </div>
-    </button>
   );
 };
 
@@ -468,17 +528,23 @@ const DashboardPage = () => {
   console.log("Dashboard Open Count", issueStats.open);
   console.log("Dashboard Closed Count", issueStats.closed);
   const trends = analytics.overview?.trends || {};
-  const statusRows = useMemo(
-    () =>
-      (analytics.overview?.statusDistribution || []).filter((row) => row.count > 0),
-    [analytics.overview?.statusDistribution]
-  );
-  const projects = analytics.projects?.projects || [];
   const teams = analytics.teams?.teams || [];
   const activity = analytics.recentActivity?.activity || [];
-  const activeProjects = projects;
   const highestWorkloadTeam = teams[0] || null;
-  const maxStatusCount = Math.max(...statusRows.map((row) => row.count), 0);
+  const taskStatusRows = useMemo(() => {
+    const total = issues.length;
+
+    return TASK_STATUS_META.map((item) => {
+      const count = issues.filter((issue) => getTaskDashboardStatus(issue) === item.key).length;
+
+      return {
+        ...item,
+        count,
+        percentage: total ? Math.round((count / total) * 100) : 0,
+      };
+    });
+  }, [issues]);
+  const maxTaskStatusCount = Math.max(...taskStatusRows.map((row) => row.count), 0);
   const now = useMemo(() => new Date(), []);
   const weekStart = useMemo(() => startOfWeek(now), [now]);
   const previousWeekStart = useMemo(() => {
@@ -507,13 +573,40 @@ const DashboardPage = () => {
       }
     });
 
-    navigate(`/bugs${searchParams.toString() ? `?${searchParams}` : ""}`);
+    navigate(`/admin/bugs${searchParams.toString() ? `?${searchParams}` : ""}`);
+  };
+  const navigateToTasks = (params = {}) => {
+    const searchParams = new URLSearchParams();
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value && value !== "all") {
+        searchParams.set(key, value);
+      }
+    });
+
+    navigate(`/issues${searchParams.toString() ? `?${searchParams}` : ""}`);
   };
   const bugMetrics = useMemo(() => {
     const openBugs = bugs.filter(isOpenBug);
     const criticalBugs = bugs.filter(isCriticalBug);
     const resolvedBugs = bugs.filter(isResolvedBug);
     const reopenedBugs = bugs.filter(isReopenedBug);
+    const bucketBugs = bugs.filter(isBugBucketItem);
+    const assignedBugs = bugs.filter(
+      (bug) => normalizeBugStatusForIssue(bug) === ISSUE_STATUS.ASSIGNED
+    );
+    const inProgressBugs = bugs.filter(
+      (bug) => normalizeBugStatusForIssue(bug) === ISSUE_STATUS.IN_PROGRESS
+    );
+    const readyForQaBugs = bugs.filter((bug) =>
+      [
+        ISSUE_STATUS.READY_FOR_QA,
+        ISSUE_STATUS.FIXED,
+        ISSUE_STATUS.TESTING,
+        ISSUE_STATUS.QA,
+      ].includes(normalizeBugStatusForIssue(bug))
+    );
+    const closedBugs = bugs.filter(isClosedBug);
     const thisWeek = countBetween(bugs, (bug) => bug.createdAt, weekStart);
     const previousWeek = countBetween(bugs, (bug) => bug.createdAt, previousWeekStart, weekStart);
     const resolvedThisWeek = countBetween(
@@ -539,6 +632,11 @@ const DashboardPage = () => {
       critical: criticalBugs.length,
       resolved: resolvedBugs.length,
       reopened: reopenedBugs.length,
+      bucket: bucketBugs.length,
+      assigned: assignedBugs.length,
+      inProgress: inProgressBugs.length,
+      readyForQa: readyForQaBugs.length,
+      closed: closedBugs.length,
       thisWeek,
       previousWeek,
       resolvedThisWeek,
@@ -546,6 +644,18 @@ const DashboardPage = () => {
       resolvedToday,
     };
   }, [bugs, previousWeekStart, todayStart, weekStart]);
+  const bugStatusRows = useMemo(
+    () =>
+      BUG_STATUS_CARD_META.map((item) => ({
+        ...item,
+        count: bugMetrics[item.key] || 0,
+        percentage: bugMetrics.total
+          ? Math.round(((bugMetrics[item.key] || 0) / bugMetrics.total) * 100)
+          : 0,
+      })),
+    [bugMetrics]
+  );
+  const maxBugStatusCount = Math.max(...bugStatusRows.map((row) => row.count), 0);
   const bugProjectRows = useMemo(() => {
     const rowsByProject = new Map();
 
@@ -585,6 +695,34 @@ const DashboardPage = () => {
       }),
     [bugMetrics.total, bugs]
   );
+  const teamTaskRows = useMemo(() => {
+    const rowsByTeam = new Map();
+
+    issues.forEach((issue) => {
+      const teamId = resolveIssueTeamId(issue);
+      const rowKey = teamId || "unassigned";
+      const row = rowsByTeam.get(rowKey) || {
+        teamId,
+        name: issue.teamId?.name || "Unassigned tasks",
+        total: 0,
+        inProgress: 0,
+        done: 0,
+      };
+      const status = getTaskDashboardStatus(issue);
+
+      row.total += 1;
+      row.inProgress += status === ISSUE_STATUS.IN_PROGRESS ? 1 : 0;
+      row.done += status === ISSUE_STATUS.DONE ? 1 : 0;
+      row.open = Math.max(row.total - row.done, 0);
+      row.completionRate = row.total ? Math.round((row.done / row.total) * 100) : 0;
+      rowsByTeam.set(rowKey, row);
+    });
+
+    return Array.from(rowsByTeam.values())
+      .sort((left, right) => right.open - left.open || right.total - left.total)
+      .slice(0, 6);
+  }, [issues]);
+  const maxTeamTaskOpen = Math.max(...teamTaskRows.map((row) => row.open), 0);
   const recentCriticalBugs = useMemo(
     () =>
       bugs
@@ -598,6 +736,15 @@ const DashboardPage = () => {
     [bugs]
   );
   const bugKpiCards = [
+    ...BUG_STATUS_CARD_META.map((item) => ({
+      key: item.key,
+      title: item.label,
+      value: formatCompactNumber(bugMetrics[item.key] || 0),
+      helper: item.helper,
+      icon: item.icon,
+      tone: item.tone,
+      onClick: () => navigateToBugs(item.routeParams),
+    })),
     {
       key: "total-bugs",
       title: "Total Bugs",
@@ -608,63 +755,16 @@ const DashboardPage = () => {
       trend: buildTrend(bugMetrics.thisWeek, bugMetrics.previousWeek),
       onClick: () => navigateToBugs(),
     },
-    {
-      key: "open-bugs",
-      title: "Open Bugs",
-      value: formatCompactNumber(bugMetrics.open),
-      helper: "Needs action",
-      icon: TimerReset,
-      tone: "amber",
-      trend: { direction: bugMetrics.open ? "up" : "flat", label: `${bugMetrics.open} active` },
-      onClick: () => navigateToBugs({ status: "open" }),
-    },
-    {
-      key: "critical-bugs",
-      title: "Critical Bugs",
-      value: formatCompactNumber(bugMetrics.critical),
-      helper: "High risk",
-      icon: AlertTriangle,
-      tone: "rose",
-      trend: {
-        direction: bugMetrics.critical ? "up" : "flat",
-        label: `${bugMetrics.critical} urgent`,
-      },
-      onClick: () => navigateToBugs({ filter: "critical" }),
-    },
-    {
-      key: "resolved-bugs",
-      title: "Resolved Bugs",
-      value: formatCompactNumber(bugMetrics.resolved),
-      helper: "Fixed / closed",
-      icon: CheckCircle2,
-      tone: "emerald",
-      trend: buildTrend(bugMetrics.resolvedThisWeek, bugMetrics.resolvedLastWeek, "resolved this week"),
-      onClick: () => navigateToBugs({ status: "resolved" }),
-    },
-    {
-      key: "reopened-bugs",
-      title: "Reopened Bugs",
-      value: formatCompactNumber(bugMetrics.reopened),
-      helper: "Needs review",
-      icon: RefreshCcw,
-      tone: "violet",
-      trend: { direction: bugMetrics.reopened ? "up" : "flat", label: `${bugMetrics.reopened} reopened` },
-      onClick: () => navigateToBugs({ filter: "reopened" }),
-    },
-    {
-      key: "bugs-this-week",
-      title: "Bugs This Week",
-      value: formatCompactNumber(bugMetrics.thisWeek),
-      helper: "New reports",
-      icon: Activity,
-      tone: "cyan",
-      trend: {
-        direction: bugMetrics.resolvedToday ? "down" : "flat",
-        label: `${bugMetrics.resolvedToday} resolved today`,
-      },
-      onClick: () => navigateToBugs({ dateFrom: weekStart.toISOString().slice(0, 10) }),
-    },
   ];
+  const taskKpiCards = taskStatusRows.map((item) => ({
+    key: item.key,
+    title: item.label,
+    value: formatCompactNumber(item.count),
+    helper: item.helper,
+    icon: item.icon,
+    tone: item.tone,
+    onClick: () => navigateToTasks(item.routeParams),
+  }));
   const kpiCards = [
     {
       key: "total",
@@ -750,7 +850,6 @@ const DashboardPage = () => {
     );
   }
 
-  const mainKpiCards = kpiCards.filter((c) => c.key !== "closed" && c.key !== "rate");
   const headerKpiCards = kpiCards.filter((c) => c.key === "closed" || c.key === "rate");
 
   return (
@@ -819,8 +918,8 @@ const DashboardPage = () => {
         </CardContent>
       </Card>
 
-      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-        {mainKpiCards.map((card) => (
+      <section className="grid gap-5 md:grid-cols-3">
+        {taskKpiCards.map((card) => (
           <AnalyticsKpiCard
             key={card.key}
             title={card.title}
@@ -828,7 +927,6 @@ const DashboardPage = () => {
             icon={card.icon}
             tone={card.tone}
             helper={card.helper}
-            trend={card.trend}
             onClick={card.onClick}
           />
         ))}
@@ -869,7 +967,7 @@ const DashboardPage = () => {
                 </Badge>
               </div>
 
-              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-7">
                 {bugKpiCards.map((card) => (
                   <AnalyticsKpiCard
                     key={card.key}
@@ -934,19 +1032,19 @@ const DashboardPage = () => {
 
       <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
         <AnalyticsPanel
-          title="Issue Status"
-          description="Distribution of active and resolved workload from live issue data."
+          title="Task Status"
+          description="Task workload only: To Do, In Progress, and Done."
           action={
             <Badge className="border-white/60 bg-white/72 text-slate-600">
               {issueStats.total || 0} total
             </Badge>
           }
         >
-          {statusRows.length ? (
+          {taskStatusRows.length ? (
             <div className="space-y-3">
-              {statusRows.map((row) => {
-                const width = maxStatusCount
-                  ? Math.max(Math.round((row.count / maxStatusCount) * 100), 8)
+              {taskStatusRows.map((row) => {
+                const width = maxTaskStatusCount
+                  ? Math.max(Math.round((row.count / maxTaskStatusCount) * 100), row.count ? 8 : 0)
                   : 0;
 
                 return (
@@ -963,21 +1061,21 @@ const DashboardPage = () => {
                       <span
                         className={cn(
                           "h-3 w-3 shrink-0 rounded-full",
-                          statusTone[row.key] || "bg-slate-400"
+                          row.className || statusTone[row.key] || "bg-slate-400"
                         )}
                       />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
                           {row.label}
                         </p>
-                        <p className="text-xs text-slate-500">{row.percentage}% of scope</p>
+                        <p className="text-xs text-slate-500">{row.helper}</p>
                       </div>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                       <div
                         className={cn(
                           "h-full rounded-full transition-all duration-500",
-                          statusTone[row.key] || "bg-slate-400"
+                          row.className || statusTone[row.key] || "bg-slate-400"
                         )}
                         style={{ width: `${width}%` }}
                       />
@@ -995,31 +1093,103 @@ const DashboardPage = () => {
           ) : (
             <AnalyticsEmptyState
               icon={Layers3}
-              title="No issue status data yet"
-              description="Create issues to populate the operational status overview."
+              title="No task status data yet"
+              description="Create task work to populate the task status overview."
             />
           )}
         </AnalyticsPanel>
 
         <AnalyticsPanel
-          title="Active Projects"
-          description="All active projects sorted by issue volume, open workload, and assigned teams."
+          title="Bug Status"
+          description="Bug lifecycle cards synced with the admin Bugs page."
           action={
-            activeProjects.length ? (
+            <Badge className="border-white/60 bg-white/72 text-slate-600">
+              {bugMetrics.total || 0} bugs
+            </Badge>
+          }
+        >
+          {bugStatusRows.length ? (
+            <div className="space-y-3">
+              {bugStatusRows.map((row) => {
+                const width = maxBugStatusCount
+                  ? Math.max(Math.round((row.count / maxBugStatusCount) * 100), row.count ? 8 : 0)
+                  : 0;
+
+                return (
+                  <button
+                    key={row.key}
+                    type="button"
+                    onClick={() => navigateToBugs(row.routeParams)}
+                    className={cn(
+                      ANALYTICS_SUBPANEL_CLASS,
+                      "grid w-full gap-3 px-3 py-2 text-left md:grid-cols-[180px_minmax(0,1fr)_90px] md:items-center"
+                    )}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className={cn("h-3 w-3 shrink-0 rounded-full", row.className)} />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+                          {row.label}
+                        </p>
+                        <p className="text-xs text-slate-500">{row.helper}</p>
+                      </div>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                      <div
+                        className={cn("h-full rounded-full transition-all duration-500", row.className)}
+                        style={{ width: `${width}%` }}
+                      />
+                    </div>
+                    <div className="text-left md:text-right">
+                      <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">
+                        {row.count}
+                      </p>
+                      <p className="text-xs text-slate-500">bugs</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <AnalyticsEmptyState
+              icon={Bug}
+              title="No bug status data yet"
+              description="Bug lifecycle counts appear once bugs are reported."
+            />
+          )}
+        </AnalyticsPanel>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+
+        <AnalyticsPanel
+          title="Active Project Bugs"
+          description="Bug volume by active project, sorted by open pressure and resolution progress."
+          action={
+            bugProjectRows.length ? (
               <Badge className="border-white/60 bg-white/72 text-slate-600">
-                {activeProjects.length} active
+                {bugProjectRows.length} bug projects
               </Badge>
             ) : null
           }
         >
-          {activeProjects.length ? (
+          {bugProjectRows.length ? (
             <div className="dashboard-scrollbar dashboard-scroll-fade max-h-[500px] space-y-3 overflow-y-auto pr-2">
-              {activeProjects.map((project) => (
-                <ActiveProjectCard
+              {bugProjectRows.map((project) => (
+                <ProjectBugCard
                   key={project.projectId || project.name}
                   project={project}
                   onOpen={(selectedProject) =>
-                    navigateToIssues({ projectId: selectedProject.projectId })
+                    navigateToBugs({
+                      projectId:
+                        selectedProject.projectId === selectedProject.name
+                          ? ""
+                          : selectedProject.projectId,
+                      project:
+                        selectedProject.projectId === selectedProject.name
+                          ? selectedProject.name
+                          : "",
+                    })
                   }
                 />
               ))}
@@ -1027,8 +1197,73 @@ const DashboardPage = () => {
           ) : (
             <AnalyticsEmptyState
               icon={FolderKanban}
-              title="No active project yet"
-              description="Project analytics appear once issues are created."
+              title="No active project bugs yet"
+              description="Project bug analytics appear once bugs are linked."
+            />
+          )}
+        </AnalyticsPanel>
+
+        <AnalyticsPanel
+          title="Team Task Workload"
+          description="Compact active task pressure by team."
+          action={
+            teamTaskRows.length ? (
+              <Badge className="border-white/60 bg-white/72 text-slate-600">
+                {issues.length} tasks
+              </Badge>
+            ) : null
+          }
+        >
+          {teamTaskRows.length ? (
+            <div className="space-y-3">
+              {teamTaskRows.map((row) => {
+                const width = maxTeamTaskOpen
+                  ? Math.max(Math.round((row.open / maxTeamTaskOpen) * 100), row.open ? 8 : 0)
+                  : 0;
+
+                return (
+                  <button
+                    key={row.teamId || row.name}
+                    type="button"
+                    onClick={() => navigateToIssues(row.teamId ? { teamId: row.teamId } : {})}
+                    className={cn(
+                      ANALYTICS_SUBPANEL_CLASS,
+                      "w-full px-3 py-2 text-left hover:border-blue-200/80"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-slate-950 dark:text-slate-100">
+                          {row.name}
+                        </p>
+                        <p className="mt-0.5 text-[10px] font-medium uppercase text-slate-500">
+                          {row.open} open - {row.inProgress} in progress - {row.done} done
+                        </p>
+                      </div>
+                      <Badge className="shrink-0 border-violet-100 bg-violet-50 text-violet-700">
+                        {row.total}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 grid grid-cols-[minmax(0,1fr)_44px] items-center gap-3">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                        <div
+                          className="h-full rounded-full bg-violet-500 transition-all duration-500"
+                          style={{ width: `${width}%` }}
+                        />
+                      </div>
+                      <span className="text-right text-[10px] font-bold text-slate-500">
+                        {row.completionRate}%
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <AnalyticsEmptyState
+              icon={Users2}
+              title="No team tasks yet"
+              description="Team task workload appears once tasks are assigned."
             />
           )}
         </AnalyticsPanel>

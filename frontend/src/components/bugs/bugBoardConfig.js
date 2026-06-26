@@ -123,6 +123,17 @@ export const DEVELOPER_BUG_COLUMNS = [
     activeClassName: "ring-2 ring-amber-300/60",
     badgeClassName: "border-amber-200 bg-amber-50 text-amber-700",
   },
+  {
+    key: "closed",
+    label: "Closed Bugs",
+    helper: "Verified and closed",
+    statuses: [ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE],
+    accentClassName: "bg-emerald-500",
+    borderClassName: "border-emerald-100",
+    surfaceClassName: "bg-emerald-50/55",
+    activeClassName: "ring-2 ring-emerald-300/60",
+    badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
 ];
 
 const getTesterBugColumnKey = (issue, columns) => {

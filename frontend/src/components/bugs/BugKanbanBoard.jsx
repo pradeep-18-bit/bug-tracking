@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -34,6 +34,8 @@ const BugKanbanBoard = ({
 }) => {
   const [activeIssueId, setActiveIssueId] = useState("");
   const [pendingColumns, setPendingColumns] = useState({});
+  const topScrollRef = useRef(null);
+  const boardScrollRef = useRef(null);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
@@ -61,9 +63,24 @@ const BugKanbanBoard = ({
       })),
     [columns, issues, pendingColumns]
   );
+  const boardGridStyle = useMemo(
+    () => ({
+      gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(260px, 1fr))`,
+      minWidth: `${Math.max(columns.length, 1) * 292}px`,
+    }),
+    [columns.length]
+  );
 
   const handleDragStart = (event) => {
     setActiveIssueId(String(event.active.id || ""));
+  };
+
+  const syncHorizontalScroll = (source, target) => {
+    if (!source || !target || target.scrollLeft === source.scrollLeft) {
+      return;
+    }
+
+    target.scrollLeft = source.scrollLeft;
   };
 
   const handleDragEnd = (event) => {
@@ -127,8 +144,22 @@ const BugKanbanBoard = ({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveIssueId("")}
     >
-      <div className="-mx-1 overflow-x-auto pb-3 lg:overflow-visible">
-        <div className="grid min-w-[1040px] grid-cols-5 gap-3 px-1 lg:min-w-0">
+      <div
+        ref={topScrollRef}
+        className="-mx-1 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-gutter:stable]"
+        onScroll={(event) => syncHorizontalScroll(event.currentTarget, boardScrollRef.current)}
+      >
+        <div className="h-1 px-1" style={{ minWidth: boardGridStyle.minWidth }} />
+      </div>
+      <div
+        ref={boardScrollRef}
+        className="-mx-1 overflow-x-auto overscroll-x-contain pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        onScroll={(event) => syncHorizontalScroll(event.currentTarget, topScrollRef.current)}
+      >
+        <div
+          className="grid gap-3 px-1"
+          style={boardGridStyle}
+        >
           {columnModels.map((column) => (
             <BugKanbanColumn
               key={column.key}

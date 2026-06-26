@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { FolderKanban, Plus, Search, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, FolderKanban, LoaderCircle, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import {
   createIssue,
   deleteIssue,
@@ -33,6 +33,14 @@ import ErrorBoundary from "@/components/shared/ErrorBoundary";
 import ToastNotice from "@/components/shared/ToastNotice";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const ATTACHMENT_ACCEPT =
@@ -90,6 +98,7 @@ const TesterBugsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const reportFormRef = useRef(null);
   const [selectedIssue, setSelectedIssue] = useState(null);
+  const [deleteCandidate, setDeleteCandidate] = useState(null);
   const [toast, setToast] = useState(null);
   const [filters, setFilters] = useState({
     search: "",
@@ -276,12 +285,20 @@ const TesterBugsPage = () => {
 
   const deleteIssueMutation = useMutation({
     mutationFn: deleteIssue,
-    onSuccess: () => {
+    onSuccess: (_data, deletedIssueId) => {
+      queryClient.setQueryData(["issues", "tester-bugs", testerId], (current = []) =>
+        Array.isArray(current)
+          ? current.filter((issue) => String(issue?._id || "") !== String(deletedIssueId))
+          : current
+      );
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       showToast("success", "Bug deleted successfully.");
-      setSelectedIssue(null);
+      setDeleteCandidate(null);
+      setSelectedIssue((current) =>
+        String(current?._id || "") === String(deletedIssueId) ? null : current
+      );
     },
     onError: (error) => {
       showToast("error", error.response?.data?.message || "Unable to delete bug.");
@@ -340,13 +357,7 @@ const TesterBugsPage = () => {
     }
 
     if (action === "delete") {
-      const confirmed = window.confirm(
-        "Are you sure you want to delete this bug?\n\nThis action cannot be undone."
-      );
-
-      if (confirmed) {
-        return deleteIssueMutation.mutateAsync(issue._id);
-      }
+      setDeleteCandidate(issue);
       return Promise.resolve();
     }
 
@@ -366,6 +377,18 @@ const TesterBugsPage = () => {
         block: "start",
       });
     });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteCandidate?._id || deleteIssueMutation.isPending) {
+      return;
+    }
+
+    try {
+      await deleteIssueMutation.mutateAsync(deleteCandidate._id);
+    } catch (error) {
+      // The mutation onError shows the toast and keeps the dialog open.
+    }
   };
 
   const error = projectsError || issuesError;
@@ -554,12 +577,8 @@ const TesterBugsPage = () => {
         deletingId={deleteIssueMutation.isPending ? deleteIssueMutation.variables : ""}
         issue={selectedIssue}
         onDeleteIssue={async (id) => {
-          const confirmed = window.confirm(
-            "Are you sure you want to delete this bug?\n\nThis action cannot be undone."
-          );
-          if (confirmed) {
-            await deleteIssueMutation.mutateAsync(id);
-          }
+          setDeleteCandidate(selectedIssue || { _id: id });
+          return false;
         }}
         onOpenChange={(open) => {
           if (!open) {
@@ -593,6 +612,59 @@ const TesterBugsPage = () => {
           String(selectedIssue.reporter?._id || selectedIssue.reporter || "") === testerId
         }
       />
+      <Dialog open={Boolean(deleteCandidate)} onOpenChange={(open) => !open && setDeleteCandidate(null)}>
+        <DialogContent className="max-w-2xl gap-0 rounded-[22px] border-rose-100 p-0 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.5)]">
+          <div className="grid gap-4 px-5 pb-4 pt-5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-start sm:pr-14">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 sm:mt-0.5">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+
+            <div className="min-w-0 space-y-3">
+              <DialogHeader className="space-y-1.5">
+                <DialogTitle className="text-lg">Delete Bug</DialogTitle>
+                <DialogDescription className="leading-5">
+                  Are you sure you want to delete this bug? This action cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <p className="text-xs font-semibold uppercase text-slate-500">Bug</p>
+                  <p className="mt-1 truncate text-sm font-semibold text-slate-950">
+                    {deleteCandidate?.title || getIssueDisplayKey(deleteCandidate) || "Selected bug"}
+                  </p>
+                </div>
+
+                <DialogFooter className="gap-2 sm:flex-row sm:justify-end">
+                  <Button
+                    className="h-9 rounded-xl px-4"
+                    type="button"
+                    variant="outline"
+                    disabled={deleteIssueMutation.isPending}
+                    onClick={() => setDeleteCandidate(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="h-9 rounded-xl px-4"
+                    type="button"
+                    variant="destructive"
+                    disabled={deleteIssueMutation.isPending || !deleteCandidate?._id}
+                    onClick={handleConfirmDelete}
+                  >
+                    {deleteIssueMutation.isPending ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                    {deleteIssueMutation.isPending ? "Deleting..." : "Delete Bug"}
+                  </Button>
+                </DialogFooter>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <ToastNotice toast={toast} onDismiss={() => setToast(null)} />
     </div>
     </ErrorBoundary>

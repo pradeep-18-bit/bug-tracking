@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import {
-  CheckCircle2,
-  ClipboardList,
-  Layers3,
   ListTodo,
-  TimerReset,
 } from "lucide-react";
 import {
   fetchIssues,
@@ -16,11 +13,13 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import {
   ISSUE_TYPES,
-  getIssueStatusMetrics,
 } from "@/lib/issues";
-import { cn } from "@/lib/utils";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import TaskKanbanBoard from "@/components/tasks/TaskKanbanBoard";
+import {
+  TASK_BOARD_STATUS,
+  getTaskBoardStatus,
+} from "@/components/tasks/taskBoardStatus";
 import EmptyState from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,7 +34,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 const TasksPage = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [selectedIssue, setSelectedIssue] = useState(null);
+  const statusFilter = useMemo(() => {
+    const value = String(searchParams.get("status") || "all").trim().toUpperCase();
+
+    return Object.values(TASK_BOARD_STATUS).includes(value) ? value : "all";
+  }, [searchParams]);
 
   const {
     data: projects = [],
@@ -69,6 +74,14 @@ const TasksPage = () => {
     }
   }, [selectedIssue, taskIssues]);
 
+  const visibleTaskIssues = useMemo(
+    () =>
+      statusFilter === "all"
+        ? taskIssues
+        : taskIssues.filter((issue) => getTaskBoardStatus(issue) === statusFilter),
+    [statusFilter, taskIssues]
+  );
+
   const updateIssueMutation = useMutation({
     mutationFn: updateIssue,
     onSuccess: () => {
@@ -89,8 +102,6 @@ const TasksPage = () => {
     },
   });
 
-  const stats = useMemo(() => getIssueStatusMetrics(taskIssues), [taskIssues]);
-
   const error = projectsError || tasksError;
   const isWorkLoading = isProjectsLoading || isTasksLoading;
 
@@ -106,58 +117,6 @@ const TasksPage = () => {
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {isTasksLoading ? (
-          <>
-            <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-32 w-full" />
-          </>
-        ) : (
-          <>
-            <Card className="stats-tile">
-              <CardContent className="p-5">
-                <div className="flex items-center gap-3 text-gray-600">
-                  <Layers3 className="h-5 w-5 text-blue-600" />
-                  <span>Total</span>
-                </div>
-                <p className="mt-4 text-4xl font-semibold text-gray-900">{stats.total}</p>
-              </CardContent>
-            </Card>
-            <Card className="stats-tile">
-              <CardContent className="p-5">
-                <div className="flex items-center gap-3 text-gray-600">
-                  <ClipboardList className="h-5 w-5 text-amber-500" />
-                  <span>Open</span>
-                </div>
-                <p className="mt-4 text-4xl font-semibold text-gray-900">{stats.open}</p>
-              </CardContent>
-            </Card>
-            <Card className="stats-tile">
-              <CardContent className="p-5">
-                <div className="flex items-center gap-3 text-gray-600">
-                  <TimerReset className="h-5 w-5 text-violet-500" />
-                  <span>In Progress</span>
-                </div>
-                <p className="mt-4 text-4xl font-semibold text-gray-900">
-                  {stats.inProgress}
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="stats-tile">
-              <CardContent className="p-5">
-                <div className="flex items-center gap-3 text-gray-600">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                  <span>Closed</span>
-                </div>
-                <p className="mt-4 text-4xl font-semibold text-gray-900">{stats.closed}</p>
-              </CardContent>
-            </Card>
-          </>
-        )}
-      </section>
-
       {isWorkLoading ? (
         <div className="space-y-4">
           <Skeleton className="h-[92px] w-full rounded-[16px]" />
@@ -180,7 +139,7 @@ const TasksPage = () => {
           <CardContent className="p-4 sm:p-5">
             {taskIssues.length ? (
               <TaskKanbanBoard
-                issues={taskIssues}
+                issues={visibleTaskIssues}
                 updatingId={
                   updateTaskStatusMutation.isPending
                     ? updateTaskStatusMutation.variables?.id

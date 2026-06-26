@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   BarChart3,
+  Activity,
   Bug,
   FolderKanban,
   KanbanSquare,
@@ -34,6 +35,7 @@ const iconMap = {
   tasks: ListTodo,
   reports: BarChart3,
   chat: MessageCircle,
+  activity: Activity,
 };
 
 const navItemClassName =

@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
+  Download,
+  Eye,
   FileText,
+  ImageIcon,
   LoaderCircle,
   MessageSquareText,
   PencilLine,
@@ -15,6 +18,7 @@ import {
   fetchComments,
   fetchIssueAttachments,
   fetchIssueHistory,
+  fetchAttachmentBlob,
   resolveApiAssetUrl,
   uploadIssueAttachment,
   downloadAttachment,
@@ -94,6 +98,8 @@ const formatDependencyLabel = (issue) =>
   issue ? `${getIssueDisplayKey(issue)} ${issue.title}` : "No dependency";
 
 const resolveNestedUserId = (value) => String(value?._id || value || "");
+const isPreviewableImage = (attachment) =>
+  String(attachment?.mimeType || "").toLowerCase().startsWith("image/");
 
 const getBugDetailsDraft = (issue) => {
   const bugDetails = resolveBugDetails(issue);
@@ -151,6 +157,10 @@ const IssueDetailsDialog = ({
   const [detailDraft, setDetailDraft] = useState(buildDetailDraft(issue));
   const [detailsError, setDetailsError] = useState("");
   const [activeDetailTab, setActiveDetailTab] = useState("discussion");
+  const [previewAttachment, setPreviewAttachment] = useState(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState("");
+  const [previewError, setPreviewError] = useState("");
+  const [previewLoadingId, setPreviewLoadingId] = useState("");
 
   const selectedProject = useMemo(
     () => findProjectById(projects, detailDraft.projectId),
@@ -189,7 +199,55 @@ const IssueDetailsDialog = ({
     setDetailsError("");
     setSelectedFile(null);
     setActiveDetailTab("discussion");
+    setPreviewAttachment(null);
+    setPreviewError("");
   }, [issue]);
+
+  useEffect(() => {
+    const issueId = issue?._id;
+
+    if (!issueId || !previewAttachment) {
+      return undefined;
+    }
+
+    let objectUrl = "";
+    let isCurrent = true;
+
+    const loadPreview = async () => {
+      setPreviewError("");
+      setPreviewImageUrl("");
+      setPreviewLoadingId(previewAttachment._id);
+
+      try {
+        const blob = await fetchAttachmentBlob(previewAttachment, issueId);
+        objectUrl = URL.createObjectURL(blob);
+
+        if (isCurrent) {
+          setPreviewImageUrl(objectUrl);
+        }
+      } catch (error) {
+        if (isCurrent) {
+          setPreviewError(
+            error.response?.data?.message || "Unable to load attachment preview."
+          );
+        }
+      } finally {
+        if (isCurrent) {
+          setPreviewLoadingId("");
+        }
+      }
+    };
+
+    loadPreview();
+
+    return () => {
+      isCurrent = false;
+
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [issue?._id, previewAttachment]);
 
   useEffect(() => {
     if (!open) {
@@ -468,26 +526,110 @@ const IssueDetailsDialog = ({
         </Button>
       </div>
 
+      {previewAttachment ? (
+        <div className="rounded-[20px] border border-blue-100 bg-blue-50/50 p-3 shadow-sm">
+          <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-gray-900">
+                {previewAttachment.fileName || "Image preview"}
+              </p>
+              <p className="text-xs text-gray-500">Preview</p>
+            </div>
+            <Button
+              className="h-8 rounded-lg px-3 text-xs"
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setPreviewAttachment(null);
+                setPreviewError("");
+                setPreviewImageUrl("");
+              }}
+            >
+              Close
+            </Button>
+          </div>
+
+          {previewLoadingId === previewAttachment._id ? (
+            <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-blue-100 bg-white text-sm text-gray-500">
+              <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+              Loading preview
+            </div>
+          ) : previewError ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-6 text-sm text-rose-700">
+              {previewError}
+            </div>
+          ) : previewImageUrl ? (
+            <div className="max-h-[62vh] overflow-auto rounded-2xl border border-blue-100 bg-white p-2">
+              <img
+                alt={previewAttachment.fileName || "Attachment preview"}
+                className="mx-auto max-h-[58vh] max-w-full rounded-xl object-contain"
+                src={previewImageUrl}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="space-y-3">
         {isAttachmentsLoading ? (
           <Skeleton className="h-16 w-full" />
         ) : attachments.length ? (
-          attachments.map((attachment) => (
-            <button
-              key={attachment._id}
-              type="button"
-              onClick={() => downloadAttachment(attachment, issue._id)}
-              className="block w-full cursor-pointer rounded-[20px] border border-gray-200 bg-white p-3 text-left text-sm shadow-sm transition hover:border-blue-200 hover:bg-blue-50"
-            >
-              <span className="font-semibold text-gray-900">
-                {attachment.fileName}
-              </span>
-              <span className="mt-1 block text-xs text-gray-500">
-                {attachment.uploadedBy?.name || "Unknown user"} at{" "}
-                {formatDateTime(attachment.createdAt)}
-              </span>
-            </button>
-          ))
+          attachments.map((attachment) => {
+            const canPreview = isPreviewableImage(attachment);
+
+            return (
+              <div
+                key={attachment._id}
+                className="rounded-[20px] border border-gray-200 bg-white p-3 text-sm shadow-sm"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                    {canPreview ? (
+                      <ImageIcon className="h-5 w-5" />
+                    ) : (
+                      <FileText className="h-5 w-5" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-gray-900">
+                      {attachment.fileName}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {attachment.uploadedBy?.name || "Unknown user"} at{" "}
+                      {formatDateTime(attachment.createdAt)}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 pl-0 sm:pl-13">
+                  {canPreview ? (
+                    <Button
+                      className="h-9 rounded-xl px-3"
+                      disabled={previewLoadingId === attachment._id}
+                      type="button"
+                      variant="outline"
+                      onClick={() => setPreviewAttachment(attachment)}
+                    >
+                      {previewLoadingId === attachment._id ? (
+                        <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Eye className="mr-2 h-4 w-4" />
+                      )}
+                      Preview
+                    </Button>
+                  ) : null}
+                  <Button
+                    className="h-9 rounded-xl px-3"
+                    type="button"
+                    variant="outline"
+                    onClick={() => downloadAttachment(attachment, issue._id)}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download
+                  </Button>
+                </div>
+              </div>
+            );
+          })
         ) : (
           <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500 shadow-sm">
             No attachments uploaded yet.

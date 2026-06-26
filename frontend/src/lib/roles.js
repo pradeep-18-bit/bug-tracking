@@ -29,7 +29,7 @@ export const getDashboardPathByRole = (role) =>
 
 export const getRoleNavigation = (role) => {
   if (hasAdminPanelAccess(role)) {
-    return [
+    const navigation = [
       { label: "Dashboard", href: dashboardPathByRole[ROLE_ADMIN], icon: "dashboard" },
       { label: "Projects", href: "/projects", icon: "projects" },
       { label: "Backlog", href: "/backlog", icon: "backlog" },
@@ -38,6 +38,16 @@ export const getRoleNavigation = (role) => {
       { label: "Reports", href: "/reports", icon: "reports" },
       { label: "Chat", href: "/chat", icon: "chat" },
     ];
+
+    if (role === ROLE_ADMIN) {
+      navigation.splice(6, 0, {
+        label: "Team Activity",
+        href: "/admin/team-activity",
+        icon: "activity",
+      });
+    }
+
+    return navigation;
   }
 
   if (role === ROLE_TESTER) {
@@ -146,6 +156,11 @@ export const getPageMeta = (pathname, role) => {
       title: "User Management",
       description:
         "Invite teammates, update workspace roles, configure mail senders, and manage workspace access controls.",
+    },
+    "/admin/team-activity": {
+      title: "Team Activity",
+      description:
+        "Review current active, idle, and offline presence across workspace users.",
     },
   };
 

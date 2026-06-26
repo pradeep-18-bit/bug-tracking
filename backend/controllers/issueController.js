@@ -420,9 +420,15 @@ const isBugReportedAndUnpicked = (issue) => {
   const status = getBugStatusForIssueStatus(issue.status);
 
   return (
-    [BUG_STATUS.REPORTED, BUG_STATUS.NEW, BUG_STATUS.OPEN, BUG_STATUS.TRIAGED].includes(status) &&
-    !getBugDeveloperAssignmentId(issue) &&
-    !issue.startedAt
+    [
+      BUG_STATUS.REPORTED,
+      BUG_STATUS.NEW,
+      BUG_STATUS.NEEDS_TRIAGE,
+      BUG_STATUS.AVAILABLE_QUEUE,
+      BUG_STATUS.OPEN,
+      BUG_STATUS.TRIAGED,
+    ].includes(status) &&
+    !getBugDeveloperAssignmentId(issue)
   );
 };
 
@@ -1443,6 +1449,28 @@ const parsePositiveInteger = (value, fallback, { max = 100 } = {}) => {
 
 const getIssueSortOptions = (sortBy = "") => {
   const normalizedSort = String(sortBy || "newest").trim().toLowerCase();
+  const [field, direction = "asc"] = normalizedSort.split(":");
+  const sortDirection = direction === "desc" ? -1 : 1;
+
+  const sortableFields = {
+    bugid: "displayBugId",
+    id: "displayBugId",
+    title: "title",
+    project: "projectId",
+    tester: "reporterName",
+    severity: "bugDetails.severity",
+    priority: "priority",
+    developer: "assignedDeveloperName",
+    status: "status",
+    reopens: "reopenedCount",
+    updated: "updatedAt",
+    eta: "dueAt",
+    created: "createdAt",
+  };
+
+  if (sortableFields[field]) {
+    return { [sortableFields[field]]: sortDirection, updatedAt: -1, createdAt: -1 };
+  }
 
   if (normalizedSort === "oldest") {
     return { createdAt: 1 };
@@ -1471,17 +1499,134 @@ const applyListOptions = (queryBuilder, req) => {
   return sortedQuery.skip((page - 1) * limit).limit(limit);
 };
 
+const getPaginationOptions = (req) => {
+  const page = parsePositiveInteger(req.query.page, 1, { max: 10000 });
+  const limit = parsePositiveInteger(req.query.limit || req.query.pageSize, 0, { max: 100 });
+
+  return {
+    page,
+    limit,
+    skip: limit ? (page - 1) * limit : 0,
+  };
+};
+
+const shouldReturnPaginatedResponse = (req) =>
+  ["true", "1", "yes"].includes(String(req.query.paginate || "").trim().toLowerCase());
+
+const buildAdminBugGlobalScope = (req) =>
+  req.user?.role === ROLE_ADMIN && getCanonicalIssueType(req.query.type, "") === ISSUE_TYPES.BUG;
+
+const mergeOrConditions = (query, conditions = []) => {
+  const safeConditions = conditions.filter(Boolean);
+
+  if (!safeConditions.length) {
+    return query;
+  }
+
+  addAndCondition(query, { $or: safeConditions });
+  return query;
+};
+
+const getBugListSummary = async (query) => {
+  const [
+    total,
+    open,
+    bucket,
+    assigned,
+    critical,
+    unassigned,
+    inProgress,
+    reopened,
+    readyForQa,
+    closed,
+    high,
+    medium,
+    low,
+  ] = await Promise.all([
+    Issue.countDocuments(query),
+    Issue.countDocuments({ ...query, ...buildOpenIssueCondition() }),
+    Issue.countDocuments({
+      ...query,
+      type: ISSUE_TYPES.BUG,
+      assignee: null,
+      assignedDeveloperId: null,
+      "bugDetails.developerLead": null,
+      status: {
+        $in: AVAILABLE_BUG_QUEUE_STATUSES,
+      },
+    }),
+    Issue.countDocuments({ ...query, status: ISSUE_STATUS.ASSIGNED }),
+    Issue.countDocuments({
+      ...query,
+      $and: [...(query.$and || []), buildCriticalIssueCondition()],
+    }),
+    Issue.countDocuments({
+      ...query,
+      $and: [
+        ...(query.$and || []),
+        {
+          $and: [
+            { $or: [{ assignee: null }, { assignee: { $exists: false } }] },
+            { $or: [{ assignedDeveloperId: null }, { assignedDeveloperId: { $exists: false } }] },
+            {
+              $or: [
+                { "bugDetails.developerLead": null },
+                { "bugDetails.developerLead": { $exists: false } },
+              ],
+            },
+          ],
+        },
+      ],
+    }),
+    Issue.countDocuments({ ...query, status: ISSUE_STATUS.IN_PROGRESS }),
+    Issue.countDocuments({ ...query, ...buildReopenedIssueCondition() }),
+    Issue.countDocuments({
+      ...query,
+      status: {
+        $in: [ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.TESTING, ISSUE_STATUS.FIXED, ISSUE_STATUS.QA],
+      },
+    }),
+    Issue.countDocuments({ ...query, ...buildClosedIssueCondition() }),
+    Issue.countDocuments({ ...query, priority: "High" }),
+    Issue.countDocuments({ ...query, priority: "Medium" }),
+    Issue.countDocuments({ ...query, priority: "Low" }),
+  ]);
+
+  return {
+    total,
+    open,
+    bucket,
+    assigned,
+    critical,
+    unassigned,
+    inProgress,
+    reopened,
+    readyForQa,
+    closed,
+    high,
+    medium,
+    low,
+  };
+};
+
 const buildIssueQueryFromRequest = async (
   req,
   res,
   { forceOwnAssignee = false } = {}
 ) => {
-  const accessibleProjectIds = await getAccessibleProjectIds(req.user);
+  const isGlobalAdminBugQuery = buildAdminBugGlobalScope(req);
+  const accessibleProjectIds = isGlobalAdminBugQuery
+    ? []
+    : await getAccessibleProjectIds(req.user);
   const query = {
     ...ACTIVE_ISSUE_QUERY,
-    projectId: {
-      $in: accessibleProjectIds,
-    },
+    ...(isGlobalAdminBugQuery
+      ? {}
+      : {
+          projectId: {
+            $in: accessibleProjectIds,
+          },
+        }),
   };
 
   if (req.query.projectId && req.query.projectId !== "all") {
@@ -1490,9 +1635,11 @@ const buildIssueQueryFromRequest = async (
       throw new Error("Invalid project id filter");
     }
 
-    const hasProjectAccess = accessibleProjectIds.some(
-      (projectId) => String(projectId) === String(req.query.projectId)
-    );
+    const hasProjectAccess =
+      isGlobalAdminBugQuery ||
+      accessibleProjectIds.some(
+        (projectId) => String(projectId) === String(req.query.projectId)
+      );
 
     if (!hasProjectAccess) {
       res.status(403);
@@ -1612,6 +1759,93 @@ const buildIssueQueryFromRequest = async (
     query.teamId = req.query.teamId;
   }
 
+  if (req.query.severity && req.query.severity !== "all") {
+    const severity = normalizeBugSeverity(req.query.severity, req.query.severity);
+
+    if (!BUG_SEVERITY_VALUES.includes(severity)) {
+      res.status(400);
+      throw new Error(`Severity must be ${BUG_SEVERITY_VALUES.join(", ")}`);
+    }
+
+    query["bugDetails.severity"] = severity;
+  }
+
+  const developerFilter = req.query.developerId || req.query.developer || "";
+  if (developerFilter && developerFilter !== "all") {
+    if (String(developerFilter).toLowerCase() === "me") {
+      mergeOrConditions(query, [
+        { assignee: req.user._id },
+        { assignedDeveloperId: req.user._id },
+        { "bugDetails.developerLead": req.user._id },
+      ]);
+    } else if (String(developerFilter).toLowerCase() === "unassigned") {
+      addAndCondition(query, {
+        $and: [
+          { $or: [{ assignee: null }, { assignee: { $exists: false } }] },
+          { $or: [{ assignedDeveloperId: null }, { assignedDeveloperId: { $exists: false } }] },
+          {
+            $or: [
+              { "bugDetails.developerLead": null },
+              { "bugDetails.developerLead": { $exists: false } },
+            ],
+          },
+        ],
+      });
+    } else {
+      if (!mongoose.isValidObjectId(developerFilter)) {
+        res.status(400);
+        throw new Error("Invalid developer filter");
+      }
+
+      mergeOrConditions(query, [
+        { assignee: developerFilter },
+        { assignedDeveloperId: developerFilter },
+        { "bugDetails.developerLead": developerFilter },
+      ]);
+    }
+  }
+
+  const testerFilter = req.query.testerId || req.query.tester || "";
+  if (testerFilter && testerFilter !== "all") {
+    if (String(testerFilter).toLowerCase() === "me") {
+      mergeOrConditions(query, [
+        { reporter: req.user._id },
+        { "bugDetails.testerOwner": req.user._id },
+      ]);
+    } else {
+      if (!mongoose.isValidObjectId(testerFilter)) {
+        res.status(400);
+        throw new Error("Invalid tester filter");
+      }
+
+      mergeOrConditions(query, [
+        { reporter: testerFilter },
+        { "bugDetails.testerOwner": testerFilter },
+      ]);
+    }
+  }
+
+  if (req.query.lifecycle && req.query.lifecycle !== "all") {
+    const lifecycle = String(req.query.lifecycle).trim().toLowerCase();
+
+    if (lifecycle === "open") {
+      Object.assign(query, buildOpenIssueCondition());
+    } else if (lifecycle === "reopened") {
+      Object.assign(query, buildReopenedIssueCondition());
+    } else if (lifecycle === "fixed" || lifecycle === "ready") {
+      query.status = {
+        $in: [ISSUE_STATUS.READY_FOR_QA, ISSUE_STATUS.TESTING, ISSUE_STATUS.FIXED, ISSUE_STATUS.QA],
+      };
+    } else if (lifecycle === "resolved") {
+      query.status = {
+        $in: [ISSUE_STATUS.FIXED, ISSUE_STATUS.QA, ISSUE_STATUS.CLOSED, ISSUE_STATUS.DONE],
+      };
+    } else {
+      res.status(400);
+      throw new Error("Invalid lifecycle filter");
+    }
+  }
+
   if (req.query.bucket && req.query.bucket !== "all") {
     const bucketMode = String(req.query.bucket).trim().toLowerCase();
 
@@ -1690,18 +1924,49 @@ const buildIssueQueryFromRequest = async (
   }
 
   if (req.query.search?.trim()) {
+    const rawSearch = req.query.search.trim();
     const searchExpression = new RegExp(
-      escapeRegExp(req.query.search.trim()),
+      escapeRegExp(rawSearch),
       "i"
     );
+    const projectSearchQuery = {
+      name: searchExpression,
+      ...(buildAdminBugGlobalScope(req)
+        ? {}
+        : { _id: typeof query.projectId === "object" && query.projectId.$in ? query.projectId : query.projectId }),
+    };
+    const userSearchQuery = {
+      $or: [{ name: searchExpression }, { email: searchExpression }, { employeeId: searchExpression }],
+      ...(buildAdminBugGlobalScope(req)
+        ? {}
+        : { workspaceId: normalizeWorkspaceId(req.user.workspaceId) }),
+    };
+    const [matchingProjectIds, matchingUserIds] = await Promise.all([
+      Project.find(projectSearchQuery).distinct("_id"),
+      User.find(userSearchQuery).distinct("_id"),
+    ]);
 
-    addAndCondition(query, {
-      $or: [
+    mergeOrConditions(query, [
         { displayBugId: searchExpression },
         { title: searchExpression },
         { description: searchExpression },
-      ],
-    });
+        { reporterName: searchExpression },
+        { testerOwnerName: searchExpression },
+        { assignedDeveloperName: searchExpression },
+        { "bugDetails.moduleName": searchExpression },
+        { "bugDetails.category": searchExpression },
+        { "bugDetails.affectedPlatform": searchExpression },
+        ...(matchingProjectIds.length ? [{ projectId: { $in: matchingProjectIds } }] : []),
+        ...(matchingUserIds.length
+          ? [
+              { reporter: { $in: matchingUserIds } },
+              { assignee: { $in: matchingUserIds } },
+              { assignedDeveloperId: { $in: matchingUserIds } },
+              { "bugDetails.testerOwner": { $in: matchingUserIds } },
+              { "bugDetails.developerLead": { $in: matchingUserIds } },
+            ]
+          : []),
+      ]);
   }
 
   if (
@@ -1786,10 +2051,16 @@ const getIssues = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res);
   const isBugListQuery = query.type === ISSUE_TYPES.BUG;
   const requestFilters = summarizeBugQueryFilters(req);
+  const paginationOptions = getPaginationOptions(req);
+  const shouldPaginate = shouldReturnPaginatedResponse(req) && paginationOptions.limit > 0;
   const totalBugsInDatabase = isBugListQuery
     ? await Issue.countDocuments({ ...ACTIVE_ISSUE_QUERY, type: ISSUE_TYPES.BUG })
     : 0;
-  const issues = await applyListOptions(populateIssueQuery(Issue.find(query)), req);
+  const [issues, filteredTotal, summary] = await Promise.all([
+    applyListOptions(populateIssueQuery(Issue.find(query)), req),
+    shouldPaginate ? Issue.countDocuments(query) : Promise.resolve(0),
+    shouldPaginate && isBugListQuery ? getBugListSummary(query) : Promise.resolve(null),
+  ]);
 
   if (isBugListQuery) {
     logBugWorkflowQuery("triage-board", {
@@ -1797,10 +2068,31 @@ const getIssues = asyncHandler(async (req, res) => {
       role: req.user?.role || "",
       totalBugsInDatabase,
       bugsReturned: issues.length,
+      filteredTotal: shouldPaginate ? filteredTotal : issues.length,
       filtersApplied: requestFilters,
       sprintFiltersIgnored: true,
       query,
     });
+  }
+
+  if (shouldPaginate) {
+    const totalPages = Math.max(1, Math.ceil(filteredTotal / paginationOptions.limit));
+
+    res.status(200).json({
+      bugs: serializeIssues(issues),
+      pagination: {
+        page: paginationOptions.page,
+        pageSize: paginationOptions.limit,
+        total: filteredTotal,
+        totalPages,
+        hasPreviousPage: paginationOptions.page > 1,
+        hasNextPage: paginationOptions.page < totalPages,
+      },
+      summary: summary || {
+        total: filteredTotal,
+      },
+    });
+    return;
   }
 
   res.status(200).json(serializeIssues(issues));

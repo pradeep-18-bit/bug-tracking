@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   createChatConversation,
+  deleteChatConversation,
   fetchChatConversations,
   fetchChatMessages,
   searchChatUsers,
@@ -204,6 +205,71 @@ export const useChatStore = create((set, get) => ({
     }));
 
     await get().setActiveConversation(getId(conversation));
+  },
+
+  createGroupConversation: async ({ name, participants = [] }) => {
+    const conversation = normalizeConversation(
+      await createChatConversation({
+        type: "group",
+        channelType: "custom",
+        name,
+        participants,
+      })
+    );
+
+    set((state) => ({
+      conversations: sortConversations([
+        conversation,
+        ...state.conversations.filter((item) => getId(item) !== getId(conversation)),
+      ]),
+      searchResults: [],
+    }));
+
+    await get().setActiveConversation(getId(conversation));
+  },
+
+  deleteConversation: async (conversationId) => {
+    const normalizedConversationId = String(conversationId || "");
+
+    if (!normalizedConversationId) {
+      return;
+    }
+
+    set({ error: "" });
+    await deleteChatConversation(normalizedConversationId);
+
+    set((state) => {
+      const {
+        [normalizedConversationId]: _removedMessages,
+        ...messagesByConversation
+      } = state.messagesByConversation;
+      const {
+        [normalizedConversationId]: _removedCursor,
+        ...nextCursorByConversation
+      } = state.nextCursorByConversation;
+      const {
+        [normalizedConversationId]: _removedHasMore,
+        ...hasMoreByConversation
+      } = state.hasMoreByConversation;
+      const {
+        [normalizedConversationId]: _removedTyping,
+        ...typingByConversation
+      } = state.typingByConversation;
+
+      return {
+        activeConversationId:
+          state.activeConversationId === normalizedConversationId
+            ? null
+            : state.activeConversationId,
+        conversations: state.conversations.filter(
+          (conversation) => getId(conversation) !== normalizedConversationId
+        ),
+        hasMoreByConversation,
+        messagesByConversation,
+        nextCursorByConversation,
+        typingByConversation,
+      };
+    });
   },
 
   sendMessage: async ({ conversationId, message, attachments = [], currentUser }) => {

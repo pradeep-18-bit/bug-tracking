@@ -26,6 +26,18 @@ api.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${session.token}`;
   }
 
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("app:user-activity", {
+        detail: {
+          source: "api",
+          method: config.method,
+          url: config.url,
+        },
+      })
+    );
+  }
+
   return config;
 });
 
@@ -578,6 +590,32 @@ export const fetchAnalyticsOverview = async (filters = {}) => {
   return response.data;
 };
 
+export const fetchTeamActivity = async (filters = {}) => {
+  const response = await api.get("/activity/team", {
+    params: buildParams(filters),
+  });
+  return response.data;
+};
+
+export const fetchMyActivity = async () => {
+  const response = await api.get("/activity/me");
+  return response.data;
+};
+
+export const fetchProductivityReport = async (filters = {}) => {
+  const response = await api.get("/activity/productivity", {
+    params: buildParams(filters),
+  });
+  return response.data;
+};
+
+export const fetchBugEffortAnalytics = async (filters = {}) => {
+  const response = await api.get("/activity/bug-effort", {
+    params: buildParams(filters),
+  });
+  return response.data;
+};
+
 export const fetchAnalyticsTrends = async (filters = {}) => {
   const response = await api.get("/analytics/trends", {
     params: buildParams(normalizeIssueFilters(filters)),
@@ -853,27 +891,30 @@ export const resolveApiAssetUrl = (assetPath = "") => {
   }
 };
 
+export const fetchAttachmentBlob = async (attachment, issueId) => {
+  if (!attachment._id) {
+    throw new Error("Attachment ID is required");
+  }
+
+  if (!issueId) {
+    throw new Error("Issue ID is required");
+  }
+
+  const response = await api.get(
+    `/issues/${issueId}/attachments/${attachment._id}/download`,
+    {
+      responseType: "blob",
+      withCredentials: true,
+    }
+  );
+
+  return response.data;
+};
+
 export const downloadAttachment = async (attachment, issueId) => {
   try {
-    if (!attachment._id) {
-      throw new Error("Attachment ID is required");
-    }
-
-    if (!issueId) {
-      throw new Error("Issue ID is required");
-    }
-
-    // Use authenticated endpoint for downloading
-    const response = await api.get(
-      `/issues/${issueId}/attachments/${attachment._id}/download`,
-      {
-        responseType: "blob",
-        withCredentials: true,
-      }
-    );
-
-    // Create a blob URL and trigger download
-    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const blob = await fetchAttachmentBlob(attachment, issueId);
+    const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
     link.setAttribute("download", attachment.fileName || "attachment");
@@ -993,6 +1034,11 @@ export const fetchChatConversations = async () => {
 export const createChatConversation = async (payload) => {
   const response = await api.post("/chat/conversations", payload);
   return response.data?.conversation || response.data;
+};
+
+export const deleteChatConversation = async (conversationId) => {
+  const response = await api.delete(`/chat/conversations/${conversationId}`);
+  return response.data;
 };
 
 export const fetchChatConversation = async (conversationId) => {
