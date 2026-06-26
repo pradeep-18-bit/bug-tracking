@@ -40,7 +40,7 @@ const IssuesToolbar = ({
               {visibleIssueCount} issue{visibleIssueCount === 1 ? "" : "s"} in view
             </p>
             <p className="text-sm leading-6 text-slate-600">
-              Filter issues, review ownership, and move work across the workflow with
+              Filter Task, review ownership, and move work across the workflow with
               a Jira-style planning lens.
             </p>
           </div>
@@ -173,7 +173,7 @@ const IssuesToolbar = ({
 
           <label className="space-y-2">
             <span className="text-xs uppercase tracking-[0.22em] text-gray-500">
-              Filter Issues
+              Filter Tasks
             </span>
             <div className="relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
