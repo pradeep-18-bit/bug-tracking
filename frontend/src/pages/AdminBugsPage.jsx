@@ -484,8 +484,19 @@ const BUG_CARD_VIEWS = [
   },
 ];
 
+const TOTAL_BUGS_VIEW = {
+  id: "total",
+  label: "Total Bugs",
+  description: "All bugs across every status",
+  icon: Bug,
+  metricKey: "total",
+  tone: "bg-slate-100 text-slate-700",
+};
+
 const getBugCardView = (value) =>
-  BUG_CARD_VIEWS.find((view) => view.id === String(value || "").trim().toLowerCase()) ||
+  [...BUG_CARD_VIEWS, TOTAL_BUGS_VIEW].find(
+    (view) => view.id === String(value || "").trim().toLowerCase()
+  ) ||
   BUG_CARD_VIEWS[0];
 
 const getCardViewFilterState = (viewId) => {
@@ -563,40 +574,31 @@ const getTriageActionMenuPosition = (triggerRect) => {
   };
 };
 
-const MetricTile = ({ active = false, icon: Icon, label, tone, value, onClick }) => (
-  <Card
-    className={cn(
-      "overflow-hidden rounded-[14px] border-white/70 bg-white/86 shadow-[0_14px_34px_-26px_rgba(15,23,42,0.3)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-26px_rgba(15,23,42,0.32)]",
-      onClick && "cursor-pointer",
-      active && "border-blue-300 bg-blue-50/80 ring-2 ring-blue-500/20"
-    )}
-    onClick={onClick}
-    role={onClick ? "button" : undefined}
-    tabIndex={onClick ? 0 : undefined}
-    onKeyDown={(event) => {
-      if (!onClick || (event.key !== "Enter" && event.key !== " ")) {
-        return;
-      }
+const MetricTile = ({ active = false, icon: Icon, label, tone, value, onClick }) => {
+  const Component = onClick ? "button" : "div";
 
-      event.preventDefault();
-      onClick();
-    }}
-  >
-    <CardContent className="p-3.5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-            {label}
-          </p>
-          <p className="mt-1.5 text-2xl font-semibold leading-none text-slate-950">{value}</p>
-        </div>
-        <span className={cn("flex h-9 w-9 items-center justify-center rounded-[12px]", tone)}>
-          <Icon className="h-4 w-4" />
-        </span>
+  return (
+    <Component
+      className={cn(
+        "group flex min-h-[64px] w-full items-center justify-between gap-3 rounded-xl border border-l-4 border-slate-200 bg-white px-3 py-2.5 text-left shadow-sm transition duration-150 hover:-translate-y-px hover:border-blue-200 hover:bg-blue-50/30 hover:shadow-md",
+        onClick && "cursor-pointer",
+        active && "border-blue-200 border-l-blue-500 bg-blue-50/40"
+      )}
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+    >
+      <div className="min-w-0">
+        <p className="truncate text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+          {label}
+        </p>
+        <p className="mt-1 text-2xl font-semibold leading-none text-slate-950">{value}</p>
       </div>
-    </CardContent>
-  </Card>
-);
+      <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", tone)}>
+        <Icon className="h-4 w-4" />
+      </span>
+    </Component>
+  );
+};
 
 const DistributionPanel = ({ title, rows }) => {
   const maxCount = Math.max(...rows.map((row) => row.count), 1);
@@ -630,65 +632,99 @@ const DistributionPanel = ({ title, rows }) => {
   );
 };
 
-const BugResultCard = ({ bugIssue, projects, onOpen }) => {
+const BugResultRow = ({ bugIssue, projects, onOpen, onActionMenu }) => {
   const reporter = getReporter(bugIssue);
+  const reporterName = getUserLabel(reporter, "Unknown tester");
   const developer = getBugDeveloper(bugIssue);
+  const developerName = getUserLabel(developer);
   const status = normalizeBugStatusForIssue(bugIssue);
   const details = resolveBugDetails(bugIssue);
   const severity = getSeverity(bugIssue);
+  const moduleTag = getModuleTag(bugIssue);
+  const attachmentCount = getAttachmentCount(bugIssue);
 
   return (
-    <article className="group rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_18px_42px_-30px_rgba(37,99,235,0.34)]">
-      <div className="flex items-start justify-between gap-3">
-        <button className="min-w-0 flex-1 text-left" type="button" onClick={() => onOpen(bugIssue)}>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">
-              {getIssueDisplayKey(bugIssue)}
-            </span>
-            <span className={cn("inline-flex h-6 items-center rounded-full border px-2 text-[11px] font-bold", statusBadgeClassName(status))}>
-              {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
-            </span>
-          </div>
-          <h3 className="mt-2 line-clamp-2 text-[15px] font-semibold leading-6 text-slate-950 group-hover:text-blue-700">
-            {bugIssue.title || "Untitled bug"}
-          </h3>
-          <p className="mt-1 truncate text-xs font-medium text-slate-500">
-            {getProjectName(bugIssue, projects)} / {details.moduleName || "Unmapped module"}
-          </p>
-        </button>
+    <article
+      className={cn(
+        "group relative grid gap-3 rounded-xl border border-l-4 border-slate-200 bg-white px-3 py-2.5 shadow-sm transition hover:border-blue-200 hover:bg-blue-50/30 md:grid-cols-[minmax(260px,1.25fr)_minmax(170px,0.7fr)_minmax(150px,0.62fr)_minmax(150px,0.62fr)_minmax(150px,0.7fr)_120px_82px] md:items-center",
+        severityAccentClassName(severity)
+      )}
+    >
+      <button className="min-w-0 text-left" type="button" onClick={() => onOpen(bugIssue)}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">
+            {getIssueDisplayKey(bugIssue)}
+          </span>
+          <span className={cn("inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none", statusBadgeClassName(status))}>
+            {status === ISSUE_STATUS.QA ? "Ready for QA" : getIssueStatusLabel(status)}
+          </span>
+        </div>
+        <h3 className="mt-1 truncate text-sm font-semibold text-slate-950 group-hover:text-blue-700">
+          {bugIssue.title || "Untitled bug"}
+        </h3>
+        <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">
+          {getProjectName(bugIssue, projects)} / {details.moduleName || "Unmapped module"}
+        </p>
+      </button>
+
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <p className="truncate text-xs font-semibold text-slate-800">{details.moduleName || "Unmapped"}</p>
+          <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-600">{moduleTag}</span>
+        </div>
+        <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">{getIssueCategory(bugIssue)}</p>
+      </div>
+
+      <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-[10px] text-white">{getInitials(reporterName)}</span>
+        <span className="truncate">{reporterName}</span>
+      </span>
+
+      <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white">{getInitials(developerName)}</span>
+        <span className="truncate">{developerName}</span>
+      </span>
+
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <span className={severityBadgeClassName(severity)}>{severity}</span>
+        <span className={priorityBadgeClassName(bugIssue.priority || "Medium")}>{bugIssue.priority || "Medium"}</span>
+        {isReopenedBug(bugIssue) ? (
+          <span className="inline-flex h-5 items-center rounded-full border border-rose-200 bg-rose-50 px-2 text-[10px] font-bold uppercase text-rose-700">Reopened</span>
+        ) : null}
+      </div>
+
+      <div className="min-w-0 text-[11px] font-medium text-slate-600">
+        <span className="block truncate">{formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}</span>
+        {attachmentCount ? (
+          <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-slate-500">
+            <Paperclip className="h-3 w-3" />
+            {attachmentCount}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="relative flex items-center justify-end gap-1">
         <Button
-          className="h-9 w-9 shrink-0 rounded-lg p-0"
+          className="h-8 w-8 rounded-lg p-0"
           type="button"
+          size="icon"
           variant="outline"
           onClick={() => onOpen(bugIssue)}
           aria-label="View bug"
         >
           <Eye className="h-4 w-4" />
         </Button>
-      </div>
-
-      <div className="mt-4 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-        <div className="min-w-0 rounded-lg bg-slate-50 px-3 py-2">
-          <p className="text-[10px] font-bold uppercase text-slate-400">Tester</p>
-          <p className="mt-0.5 truncate font-semibold text-slate-700">{getUserLabel(reporter, "Unknown tester")}</p>
-        </div>
-        <div className="min-w-0 rounded-lg bg-slate-50 px-3 py-2">
-          <p className="text-[10px] font-bold uppercase text-slate-400">Developer</p>
-          <p className="mt-0.5 truncate font-semibold text-slate-700">{getUserLabel(developer)}</p>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className={severityBadgeClassName(severity)}>{severity}</span>
-        <span className={priorityBadgeClassName(bugIssue.priority || "Medium")}>{bugIssue.priority || "Medium"}</span>
-        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600">
-          {formatDateTime(bugIssue.updatedAt || bugIssue.createdAt)}
-        </span>
-        {getReopenCount(bugIssue) ? (
-          <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-700">
-            Reopened
-          </span>
-        ) : null}
+        <Button
+          data-triage-action-trigger
+          className="h-8 w-8 rounded-lg p-0"
+          type="button"
+          size="icon"
+          variant="outline"
+          onClick={(event) => onActionMenu(event, bugIssue._id)}
+          aria-label="More actions"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
       </div>
     </article>
   );
@@ -1123,7 +1159,7 @@ const AdminBugsPage = () => {
     [cardSummary, pagination.total, summary, visibleBugs]
   );
   const activeCard =
-    BUG_CARD_VIEWS.find((view) => view.id === activeCardView) || {
+    [...BUG_CARD_VIEWS, TOTAL_BUGS_VIEW].find((view) => view.id === activeCardView) || {
       label: "Filtered Bugs",
       description: "Quick filter results",
     };
@@ -1717,7 +1753,14 @@ const AdminBugsPage = () => {
             onClick={() => applyCardView(view.id)}
           />
         ))}
-        <MetricTile icon={Bug} label="Total Bugs" value={metrics.total} tone="bg-slate-100 text-slate-700" />
+        <MetricTile
+          active={activeCardView === TOTAL_BUGS_VIEW.id}
+          icon={TOTAL_BUGS_VIEW.icon}
+          label={TOTAL_BUGS_VIEW.label}
+          value={metrics.total}
+          tone={TOTAL_BUGS_VIEW.tone}
+          onClick={() => applyCardView(TOTAL_BUGS_VIEW.id)}
+        />
       </section>
 
       {false ? (
@@ -2256,19 +2299,22 @@ const AdminBugsPage = () => {
             </div>
           ) : visibleBugs.length ? (
             <>
-            <div className="grid gap-3 bg-slate-50/80 p-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="space-y-2 bg-slate-50/80 p-3">
               {visibleBugs.map((bugIssue) => (
-                <BugResultCard
-                  key={bugIssue._id}
+                <div key={bugIssue._id} className="relative">
+                <BugResultRow
                   bugIssue={bugIssue}
                   projects={projects}
                   onOpen={setSelectedBug}
+                  onActionMenu={handleToggleActionMenu}
                 />
+                {renderTriageActionMenu(bugIssue)}
+                </div>
               ))}
             </div>
             <div className="flex flex-col gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs font-medium text-slate-500">
-                Page {pagination.page} of {pagination.totalPages}
+                {activeCard.label} page {pagination.page} of {pagination.totalPages}
               </p>
               <div className="flex items-center gap-2">
                 <Button

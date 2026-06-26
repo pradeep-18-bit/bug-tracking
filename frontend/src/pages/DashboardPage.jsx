@@ -95,20 +95,29 @@ const TASK_STATUS_META = [
   {
     key: ISSUE_STATUS.TODO,
     label: "To Do",
-    helper: "Not started",
+    helper: "Ready for pickup",
     className: "bg-slate-400",
+    icon: Layers3,
+    routeParams: { status: ISSUE_STATUS.TODO },
+    tone: "blue",
   },
   {
     key: ISSUE_STATUS.IN_PROGRESS,
     label: "In Progress",
     helper: "Active task work",
     className: "bg-blue-500",
+    icon: TimerReset,
+    routeParams: { status: ISSUE_STATUS.IN_PROGRESS },
+    tone: "amber",
   },
   {
     key: ISSUE_STATUS.DONE,
     label: "Done",
     helper: "Completed tasks",
     className: "bg-emerald-500",
+    icon: CheckCircle2,
+    routeParams: { statusGroup: "closed" },
+    tone: "emerald",
   },
 ];
 
@@ -634,6 +643,17 @@ const DashboardPage = () => {
 
     navigate(`/admin/bugs${searchParams.toString() ? `?${searchParams}` : ""}`);
   };
+  const navigateToTasks = (params = {}) => {
+    const searchParams = new URLSearchParams();
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value && value !== "all") {
+        searchParams.set(key, value);
+      }
+    });
+
+    navigate(`/issues${searchParams.toString() ? `?${searchParams}` : ""}`);
+  };
   const bugMetrics = useMemo(() => {
     const openBugs = bugs.filter(isOpenBug);
     const criticalBugs = bugs.filter(isCriticalBug);
@@ -776,6 +796,15 @@ const DashboardPage = () => {
       onClick: () => navigateToBugs(),
     },
   ];
+  const taskKpiCards = taskStatusRows.map((item) => ({
+    key: item.key,
+    title: item.label,
+    value: formatCompactNumber(item.count),
+    helper: item.helper,
+    icon: item.icon,
+    tone: item.tone,
+    onClick: () => navigateToTasks(item.routeParams),
+  }));
   const kpiCards = [
     {
       key: "total",
@@ -861,7 +890,6 @@ const DashboardPage = () => {
     );
   }
 
-  const mainKpiCards = kpiCards.filter((c) => c.key !== "closed" && c.key !== "rate");
   const headerKpiCards = kpiCards.filter((c) => c.key === "closed" || c.key === "rate");
 
   return (
@@ -930,8 +958,8 @@ const DashboardPage = () => {
         </CardContent>
       </Card>
 
-      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-        {mainKpiCards.map((card) => (
+      <section className="grid gap-5 md:grid-cols-3">
+        {taskKpiCards.map((card) => (
           <AnalyticsKpiCard
             key={card.key}
             title={card.title}
@@ -939,7 +967,6 @@ const DashboardPage = () => {
             icon={card.icon}
             tone={card.tone}
             helper={card.helper}
-            trend={card.trend}
             onClick={card.onClick}
           />
         ))}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -34,6 +34,8 @@ const BugKanbanBoard = ({
 }) => {
   const [activeIssueId, setActiveIssueId] = useState("");
   const [pendingColumns, setPendingColumns] = useState({});
+  const topScrollRef = useRef(null);
+  const boardScrollRef = useRef(null);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
@@ -71,6 +73,14 @@ const BugKanbanBoard = ({
 
   const handleDragStart = (event) => {
     setActiveIssueId(String(event.active.id || ""));
+  };
+
+  const syncHorizontalScroll = (source, target) => {
+    if (!source || !target || target.scrollLeft === source.scrollLeft) {
+      return;
+    }
+
+    target.scrollLeft = source.scrollLeft;
   };
 
   const handleDragEnd = (event) => {
@@ -134,7 +144,18 @@ const BugKanbanBoard = ({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveIssueId("")}
     >
-      <div className="-mx-1 overflow-x-auto overscroll-x-contain pb-3 [scrollbar-gutter:stable]">
+      <div
+        ref={topScrollRef}
+        className="-mx-1 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-gutter:stable]"
+        onScroll={(event) => syncHorizontalScroll(event.currentTarget, boardScrollRef.current)}
+      >
+        <div className="h-1 px-1" style={{ minWidth: boardGridStyle.minWidth }} />
+      </div>
+      <div
+        ref={boardScrollRef}
+        className="-mx-1 overflow-x-auto overscroll-x-contain pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        onScroll={(event) => syncHorizontalScroll(event.currentTarget, topScrollRef.current)}
+      >
         <div
           className="grid gap-3 px-1"
           style={boardGridStyle}
