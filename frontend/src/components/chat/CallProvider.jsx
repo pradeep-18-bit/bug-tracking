@@ -150,6 +150,16 @@ const RemoteMedia = ({ stream, muted, onVideoStalled, onVideoStateChange }) => {
         callLog(`remote ${label} autoplay blocked`, playError?.message || playError);
       });
     };
+    const resumeRemotePlayback = () => {
+      updateHasVideo();
+      if (audioRef.current) {
+        audioRef.current.muted = muted;
+        playElement(audioRef.current, "audio");
+      }
+      if (videoRef.current && hasLiveTrack(stream, "video")) {
+        playElement(videoRef.current, "video");
+      }
+    };
 
     if (videoRef.current && videoRef.current.srcObject !== stream) {
       videoRef.current.srcObject = stream;
@@ -168,13 +178,15 @@ const RemoteMedia = ({ stream, muted, onVideoStalled, onVideoStateChange }) => {
     }
     const watchedTracks = stream?.getTracks() || [];
     watchedTracks.forEach((track) => {
-      track.addEventListener?.("mute", updateHasVideo);
-      track.addEventListener?.("unmute", updateHasVideo);
-      track.addEventListener?.("ended", updateHasVideo);
+      track.addEventListener?.("mute", resumeRemotePlayback);
+      track.addEventListener?.("unmute", resumeRemotePlayback);
+      track.addEventListener?.("ended", resumeRemotePlayback);
     });
     updateHasVideo();
-    stream?.addEventListener?.("addtrack", updateHasVideo);
-    stream?.addEventListener?.("removetrack", updateHasVideo);
+    stream?.addEventListener?.("addtrack", resumeRemotePlayback);
+    stream?.addEventListener?.("removetrack", resumeRemotePlayback);
+    audioRef.current?.addEventListener?.("loadedmetadata", resumeRemotePlayback);
+    audioRef.current?.addEventListener?.("canplay", resumeRemotePlayback);
     stallTimerId = window.setInterval(() => {
       const element = videoRef.current;
       if (!element || element.paused || !hasLiveTrack(stream, "video")) {
@@ -204,12 +216,14 @@ const RemoteMedia = ({ stream, muted, onVideoStalled, onVideoStateChange }) => {
     return () => {
       window.clearInterval(stallTimerId);
       watchedTracks.forEach((track) => {
-        track.removeEventListener?.("mute", updateHasVideo);
-        track.removeEventListener?.("unmute", updateHasVideo);
-        track.removeEventListener?.("ended", updateHasVideo);
+        track.removeEventListener?.("mute", resumeRemotePlayback);
+        track.removeEventListener?.("unmute", resumeRemotePlayback);
+        track.removeEventListener?.("ended", resumeRemotePlayback);
       });
-      stream?.removeEventListener?.("addtrack", updateHasVideo);
-      stream?.removeEventListener?.("removetrack", updateHasVideo);
+      stream?.removeEventListener?.("addtrack", resumeRemotePlayback);
+      stream?.removeEventListener?.("removetrack", resumeRemotePlayback);
+      audioRef.current?.removeEventListener?.("loadedmetadata", resumeRemotePlayback);
+      audioRef.current?.removeEventListener?.("canplay", resumeRemotePlayback);
     };
   }, [muted, onVideoStalled, onVideoStateChange, stream]);
 
@@ -220,7 +234,7 @@ const RemoteMedia = ({ stream, muted, onVideoStalled, onVideoStateChange }) => {
           Connecting video
         </div>
       ) : null}
-      <video ref={videoRef} autoPlay playsInline className="h-full w-full object-cover" />
+      <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
       <audio ref={audioRef} autoPlay playsInline />
     </>
   );
@@ -1886,7 +1900,7 @@ export const CallProvider = ({ children }) => {
                         )}
                       >
                         <RemoteMedia
-                          key={`${userId}-${remoteMedia?.version || 0}`}
+                          key={userId}
                           stream={stream}
                           muted={isSpeakerOff}
                           onVideoStalled={() => negotiatePeer(userId, { iceRestart: true })}
