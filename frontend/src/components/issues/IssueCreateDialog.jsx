@@ -947,7 +947,7 @@ const IssueCreateDialog = ({
         <div className="max-h-[90vh] overflow-y-auto overflow-x-visible">
           <DialogHeader className="sticky top-0 z-20 border-b border-slate-200/80 bg-white px-5 py-3.5 sm:px-6">
             <DialogTitle className="text-2xl tracking-tight text-slate-950">
-              Create Work Item
+              Assign task
             </DialogTitle>
           </DialogHeader>
 
@@ -1541,7 +1541,7 @@ const IssueCreateDialog = ({
                 type="submit"
                 disabled={isSubmitPending || Boolean(blockedMessage)}
               >
-                {isSubmitPending ? "Creating..." : "Create Work Item"}
+                {isSubmitPending ? "Creating..." : "Assign task"}
               </Button>
             </div>
           </form>
