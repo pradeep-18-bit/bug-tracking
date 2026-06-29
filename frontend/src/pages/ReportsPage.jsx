@@ -3361,7 +3361,7 @@ const JiraReportsDashboard = () => {
           </nav>
         </div>
 
-        <div className="sticky top-0 z-20 rounded-lg border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
             <select className={ANALYTICS_SELECT_CLASS} value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
               <option value="all">All projects</option>
