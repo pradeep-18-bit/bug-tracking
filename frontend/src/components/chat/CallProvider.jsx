@@ -83,30 +83,38 @@ const formatDuration = (seconds = 0) => {
   return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
 };
 
+const RINGTONE_START_SECONDS = 15;
+const RINGTONE_URL = `${import.meta.env.BASE_URL}audio/incoming-call.mp3`;
+
 const playRingtone = () => {
-  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  const audio = new Audio(RINGTONE_URL);
+  let stopped = false;
 
-  if (!AudioContext) {
-    return () => {};
-  }
+  audio.preload = "auto";
 
-  const context = new AudioContext();
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  oscillator.type = "sine";
-  oscillator.frequency.value = 880;
-  gain.gain.value = 0.045;
-  oscillator.connect(gain);
-  gain.connect(context.destination);
-  oscillator.start();
-  const intervalId = window.setInterval(() => {
-    oscillator.frequency.value = oscillator.frequency.value === 880 ? 660 : 880;
-  }, 450);
+  const playFromRingtoneStart = () => {
+    if (stopped) return;
+
+    audio.currentTime =
+      Number.isFinite(audio.duration) && audio.duration > RINGTONE_START_SECONDS
+        ? RINGTONE_START_SECONDS
+        : 0;
+    audio.play().catch((playError) => {
+      callLog("ringtone autoplay blocked", playError?.message || playError);
+    });
+  };
+
+  audio.addEventListener("loadedmetadata", playFromRingtoneStart, { once: true });
+  audio.addEventListener("ended", playFromRingtoneStart);
+  audio.load();
 
   return () => {
-    window.clearInterval(intervalId);
-    oscillator.stop();
-    context.close();
+    stopped = true;
+    audio.removeEventListener("loadedmetadata", playFromRingtoneStart);
+    audio.removeEventListener("ended", playFromRingtoneStart);
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
   };
 };
 
