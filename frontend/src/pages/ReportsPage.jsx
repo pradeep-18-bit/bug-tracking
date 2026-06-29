@@ -2521,22 +2521,38 @@ const OrganizationReportsDashboard = () => {
           )}
         </AnalyticsPanel>
 
-        <AnalyticsPanel title="Developer Rankings / Leaderboards" description="Task delivery and bug resolution are ranked separately, not combined.">
+        <AnalyticsPanel
+          title="Developer Rankings / Leaderboards"
+          description="Task delivery and bug resolution are ranked separately, not combined."
+          action={(
+            <select
+              aria-label="Filter developer rankings by project"
+              className={cn(ANALYTICS_SELECT_CLASS, "h-9 min-w-[220px] rounded-xl px-3")}
+              value={filters.projectId}
+              onChange={(event) => updateFilter("projectId", event.target.value)}
+            >
+              <option value="all">All projects</option>
+              {projects.map((project) => (
+                <option key={project._id} value={project._id}>{project.name}</option>
+              ))}
+            </select>
+          )}
+        >
           <div className="grid gap-4 xl:grid-cols-2">
             <div className="rounded-2xl border border-white/60 bg-white/55 p-3">
               <SectionTitle kicker="Tasks" title="Task Delivery Ranking" description="Sorted by task completion, story points delivered, and completed task count." />
               <div className="mt-4 max-h-[520px] space-y-3 overflow-y-auto pr-2 dashboard-scrollbar">
                 {taskDeveloperRanking.slice(0, 20).map((developer) => (
-                  <div key={`task-${developer.id}`} className="grid gap-3 rounded-[16px] border border-white/55 bg-white/70 p-3 md:grid-cols-[42px_1fr_90px_110px] md:items-center">
+                  <div key={`task-${developer.id}`} className="grid grid-cols-[42px_minmax(0,1fr)] gap-3 rounded-[16px] border border-white/55 bg-white/70 p-3 min-[1500px]:grid-cols-[42px_minmax(180px,1fr)_90px_110px] min-[1500px]:items-center">
                     <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-sm font-semibold text-blue-700">{developer.taskRank}</span>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-950">{developer.name}</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="truncate text-sm font-semibold text-slate-950" title={developer.name}>{developer.name}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
                         {developer.taskMetrics.completed} tasks · {developer.taskMetrics.deliveredPoints} points · {Math.round(developer.taskMetrics.completionRate)}% completion
                       </p>
                     </div>
-                    <span className="text-sm font-bold text-blue-700">{developer.taskScore}/100</span>
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                    <span className="col-start-2 text-sm font-bold text-blue-700 min-[1500px]:col-start-auto">{developer.taskScore}/100</span>
+                    <div className="col-start-2 h-2 overflow-hidden rounded-full bg-slate-200 min-[1500px]:col-start-auto">
                       <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.max(developer.taskScore, 4)}%` }} />
                     </div>
                   </div>
@@ -2551,16 +2567,16 @@ const OrganizationReportsDashboard = () => {
               <SectionTitle kicker="Bugs" title="Bug Resolution Ranking" description="Sorted by bug fix rate, resolved bugs, and lower reopen count." />
               <div className="mt-4 max-h-[520px] space-y-3 overflow-y-auto pr-2 dashboard-scrollbar">
                 {bugDeveloperRanking.slice(0, 20).map((developer) => (
-                  <div key={`bug-${developer.id}`} className="grid gap-3 rounded-[16px] border border-white/55 bg-white/70 p-3 md:grid-cols-[42px_1fr_90px_110px] md:items-center">
+                  <div key={`bug-${developer.id}`} className="grid grid-cols-[42px_minmax(0,1fr)] gap-3 rounded-[16px] border border-white/55 bg-white/70 p-3 min-[1500px]:grid-cols-[42px_minmax(180px,1fr)_90px_110px] min-[1500px]:items-center">
                     <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-50 text-sm font-semibold text-rose-700">{developer.bugRank}</span>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-950">{developer.name}</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="truncate text-sm font-semibold text-slate-950" title={developer.name}>{developer.name}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
                         {developer.bugMetrics.resolved} bugs resolved · {Math.round(developer.bugMetrics.fixRate)}% fix rate · {developer.bugMetrics.reopened} reopened
                       </p>
                     </div>
-                    <span className="text-sm font-bold text-rose-700">{developer.bugScore}/100</span>
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                    <span className="col-start-2 text-sm font-bold text-rose-700 min-[1500px]:col-start-auto">{developer.bugScore}/100</span>
+                    <div className="col-start-2 h-2 overflow-hidden rounded-full bg-slate-200 min-[1500px]:col-start-auto">
                       <div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.max(developer.bugScore, 4)}%` }} />
                     </div>
                   </div>
