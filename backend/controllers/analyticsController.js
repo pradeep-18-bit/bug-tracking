@@ -689,9 +689,13 @@ const serializeIssueRef = (issue, extra = {}) => {
         }
       : null,
     createdAt: issue.createdAt,
+    updatedAt: issue.updatedAt,
     dueAt: issue.dueAt || null,
     startedAt: issue.startedAt,
+    storyPoints: Number(issue.storyPoints || 0),
+    reopenedCount: Number(issue.reopenedCount || 0),
     severity: issue.bugDetails?.severity || null,
+    targetRelease: issue.bugDetails?.targetRelease || "",
     tags: [
       issue.type || ISSUE_TYPES.TASK,
       issue.priority || "Medium",

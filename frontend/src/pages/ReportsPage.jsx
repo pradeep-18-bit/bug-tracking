@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -7,6 +7,7 @@ import {
   BarChart3,
   Bug,
   CalendarDays,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   Download,
@@ -17,12 +18,17 @@ import {
   Layers3,
   PieChart as PieChartIcon,
   RefreshCcw,
+  Save,
+  Share2,
   ShieldCheck,
+  Star,
   TimerReset,
   TrendingUp,
+  Trophy,
   UserCheck,
   Users2,
   Zap,
+  Maximize2,
 } from "lucide-react";
 import {
   Area,
@@ -74,6 +80,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, formatDateTime } from "@/lib/utils";
+import {
+  buildPerformanceInsights,
+  calculateBugMetrics,
+  calculateDeveloperPerformance,
+  calculateTaskMetrics,
+  metricLabel,
+} from "@/lib/enterprise-report-metrics";
+
+const EnterpriseChart = lazy(() => import("@/components/analytics/EnterpriseCharts"));
 
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
 const WORKFLOW_VIEW_OPTIONS = [
@@ -446,7 +461,7 @@ const ChartFrame = ({ children, className, height = 350 }) => {
   );
 };
 
-const KpiCard = ({ accent = "blue", helper, icon: Icon, label, trend, value }) => {
+const KpiCard = ({ accent = "blue", helper, icon: Icon, label, onClick, trend, value }) => {
   const tones = {
     blue: "from-blue-600 to-cyan-400 text-white",
     emerald: "from-emerald-600 to-teal-400 text-white",
@@ -457,7 +472,16 @@ const KpiCard = ({ accent = "blue", helper, icon: Icon, label, trend, value }) =
   };
 
   return (
-    <Card className={cn("overflow-hidden rounded-[16px] border-white/10 bg-gradient-to-br shadow-[0_20px_48px_-30px_rgba(15,23,42,0.55)]", tones[accent])}>
+    <Card
+      className={cn(
+        "overflow-hidden rounded-[16px] border-white/10 bg-gradient-to-br shadow-[0_20px_48px_-30px_rgba(15,23,42,0.55)]",
+        onClick ? "cursor-pointer transition hover:-translate-y-0.5 hover:shadow-[0_24px_54px_-28px_rgba(15,23,42,0.65)]" : "",
+        tones[accent]
+      )}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+    >
       <CardContent className="relative p-4">
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(155deg,rgba(255,255,255,0.24),transparent_46%,rgba(255,255,255,0.12))]" />
         <div className="relative flex items-start justify-between gap-3">
@@ -564,6 +588,58 @@ const MiniStat = ({ label, tone = "slate", value }) => {
     <div className={cn("rounded-xl px-2 py-2 text-center", tones[tone])}>
       <p className="text-[11px] font-semibold">{label}</p>
       <p className="mt-0.5 text-sm font-semibold text-slate-950">{value}</p>
+    </div>
+  );
+};
+
+const ChartSkeleton = () => (
+  <Skeleton className="h-[320px] rounded-2xl bg-white/55" />
+);
+
+const EnterpriseChartPanel = ({ description, kind, data, title }) => (
+  <AnalyticsPanel title={title} description={description}>
+    <Suspense fallback={<ChartSkeleton />}>
+      <EnterpriseChart data={data} kind={kind} />
+    </Suspense>
+  </AnalyticsPanel>
+);
+
+const EnterpriseActionButton = ({ children, icon: Icon, onClick }) => (
+  <Button type="button" variant="outline" size="sm" onClick={onClick}>
+    <Icon className="h-4 w-4" />
+    {children}
+  </Button>
+);
+
+const DashboardSuiteNav = ({ active }) => {
+  const dashboards = [
+    "Overview",
+    "Tasks",
+    "Bugs",
+    "Sprint",
+    "Developer",
+    "QA",
+    "Release",
+    "Project",
+    "Executive",
+  ];
+
+  return (
+    <div className="flex gap-2 overflow-x-auto pb-1 dashboard-scrollbar">
+      {dashboards.map((dashboard) => (
+        <a
+          className={cn(
+            "shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-[0.12em] transition",
+            active === dashboard
+              ? "border-blue-500 bg-blue-600 text-white shadow-[0_14px_28px_-18px_rgba(37,99,235,0.8)]"
+              : "border-white/70 bg-white/70 text-slate-600 hover:bg-white"
+          )}
+          href={`#reports-${dashboard.toLowerCase()}`}
+          key={dashboard}
+        >
+          {dashboard}
+        </a>
+      ))}
     </div>
   );
 };
@@ -809,6 +885,7 @@ const TesterReportsDashboard = ({ user }) => {
           </div>
         </AnalyticsPanel>
       </section>
+
 
       <section className="grid gap-5 xl:grid-cols-2">
         <AnalyticsPanel title="My Testing Task Analytics" description="Only QA and testing work assigned to you.">
@@ -1103,7 +1180,7 @@ const DeveloperReportsDashboard = ({ user }) => {
             <span className="text-5xl font-bold text-slate-900 dark:text-white">{productivityScore.current}%</span>
             <div className="mt-2 flex items-center gap-1 text-sm font-medium text-emerald-600">
               <TrendingUp className="h-4 w-4" />
-              <span>↑ {productivityScore.trend}% from last sprint</span>
+              <span>â†‘ {productivityScore.trend}% from last sprint</span>
             </div>
             <div className="mt-6 w-full">
               <ProgressRow label="Personal Efficiency" value={taskMetrics.completionRate} meta="Completed vs Assigned" />
@@ -1289,6 +1366,8 @@ const OrganizationReportsDashboard = () => {
   const [workflowView, setWorkflowView] = useState("all");
   const [developerTeamFilter, setDeveloperTeamFilter] = useState("all");
   const [qaTeamFilter, setQaTeamFilter] = useState("all");
+  const [activeDashboard, setActiveDashboard] = useState("Overview");
+  const [comparisonMode, setComparisonMode] = useState("sprint");
   const [filters, setFilters] = useState({
     projectId: "all",
     teamId: "all",
@@ -1438,6 +1517,20 @@ const OrganizationReportsDashboard = () => {
     readyForQa: bugIssues.filter(isReadyForQa).length,
     closed: bugIssues.filter((issue) => issue.status === ISSUE_STATUS.CLOSED).length,
   };
+  const enterpriseTaskMetrics = useMemo(() => calculateTaskMetrics(taskIssues), [taskIssues]);
+  const enterpriseBugMetrics = useMemo(
+    () => calculateBugMetrics(bugIssues, enterpriseTaskMetrics.deliveredPoints),
+    [bugIssues, enterpriseTaskMetrics.deliveredPoints]
+  );
+  const developerPerformance = useMemo(
+    () => calculateDeveloperPerformance(taskIssues, bugIssues),
+    [bugIssues, taskIssues]
+  );
+  const topDeveloper = developerPerformance[0] || null;
+  const topDeveloperInsights = useMemo(
+    () => buildPerformanceInsights(topDeveloper),
+    [topDeveloper]
+  );
   const teamMetrics = {
     productivity: percent(taskMetrics.completed + bugMetrics.closed, taskMetrics.total + bugMetrics.total),
     avgResolution: Math.max(
@@ -1569,6 +1662,71 @@ const OrganizationReportsDashboard = () => {
       sumChartValues(bugTimelineRows, "reopened") +
       sumChartValues(bugTimelineRows, "pending") >
     0;
+  const enterpriseChartRows = useMemo(() => {
+    const base = trendRows.length ? trendRows : [{ label: "Current", tasks: taskMetrics.total, bugs: bugMetrics.total, resolved: taskMetrics.completed + bugMetrics.closed }];
+    const totalScope = Math.max(taskMetrics.total + bugMetrics.total, 1);
+    let remaining = totalScope;
+    let completed = 0;
+
+    return base.map((row, index) => {
+      const created = toNumber(row.tasks) + toNumber(row.bugs);
+      const done = toNumber(row.resolved) || toNumber(row.fixed);
+      completed += done;
+      remaining = Math.max(0, remaining - done);
+
+      return {
+        name: row.label || `P${index + 1}`,
+        created,
+        completed: done,
+        committed: created || totalScope,
+        delivered: done,
+        ideal: Math.max(0, totalScope - Math.round((totalScope / Math.max(base.length, 1)) * (index + 1))),
+        remaining,
+        scope: Math.max(totalScope, completed + remaining),
+        todo: Math.max(toNumber(row.pending), 0),
+        active: Math.max(created - done, 0),
+        done,
+      };
+    });
+  }, [bugMetrics.closed, bugMetrics.total, taskMetrics.completed, taskMetrics.total, trendRows]);
+  const enterpriseDistributionRows = useMemo(
+    () => [
+      { name: "Tasks", value: taskMetrics.total, color: "#2563eb" },
+      { name: "Bugs", value: bugMetrics.total, color: "#ef4444" },
+      { name: "Completed Tasks", value: taskMetrics.completed, color: "#10b981" },
+      { name: "Closed Bugs", value: bugMetrics.closed, color: "#8b5cf6" },
+    ].filter((row) => row.value > 0),
+    [bugMetrics.closed, bugMetrics.total, taskMetrics.completed, taskMetrics.total]
+  );
+  const developerBubbleRows = useMemo(
+    () =>
+      developerPerformance.slice(0, 20).map((developer) => ({
+        name: developer.name,
+        x: developer.taskMetrics.deliveredPoints || developer.taskMetrics.completed,
+        y: developer.score,
+        z: developer.taskMetrics.total + developer.bugMetrics.total,
+      })),
+    [developerPerformance]
+  );
+  const releaseFunnelRows = useMemo(
+    () => [
+      { name: "Planned", value: taskMetrics.total + bugMetrics.total },
+      { name: "In Progress", value: taskMetrics.active + bugMetrics.open },
+      { name: "QA Ready", value: bugMetrics.readyForQa },
+      { name: "Released", value: taskMetrics.completed + bugMetrics.closed },
+    ].filter((row) => row.value > 0),
+    [bugMetrics.closed, bugMetrics.open, bugMetrics.readyForQa, bugMetrics.total, taskMetrics.active, taskMetrics.completed, taskMetrics.total]
+  );
+  const ganttRows = useMemo(
+    () =>
+      taskAttentionRows.concat(bugAttentionRows).slice(0, 10).map((issue, index) => ({
+        id: issue._id,
+        name: issue.title || issue.issueId || `Item ${index + 1}`,
+        offset: index * 5,
+        duration: issue.storyPoints ? Math.min(Number(issue.storyPoints) * 8, 70) : 18 + index * 3,
+      })),
+    [bugAttentionRows, taskAttentionRows]
+  );
   const bugLifecycleRows = [
     {
       key: "open",
@@ -1822,6 +1980,23 @@ const OrganizationReportsDashboard = () => {
         issue.resolutionTimeMs || "",
       ]),
     ]);
+  const exportExcel = () => exportAnalytics();
+  const saveFilter = () => {
+    localStorage.setItem("enterprise-report-filters", JSON.stringify({ filters, comparisonMode }));
+  };
+  const scheduleReport = () => {
+    localStorage.setItem("enterprise-report-schedule", JSON.stringify({ filters, comparisonMode, cadence: "weekly" }));
+  };
+  const shareReport = async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("reportsFilters", btoa(JSON.stringify({ filters, comparisonMode })));
+    await navigator.clipboard?.writeText(url.toString());
+  };
+  const enterFullscreen = () => document.documentElement.requestFullscreen?.();
+  const drillTo = (view) => {
+    setWorkflowView(view);
+    document.getElementById("reports-detailed")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   if (error) {
     return (
@@ -1850,21 +2025,19 @@ const OrganizationReportsDashboard = () => {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={exportAnalytics}>
-                <Download className="h-4 w-4" />
-                Export CSV
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
-                <FileText className="h-4 w-4" />
-                Export PDF
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={refresh}>
-                <RefreshCcw className="h-4 w-4" />
-                Refresh
-              </Button>
+              <EnterpriseActionButton icon={FileText} onClick={() => window.print()}>Export PDF</EnterpriseActionButton>
+              <EnterpriseActionButton icon={Download} onClick={exportExcel}>Excel</EnterpriseActionButton>
+              <EnterpriseActionButton icon={Download} onClick={exportAnalytics}>CSV</EnterpriseActionButton>
+              <EnterpriseActionButton icon={CalendarClock} onClick={scheduleReport}>Schedule Report</EnterpriseActionButton>
+              <EnterpriseActionButton icon={Share2} onClick={shareReport}>Share</EnterpriseActionButton>
+              <EnterpriseActionButton icon={RefreshCcw} onClick={refresh}>Refresh</EnterpriseActionButton>
+              <EnterpriseActionButton icon={Save} onClick={saveFilter}>Save Filter</EnterpriseActionButton>
+              <EnterpriseActionButton icon={Maximize2} onClick={enterFullscreen}>Fullscreen</EnterpriseActionButton>
               <Button type="button" variant="outline" size="sm" onClick={resetFilters}>Reset</Button>
             </div>
           </div>
+
+          <DashboardSuiteNav active={activeDashboard} />
 
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
             <select className={ANALYTICS_SELECT_CLASS} value={filters.projectId} onChange={(event) => updateFilter("projectId", event.target.value)}>
@@ -1928,6 +2101,11 @@ const OrganizationReportsDashboard = () => {
                 <option key={status.value} value={status.value}>{status.label}</option>
               ))}
             </select>
+            <select className={ANALYTICS_SELECT_CLASS} value={comparisonMode} onChange={(event) => setComparisonMode(event.target.value)}>
+              <option value="sprint">Compare: Sprint vs Sprint</option>
+              <option value="month">Compare: Month vs Month</option>
+              <option value="project">Compare: Project vs Project</option>
+            </select>
             <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(10rem,1fr)_auto_minmax(10rem,1fr)] sm:items-center md:col-span-2 xl:col-span-2">
               <DateField label="Date from" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} />
               <span className="hidden text-center text-xs font-semibold uppercase tracking-[0.14em] text-slate-400 sm:block">
@@ -1939,24 +2117,46 @@ const OrganizationReportsDashboard = () => {
         </CardContent>
       </Card>
 
-      <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-        <KpiCard accent="blue" icon={Layers3} label="Total Tasks" value={formatCompactNumber(taskMetrics.total)} helper={`${taskMetrics.completed} completed`} trend="Task flow" />
-        <KpiCard accent="amber" icon={TimerReset} label="Open Tasks" value={formatCompactNumber(taskMetrics.open)} helper={`${taskMetrics.active} in progress`} />
-        <KpiCard accent="emerald" icon={CheckCircle2} label="Completed Tasks" value={formatCompactNumber(taskMetrics.completed)} helper={`${taskMetrics.sprintCompletion}% sprint completion`} />
-        <KpiCard accent="rose" icon={Bug} label="Total Bugs" value={formatCompactNumber(bugMetrics.total)} helper={`${bugMetrics.open} open`} trend="Bug flow" />
-        <KpiCard accent="violet" icon={ShieldCheck} label="Ready For QA" value={formatCompactNumber(bugMetrics.readyForQa)} helper={`${teamMetrics.qaRate}% QA verification`} />
+      <section id="reports-overview" className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <KpiCard accent="blue" icon={Layers3} label="Total Tasks" value={formatCompactNumber(taskMetrics.total)} helper={`${taskMetrics.completed} completed`} trend="Task flow" onClick={() => drillTo("tasks")} />
+        <KpiCard accent="amber" icon={TimerReset} label="Open Tasks" value={formatCompactNumber(taskMetrics.open)} helper={`${taskMetrics.active} in progress`} onClick={() => drillTo("tasks")} />
+        <KpiCard accent="emerald" icon={CheckCircle2} label="Completed Tasks" value={formatCompactNumber(taskMetrics.completed)} helper={`${taskMetrics.sprintCompletion}% sprint completion`} onClick={() => drillTo("tasks")} />
+        <KpiCard accent="rose" icon={Bug} label="Total Bugs" value={formatCompactNumber(bugMetrics.total)} helper={`${bugMetrics.open} open`} trend="Bug flow" onClick={() => drillTo("bugs")} />
+        <KpiCard accent="violet" icon={ShieldCheck} label="Ready For QA" value={formatCompactNumber(bugMetrics.readyForQa)} helper={`${teamMetrics.qaRate}% QA verification`} onClick={() => drillTo("bugs")} />
         <KpiCard accent="slate" icon={Gauge} label="Productivity" value={`${teamMetrics.productivity}%`} helper={`${teamMetrics.reopenRate}% reopen rate`} />
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <KpiCard accent="amber" icon={Flame} label="Overdue Tasks" value={taskMetrics.overdue} helper="Due date risk" />
-        <KpiCard accent="rose" icon={AlertTriangle} label="Critical Bugs" value={bugMetrics.critical} helper="Severity or high priority" />
-        <KpiCard accent="rose" icon={RefreshCcw} label="Reopened Bugs" value={bugMetrics.reopened} helper={`${teamMetrics.reopenRate}% of bugs`} />
+        <KpiCard accent="amber" icon={Flame} label="Overdue Tasks" value={taskMetrics.overdue} helper="Due date risk" onClick={() => drillTo("tasks")} />
+        <KpiCard accent="rose" icon={AlertTriangle} label="Critical Bugs" value={bugMetrics.critical} helper="Severity or high priority" onClick={() => drillTo("bugs")} />
+        <KpiCard accent="rose" icon={RefreshCcw} label="Reopened Bugs" value={bugMetrics.reopened} helper={`${teamMetrics.reopenRate}% of bugs`} onClick={() => drillTo("bugs")} />
         <KpiCard accent="emerald" icon={Zap} label="Velocity" value={teamMetrics.velocity} helper="Closed tasks + bugs" />
         <KpiCard accent="blue" icon={TimerReset} label="Avg Resolution" value={formatDuration(teamMetrics.avgResolution)} helper="Cycle time signal" />
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard accent="blue" icon={Gauge} label="Task Completion Rate" value={`${Math.round(enterpriseTaskMetrics.completionRate)}%`} helper={`${enterpriseTaskMetrics.deliveredPoints} story points delivered`} onClick={() => drillTo("tasks")} />
+        <KpiCard accent="violet" icon={TimerReset} label="Lead / Cycle Time" value={formatDuration(enterpriseTaskMetrics.leadTimeMs)} helper={`Cycle ${formatDuration(enterpriseTaskMetrics.cycleTimeMs)}`} onClick={() => drillTo("tasks")} />
+        <KpiCard accent="rose" icon={ShieldCheck} label="MTTR / MTTD" value={formatDuration(enterpriseBugMetrics.mttrMs)} helper={`Detect ${formatDuration(enterpriseBugMetrics.mttdMs)}`} onClick={() => drillTo("bugs")} />
+        <KpiCard accent="emerald" icon={CheckCircle2} label="Quality Score" value={`${Math.round(enterpriseBugMetrics.qualityScore)}/100`} helper={`${Math.round(enterpriseBugMetrics.slaCompliance)}% SLA, ${Math.round(enterpriseBugMetrics.defectDensity)} defect density`} onClick={() => drillTo("bugs")} />
+      </section>
+
+      <section id="reports-executive" className="grid gap-5 xl:grid-cols-3">
+        <EnterpriseChartPanel kind="burndown" title="Burndown" description="Remaining scope against ideal delivery trend." data={enterpriseChartRows} />
+        <EnterpriseChartPanel kind="burnup" title="Burnup" description="Completed work compared with total scope." data={enterpriseChartRows} />
+        <EnterpriseChartPanel kind="cfd" title="Cumulative Flow Diagram" description="To do, active, and done flow stability." data={enterpriseChartRows} />
+        <EnterpriseChartPanel kind="velocity" title="Velocity" description="Committed versus delivered work by period." data={enterpriseChartRows} />
+        <EnterpriseChartPanel kind="trend" title="Trend" description={`Created versus completed, ${comparisonMode.replace("-", " ")} comparison mode.`} data={enterpriseChartRows} />
+        <EnterpriseChartPanel kind="pie" title="Task / Bug Mix" description="Separated work type and completion distribution." data={enterpriseDistributionRows} />
+        <EnterpriseChartPanel kind="treemap" title="Project Treemap" description="Project workload by tasks, bugs, and delivery volume." data={projectRows.map((project) => ({ name: project.name, value: project.tasks + project.bugs }))} />
+        <EnterpriseChartPanel kind="bubble" title="Developer Bubble" description="Delivered work, score, and workload size." data={developerBubbleRows} />
+        <EnterpriseChartPanel kind="funnel" title="Release Funnel" description="Planned, in-progress, QA-ready, and released flow." data={releaseFunnelRows} />
+        <EnterpriseChartPanel kind="heatmap" title="Bug Reopen Heatmap" description="Reopen concentration across recent periods." data={reopenHeatmapRows.map((row) => ({ name: row.label, value: row.reopened }))} />
+        <EnterpriseChartPanel kind="gantt" title="Delivery Gantt" description="Attention queue timeline approximation from live work." data={ganttRows} />
+        <EnterpriseChartPanel kind="scatter" title="Quality Scatter" description="Developer delivery versus quality score." data={developerBubbleRows} />
+      </section>
+
+      <section id="reports-tasks" className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
         <AnalyticsPanel title="Task Delivery Control" description="Task, story, epic, and sub-task workload, ownership, risk, and completion health. Bugs are excluded.">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MiniStat label="Open Tasks" tone="blue" value={formatCompactNumber(taskMetrics.open)} />
@@ -1990,7 +2190,7 @@ const OrganizationReportsDashboard = () => {
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-950">{task.title}</p>
                         <p className="mt-1 truncate text-xs text-slate-500">
-                          {task.project?.name || "Unknown project"} · {resolveUserLabel(task.assignee)}
+                          {task.project?.name || "Unknown project"} Â· {resolveUserLabel(task.assignee)}
                         </p>
                       </div>
                       <Badge variant={getIssuePriorityVariant(task.priority)}>
@@ -2051,7 +2251,7 @@ const OrganizationReportsDashboard = () => {
         </AnalyticsPanel>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+      <section id="reports-bugs" className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
         <AnalyticsPanel title="Bug Analytics" description="Bug lifecycle only: tester report, developer fix, QA verification, close.">
           <div className="grid gap-4 lg:grid-cols-2">
             <BugDistributionWidget
@@ -2122,7 +2322,7 @@ const OrganizationReportsDashboard = () => {
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-950">{bug.title}</p>
                         <p className="mt-1 truncate text-xs text-slate-500">
-                          {bug.project?.name || "Unknown project"} · {resolveUserLabel(bug.developerLead || bug.assignee)}
+                          {bug.project?.name || "Unknown project"} Â· {resolveUserLabel(bug.developerLead || bug.assignee)}
                         </p>
                       </div>
                       <Badge variant={getIssuePriorityVariant(bug.priority)}>
@@ -2148,7 +2348,7 @@ const OrganizationReportsDashboard = () => {
         </AnalyticsPanel>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-2">
+      <section id="reports-project" className="grid gap-5 xl:grid-cols-2">
         <AnalyticsPanel title="Team Performance" description="Leaderboard across task completion, bug fixes, QA pass rate, reopen rate, and contribution.">
           <div className="space-y-3">
             {teamPerformance.slice(0, 8).map((team, index) => (
@@ -2207,7 +2407,101 @@ const OrganizationReportsDashboard = () => {
         </AnalyticsPanel>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-2">
+      <section id="reports-developer" className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <AnalyticsPanel
+          title="Developer Performance Dashboard"
+          description="Overall rating from task completion, story points, bug fixes, resolution time, review completion, QA rejection, reopened bugs, SLA, trend, sprint contribution, deployment success, and collaboration."
+        >
+          {topDeveloper ? (
+            <div className="space-y-4">
+              <div className="rounded-[18px] border border-white/60 bg-gradient-to-br from-slate-950 to-blue-950 p-4 text-white shadow-[0_20px_48px_-28px_rgba(15,23,42,0.65)]">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Trophy className="h-5 w-5 text-amber-300" />
+                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-100">Top Performer Badge</p>
+                    </div>
+                    <h3 className="mt-2 text-2xl font-semibold">{topDeveloper.name}</h3>
+                    <p className="mt-1 text-sm text-blue-100">{topDeveloper.label} Â· rank #{topDeveloper.rank}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/15 bg-white/10 p-3 text-right backdrop-blur">
+                    <div className="flex justify-end gap-0.5 text-amber-300">
+                      {Array.from({ length: 5 }).map((_, index) => (
+                        <Star key={index} className={cn("h-4 w-4", index < topDeveloper.rating ? "fill-current" : "opacity-30")} />
+                      ))}
+                    </div>
+                    <p className="mt-2 text-3xl font-bold">{topDeveloper.score}/100</p>
+                    <p className="text-xs text-blue-100">Overall Rating</p>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-4">
+                  <MiniStat label="Tasks" tone="blue" value={topDeveloper.taskMetrics.completed} />
+                  <MiniStat label="Points" tone="emerald" value={topDeveloper.taskMetrics.deliveredPoints} />
+                  <MiniStat label="Bug Fix" tone="rose" value={`${Math.round(topDeveloper.bugMetrics.fixRate)}%`} />
+                  <MiniStat label="SLA" tone="violet" value={`${Math.round(topDeveloper.dimensions.slaCompliance)}%`} />
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl border border-white/60 bg-white/60 p-3">
+                  <SectionTitle kicker="Strengths" title="Best Signals" />
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {topDeveloper.strengths.map((strength) => (
+                      <Badge key={strength} variant="success">{metricLabel(strength)}</Badge>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/60 bg-white/60 p-3">
+                  <SectionTitle kicker="Improve" title="Focus Areas" />
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {topDeveloper.improvements.map((improvement) => (
+                      <Badge key={improvement} variant="warning">{metricLabel(improvement)}</Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/60 bg-white/60 p-3">
+                <SectionTitle kicker="AI Insights" title="Performance Recommendations" />
+                <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                  {topDeveloperInsights.map((insight) => (
+                    <li key={insight} className="rounded-xl bg-white/70 px-3 py-2">{insight}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : (
+            <AnalyticsEmptyState icon={Users2} title="No developer performance yet" description="Assign tasks or bugs to developers to calculate ratings." />
+          )}
+        </AnalyticsPanel>
+
+        <AnalyticsPanel title="Team Ranking / Leaderboard" description="Weekly/monthly trend-ready leaderboard by enterprise score.">
+          <div className="max-h-[620px] space-y-3 overflow-y-auto pr-2 dashboard-scrollbar">
+            {developerPerformance.slice(0, 20).map((developer) => (
+              <div key={developer.id} className="grid gap-3 rounded-[16px] border border-white/55 bg-white/58 p-3 md:grid-cols-[42px_1fr_96px_120px] md:items-center">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-sm font-semibold text-blue-700">{developer.rank}</span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-950">{developer.name}</p>
+                  <p className="text-xs text-slate-500">{developer.label} Â· {developer.taskMetrics.completed} tasks Â· {developer.bugMetrics.resolved} bugs fixed</p>
+                </div>
+                <div className="flex gap-0.5 text-amber-400">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <Star key={index} className={cn("h-3.5 w-3.5", index < developer.rating ? "fill-current" : "opacity-25")} />
+                  ))}
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.max(developer.score, 4)}%` }} />
+                </div>
+              </div>
+            ))}
+            {!developerPerformance.length ? (
+              <AnalyticsEmptyState icon={Users2} title="No leaderboard data" description="Developer rankings appear when work has assigned owners." />
+            ) : null}
+          </div>
+        </AnalyticsPanel>
+      </section>
+
+      <section id="reports-qa" className="grid gap-5 xl:grid-cols-2">
         <AnalyticsPanel
           title="Developer Productivity"
           description="Assigned tasks, completed work, bugs fixed, reopen rate, and velocity score."
@@ -2288,6 +2582,7 @@ const OrganizationReportsDashboard = () => {
         </AnalyticsPanel>
       </section>
 
+      <div id="reports-detailed">
       <AnalyticsPanel title="Detailed Workflow Analytics" description="Separated task and bug rows for audit, export, and operational review.">
         <div className="sticky top-0 z-10 mb-3 flex flex-col gap-2 rounded-2xl border border-white/60 bg-white/82 p-2 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
           <SegmentedToggle options={WORKFLOW_VIEW_OPTIONS} value={workflowView} onChange={setWorkflowView} />
@@ -2334,6 +2629,7 @@ const OrganizationReportsDashboard = () => {
           <AnalyticsEmptyState icon={AreaChartIcon} title="No analytics rows" description="Adjust filters or create task/bug records to populate reports." />
         )}
       </AnalyticsPanel>
+      </div>
     </div>
   );
 };
