@@ -1531,6 +1531,52 @@ const OrganizationReportsDashboard = () => {
     () => buildPerformanceInsights(topDeveloper),
     [topDeveloper]
   );
+  const taskDeveloperRanking = useMemo(
+    () =>
+      developerPerformance
+        .map((developer) => ({
+          ...developer,
+          taskScore: Math.round(
+            Math.min(
+              100,
+              developer.taskMetrics.completionRate * 0.55 +
+                Math.min(developer.taskMetrics.deliveredPoints * 8, 35) +
+                Math.min(developer.taskMetrics.completed * 3, 10)
+            )
+          ),
+        }))
+        .sort(
+          (left, right) =>
+            right.taskScore - left.taskScore ||
+            right.taskMetrics.deliveredPoints - left.taskMetrics.deliveredPoints ||
+            right.taskMetrics.completed - left.taskMetrics.completed
+        )
+        .map((developer, index) => ({ ...developer, taskRank: index + 1 })),
+    [developerPerformance]
+  );
+  const bugDeveloperRanking = useMemo(
+    () =>
+      developerPerformance
+        .map((developer) => ({
+          ...developer,
+          bugScore: Math.round(
+            Math.min(
+              100,
+              developer.bugMetrics.fixRate * 0.58 +
+                Math.min(developer.bugMetrics.resolved * 8, 32) +
+                Math.max(0, 10 - developer.bugMetrics.reopened * 2)
+            )
+          ),
+        }))
+        .sort(
+          (left, right) =>
+            right.bugScore - left.bugScore ||
+            right.bugMetrics.resolved - left.bugMetrics.resolved ||
+            left.bugMetrics.reopened - right.bugMetrics.reopened
+        )
+        .map((developer, index) => ({ ...developer, bugRank: index + 1 })),
+    [developerPerformance]
+  );
   const teamMetrics = {
     productivity: percent(taskMetrics.completed + bugMetrics.closed, taskMetrics.total + bugMetrics.total),
     avgResolution: Math.max(
@@ -2422,7 +2468,7 @@ const OrganizationReportsDashboard = () => {
                       <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-100">Top Performer Badge</p>
                     </div>
                     <h3 className="mt-2 text-2xl font-semibold">{topDeveloper.name}</h3>
-                    <p className="mt-1 text-sm text-blue-100">{topDeveloper.label} Â· rank #{topDeveloper.rank}</p>
+                    <p className="mt-1 text-sm text-blue-100">{topDeveloper.label} · overall rank #{topDeveloper.rank}</p>
                   </div>
                   <div className="rounded-2xl border border-white/15 bg-white/10 p-3 text-right backdrop-blur">
                     <div className="flex justify-end gap-0.5 text-amber-300">
@@ -2475,28 +2521,55 @@ const OrganizationReportsDashboard = () => {
           )}
         </AnalyticsPanel>
 
-        <AnalyticsPanel title="Team Ranking / Leaderboard" description="Weekly/monthly trend-ready leaderboard by enterprise score.">
-          <div className="max-h-[620px] space-y-3 overflow-y-auto pr-2 dashboard-scrollbar">
-            {developerPerformance.slice(0, 20).map((developer) => (
-              <div key={developer.id} className="grid gap-3 rounded-[16px] border border-white/55 bg-white/58 p-3 md:grid-cols-[42px_1fr_96px_120px] md:items-center">
-                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-sm font-semibold text-blue-700">{developer.rank}</span>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-950">{developer.name}</p>
-                  <p className="text-xs text-slate-500">{developer.label} Â· {developer.taskMetrics.completed} tasks Â· {developer.bugMetrics.resolved} bugs fixed</p>
-                </div>
-                <div className="flex gap-0.5 text-amber-400">
-                  {Array.from({ length: 5 }).map((_, index) => (
-                    <Star key={index} className={cn("h-3.5 w-3.5", index < developer.rating ? "fill-current" : "opacity-25")} />
-                  ))}
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.max(developer.score, 4)}%` }} />
-                </div>
+        <AnalyticsPanel title="Developer Rankings / Leaderboards" description="Task delivery and bug resolution are ranked separately, not combined.">
+          <div className="grid gap-4 xl:grid-cols-2">
+            <div className="rounded-2xl border border-white/60 bg-white/55 p-3">
+              <SectionTitle kicker="Tasks" title="Task Delivery Ranking" description="Sorted by task completion, story points delivered, and completed task count." />
+              <div className="mt-4 max-h-[520px] space-y-3 overflow-y-auto pr-2 dashboard-scrollbar">
+                {taskDeveloperRanking.slice(0, 20).map((developer) => (
+                  <div key={`task-${developer.id}`} className="grid gap-3 rounded-[16px] border border-white/55 bg-white/70 p-3 md:grid-cols-[42px_1fr_90px_110px] md:items-center">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-sm font-semibold text-blue-700">{developer.taskRank}</span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-950">{developer.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {developer.taskMetrics.completed} tasks · {developer.taskMetrics.deliveredPoints} points · {Math.round(developer.taskMetrics.completionRate)}% completion
+                      </p>
+                    </div>
+                    <span className="text-sm font-bold text-blue-700">{developer.taskScore}/100</span>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                      <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.max(developer.taskScore, 4)}%` }} />
+                    </div>
+                  </div>
+                ))}
+                {!taskDeveloperRanking.length ? (
+                  <AnalyticsEmptyState icon={Users2} title="No task ranking data" description="Task rankings appear when developers have assigned tasks." />
+                ) : null}
               </div>
-            ))}
-            {!developerPerformance.length ? (
-              <AnalyticsEmptyState icon={Users2} title="No leaderboard data" description="Developer rankings appear when work has assigned owners." />
-            ) : null}
+            </div>
+
+            <div className="rounded-2xl border border-white/60 bg-white/55 p-3">
+              <SectionTitle kicker="Bugs" title="Bug Resolution Ranking" description="Sorted by bug fix rate, resolved bugs, and lower reopen count." />
+              <div className="mt-4 max-h-[520px] space-y-3 overflow-y-auto pr-2 dashboard-scrollbar">
+                {bugDeveloperRanking.slice(0, 20).map((developer) => (
+                  <div key={`bug-${developer.id}`} className="grid gap-3 rounded-[16px] border border-white/55 bg-white/70 p-3 md:grid-cols-[42px_1fr_90px_110px] md:items-center">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-50 text-sm font-semibold text-rose-700">{developer.bugRank}</span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-950">{developer.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {developer.bugMetrics.resolved} bugs resolved · {Math.round(developer.bugMetrics.fixRate)}% fix rate · {developer.bugMetrics.reopened} reopened
+                      </p>
+                    </div>
+                    <span className="text-sm font-bold text-rose-700">{developer.bugScore}/100</span>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                      <div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.max(developer.bugScore, 4)}%` }} />
+                    </div>
+                  </div>
+                ))}
+                {!bugDeveloperRanking.length ? (
+                  <AnalyticsEmptyState icon={Bug} title="No bug ranking data" description="Bug rankings appear when developers resolve bugs." />
+                ) : null}
+              </div>
+            </div>
           </div>
         </AnalyticsPanel>
       </section>

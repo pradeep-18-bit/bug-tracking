@@ -2,6 +2,12 @@ const COLORS = ["#2563eb", "#06b6d4", "#10b981", "#f59e0b", "#f43f5e", "#8b5cf6"
 const clamp = (value, min = 0, max = 100) => Math.min(max, Math.max(min, Number(value) || 0));
 const maxOf = (rows, keys) =>
   Math.max(1, ...rows.flatMap((row) => keys.map((key) => Number(row[key]) || 0)));
+const titleCase = (value = "") =>
+  String(value)
+    .replace(/([A-Z])/g, " $1")
+    .replace(/[_-]/g, " ")
+    .replace(/^./, (letter) => letter.toUpperCase());
+const compact = (value) => new Intl.NumberFormat("en", { maximumFractionDigits: 1, notation: Math.abs(Number(value) || 0) >= 1000 ? "compact" : "standard" }).format(Number(value) || 0);
 
 const Empty = () => (
   <div className="flex h-[300px] items-center justify-center rounded-2xl border border-dashed border-slate-200 text-sm text-slate-400">
@@ -14,6 +20,47 @@ const Frame = ({ children }) => (
     {children}
   </div>
 );
+
+const ChartDetails = ({ data, keys = ["value"], labels = {}, mode = "series" }) => {
+  const safeRows = data.slice(0, 8);
+  const totals = keys.map((key, index) => ({
+    key,
+    label: labels[key] || titleCase(key),
+    color: COLORS[index % COLORS.length],
+    total: data.reduce((sum, row) => sum + (Number(row[key]) || 0), 0),
+    latest: data.at(-1)?.[key] ?? 0,
+  }));
+
+  return (
+    <div className="mt-3 rounded-2xl border border-white/60 bg-white/70 p-3 text-xs shadow-sm">
+      <div className="flex flex-wrap gap-2">
+        {totals.map((item) => (
+          <span className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-700" key={item.key}>
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+            {item.label}: latest {compact(item.latest)} · total {compact(item.total)}
+          </span>
+        ))}
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {safeRows.map((row, index) => (
+          <div className="rounded-xl bg-white/75 px-3 py-2 text-slate-600" key={`${row.name || row.label || index}-${index}`}>
+            <p className="truncate font-bold text-slate-800">{row.name || row.label || `Point ${index + 1}`}</p>
+            <p className="mt-1 truncate">
+              {mode === "xy"
+                ? `Delivered ${compact(row.x)} · Score ${compact(row.y)} · Workload ${compact(row.z)}`
+                : keys.map((key) => `${labels[key] || titleCase(key)} ${compact(row[key])}`).join(" · ")}
+            </p>
+          </div>
+        ))}
+      </div>
+      {data.length > safeRows.length ? (
+        <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+          Showing first {safeRows.length} of {data.length} detail rows
+        </p>
+      ) : null}
+    </div>
+  );
+};
 
 const Svg = ({ children }) => (
   <svg className="h-full w-full overflow-visible" role="img" viewBox="0 0 640 300">
@@ -266,15 +313,15 @@ const Gantt = ({ data }) => (
 
 export default function EnterpriseChart({ data = [], kind }) {
   if (!Array.isArray(data) || !data.length) return <Empty />;
-  if (kind === "burndown") return <LineChart data={data} keys={["ideal", "remaining"]} fills={["#93c5fd", "#2563eb"]} />;
-  if (kind === "burnup") return <LineChart data={data} keys={["scope", "completed"]} fills={["#93c5fd", "#10b981"]} />;
-  if (kind === "cfd") return <AreaChartLite data={data} />;
-  if (kind === "velocity") return <Bars data={data} keys={["committed", "delivered"]} />;
-  if (kind === "pie") return <Donut data={data} />;
-  if (kind === "treemap") return <TreemapLite data={data} />;
-  if (kind === "bubble" || kind === "scatter") return <Bubble data={data} />;
-  if (kind === "funnel") return <Funnel data={data} />;
-  if (kind === "heatmap") return <Heatmap data={data} />;
-  if (kind === "gantt") return <Gantt data={data} />;
-  return <Bars data={data} keys={["created", "completed"]} />;
+  if (kind === "burndown") return <><LineChart data={data} keys={["ideal", "remaining"]} fills={["#93c5fd", "#2563eb"]} /><ChartDetails data={data} keys={["ideal", "remaining"]} /></>;
+  if (kind === "burnup") return <><LineChart data={data} keys={["scope", "completed"]} fills={["#93c5fd", "#10b981"]} /><ChartDetails data={data} keys={["scope", "completed"]} /></>;
+  if (kind === "cfd") return <><AreaChartLite data={data} /><ChartDetails data={data} keys={["todo", "active", "done"]} /></>;
+  if (kind === "velocity") return <><Bars data={data} keys={["committed", "delivered"]} /><ChartDetails data={data} keys={["committed", "delivered"]} /></>;
+  if (kind === "pie") return <><Donut data={data} /><ChartDetails data={data} keys={["value"]} /></>;
+  if (kind === "treemap") return <><TreemapLite data={data} /><ChartDetails data={data} keys={["value"]} /></>;
+  if (kind === "bubble" || kind === "scatter") return <><Bubble data={data} /><ChartDetails data={data} keys={["x", "y", "z"]} labels={{ x: "Delivered", y: "Score", z: "Workload" }} mode="xy" /></>;
+  if (kind === "funnel") return <><Funnel data={data} /><ChartDetails data={data} keys={["value"]} /></>;
+  if (kind === "heatmap") return <><Heatmap data={data} /><ChartDetails data={data} keys={["value"]} /></>;
+  if (kind === "gantt") return <><Gantt data={data} /><ChartDetails data={data} keys={["offset", "duration"]} labels={{ offset: "Start Offset", duration: "Duration" }} /></>;
+  return <><Bars data={data} keys={["created", "completed"]} /><ChartDetails data={data} keys={["created", "completed"]} /></>;
 }
