@@ -58,13 +58,23 @@ const callLog = (message, details = null) => {
   console.log(`[Call] ${message}`, details);
 };
 
+const configuredTurnUrl = import.meta.env.VITE_TURN_URL || "";
+const turnUrls = configuredTurnUrl
+  ? [
+      configuredTurnUrl,
+      ...(configuredTurnUrl.includes("transport=udp")
+        ? [configuredTurnUrl.replace("transport=udp", "transport=tcp")]
+        : []),
+    ]
+  : [];
+
 const rtcConfig = {
   iceServers: [
     { urls: import.meta.env.VITE_STUN_URL || "stun:stun.l.google.com:19302" },
-    ...(import.meta.env.VITE_TURN_URL
+    ...(turnUrls.length
       ? [
           {
-            urls: import.meta.env.VITE_TURN_URL,
+            urls: turnUrls,
             username: import.meta.env.VITE_TURN_USERNAME || "",
             credential: import.meta.env.VITE_TURN_CREDENTIAL || "",
           },
@@ -83,30 +93,38 @@ const formatDuration = (seconds = 0) => {
   return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
 };
 
+const RINGTONE_START_SECONDS = 15;
+const RINGTONE_URL = `${import.meta.env.BASE_URL}audio/incoming-call.mp3`;
+
 const playRingtone = () => {
-  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  const audio = new Audio(RINGTONE_URL);
+  let stopped = false;
 
-  if (!AudioContext) {
-    return () => {};
-  }
+  audio.preload = "auto";
 
-  const context = new AudioContext();
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  oscillator.type = "sine";
-  oscillator.frequency.value = 880;
-  gain.gain.value = 0.045;
-  oscillator.connect(gain);
-  gain.connect(context.destination);
-  oscillator.start();
-  const intervalId = window.setInterval(() => {
-    oscillator.frequency.value = oscillator.frequency.value === 880 ? 660 : 880;
-  }, 450);
+  const playFromRingtoneStart = () => {
+    if (stopped) return;
+
+    audio.currentTime =
+      Number.isFinite(audio.duration) && audio.duration > RINGTONE_START_SECONDS
+        ? RINGTONE_START_SECONDS
+        : 0;
+    audio.play().catch((playError) => {
+      callLog("ringtone autoplay blocked", playError?.message || playError);
+    });
+  };
+
+  audio.addEventListener("loadedmetadata", playFromRingtoneStart, { once: true });
+  audio.addEventListener("ended", playFromRingtoneStart);
+  audio.load();
 
   return () => {
-    window.clearInterval(intervalId);
-    oscillator.stop();
-    context.close();
+    stopped = true;
+    audio.removeEventListener("loadedmetadata", playFromRingtoneStart);
+    audio.removeEventListener("ended", playFromRingtoneStart);
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
   };
 };
 
@@ -132,6 +150,16 @@ const RemoteMedia = ({ stream, muted, onVideoStalled, onVideoStateChange }) => {
         callLog(`remote ${label} autoplay blocked`, playError?.message || playError);
       });
     };
+    const resumeRemotePlayback = () => {
+      updateHasVideo();
+      if (audioRef.current) {
+        audioRef.current.muted = muted;
+        playElement(audioRef.current, "audio");
+      }
+      if (videoRef.current && hasLiveTrack(stream, "video")) {
+        playElement(videoRef.current, "video");
+      }
+    };
 
     if (videoRef.current && videoRef.current.srcObject !== stream) {
       videoRef.current.srcObject = stream;
@@ -150,13 +178,15 @@ const RemoteMedia = ({ stream, muted, onVideoStalled, onVideoStateChange }) => {
     }
     const watchedTracks = stream?.getTracks() || [];
     watchedTracks.forEach((track) => {
-      track.addEventListener?.("mute", updateHasVideo);
-      track.addEventListener?.("unmute", updateHasVideo);
-      track.addEventListener?.("ended", updateHasVideo);
+      track.addEventListener?.("mute", resumeRemotePlayback);
+      track.addEventListener?.("unmute", resumeRemotePlayback);
+      track.addEventListener?.("ended", resumeRemotePlayback);
     });
     updateHasVideo();
-    stream?.addEventListener?.("addtrack", updateHasVideo);
-    stream?.addEventListener?.("removetrack", updateHasVideo);
+    stream?.addEventListener?.("addtrack", resumeRemotePlayback);
+    stream?.addEventListener?.("removetrack", resumeRemotePlayback);
+    audioRef.current?.addEventListener?.("loadedmetadata", resumeRemotePlayback);
+    audioRef.current?.addEventListener?.("canplay", resumeRemotePlayback);
     stallTimerId = window.setInterval(() => {
       const element = videoRef.current;
       if (!element || element.paused || !hasLiveTrack(stream, "video")) {
@@ -186,12 +216,14 @@ const RemoteMedia = ({ stream, muted, onVideoStalled, onVideoStateChange }) => {
     return () => {
       window.clearInterval(stallTimerId);
       watchedTracks.forEach((track) => {
-        track.removeEventListener?.("mute", updateHasVideo);
-        track.removeEventListener?.("unmute", updateHasVideo);
-        track.removeEventListener?.("ended", updateHasVideo);
+        track.removeEventListener?.("mute", resumeRemotePlayback);
+        track.removeEventListener?.("unmute", resumeRemotePlayback);
+        track.removeEventListener?.("ended", resumeRemotePlayback);
       });
-      stream?.removeEventListener?.("addtrack", updateHasVideo);
-      stream?.removeEventListener?.("removetrack", updateHasVideo);
+      stream?.removeEventListener?.("addtrack", resumeRemotePlayback);
+      stream?.removeEventListener?.("removetrack", resumeRemotePlayback);
+      audioRef.current?.removeEventListener?.("loadedmetadata", resumeRemotePlayback);
+      audioRef.current?.removeEventListener?.("canplay", resumeRemotePlayback);
     };
   }, [muted, onVideoStalled, onVideoStateChange, stream]);
 
@@ -202,7 +234,7 @@ const RemoteMedia = ({ stream, muted, onVideoStalled, onVideoStateChange }) => {
           Connecting video
         </div>
       ) : null}
-      <video ref={videoRef} autoPlay playsInline className="h-full w-full object-cover" />
+      <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
       <audio ref={audioRef} autoPlay playsInline />
     </>
   );
@@ -632,6 +664,22 @@ export const CallProvider = ({ children }) => {
     ({ callId, targetUserId, stream }) => {
       const normalizedTargetId = String(targetUserId);
       const existingPeer = peersRef.current.get(normalizedTargetId);
+      const addLocalTracks = (peer) => {
+        stream?.getTracks().filter(isLiveTrack).forEach((track) => {
+          const outboundTrack =
+            track.kind === "video" ? outboundVideoTrackRef.current || track : track;
+          if (peer.getSenders().some((sender) => sender.track?.id === outboundTrack.id)) {
+            return;
+          }
+          callLog("adding local track to peer", {
+            targetUserId: normalizedTargetId,
+            kind: outboundTrack.kind,
+            readyState: outboundTrack.readyState,
+            enabled: outboundTrack.enabled,
+          });
+          peer.addTrack(outboundTrack, stream);
+        });
+      };
 
       if (existingPeer && existingPeer.connectionState !== "closed") {
         callLog("reusing existing peer connection", {
@@ -640,6 +688,7 @@ export const CallProvider = ({ children }) => {
           connectionState: existingPeer.connectionState,
           iceConnectionState: existingPeer.iceConnectionState,
         });
+        addLocalTracks(existingPeer);
         return existingPeer;
       }
 
@@ -654,20 +703,7 @@ export const CallProvider = ({ children }) => {
       const peer = new RTCPeerConnection(rtcConfig);
       const nextRemoteStream = new MediaStream();
       updateRemoteStream(normalizedTargetId, nextRemoteStream);
-      stream?.getTracks().filter(isLiveTrack).forEach((track) => {
-        const outboundTrack =
-          track.kind === "video" ? outboundVideoTrackRef.current || track : track;
-        if (peer.getSenders().some((sender) => sender.track?.id === outboundTrack.id)) {
-          return;
-        }
-        callLog("adding local track to peer", {
-          targetUserId: normalizedTargetId,
-          kind: outboundTrack.kind,
-          readyState: outboundTrack.readyState,
-          enabled: outboundTrack.enabled,
-        });
-        peer.addTrack(outboundTrack, stream);
-      });
+      addLocalTracks(peer);
       peer.ontrack = (event) => {
         callLog("track received", {
           fromUserId: normalizedTargetId,
@@ -806,7 +842,6 @@ export const CallProvider = ({ children }) => {
           connectionState: peer.connectionState,
           iceConnectionState: peer.iceConnectionState,
         });
-        negotiatePeer(normalizedTargetId);
       };
       peer.onsignalingstatechange = () => {
         callLog("signalingState changed", {
@@ -938,6 +973,7 @@ export const CallProvider = ({ children }) => {
       status: incomingCall.scope === "group" ? "lobby" : "connecting",
       peer: incomingCall.caller,
     };
+    activeCallRef.current = nextCall;
     setActiveCall(nextCall);
     setIncomingCall(null);
 
@@ -1175,6 +1211,12 @@ export const CallProvider = ({ children }) => {
 
     const handleIncomingCall = (call) => {
       setIncomingCall(call);
+      if (call.scope !== "group") {
+        createPeer({
+          callId: call.callId,
+          targetUserId: getId(call.caller),
+        });
+      }
       stopRingtoneRef.current?.();
       stopRingtoneRef.current = playRingtone();
       notifyIncomingCall(call);
@@ -1186,6 +1228,12 @@ export const CallProvider = ({ children }) => {
         peer: call.receiver,
         startedAt: call.startTime || (call.scope === "group" ? new Date().toISOString() : null),
       });
+      if (call.scope !== "group") {
+        createPeer({
+          callId: call.callId,
+          targetUserId: getId(call.receiver),
+        });
+      }
       if (call.scope === "group") {
         setChannelCalls((current) => ({
           ...current,
@@ -1852,7 +1900,7 @@ export const CallProvider = ({ children }) => {
                         )}
                       >
                         <RemoteMedia
-                          key={`${userId}-${remoteMedia?.version || 0}`}
+                          key={userId}
                           stream={stream}
                           muted={isSpeakerOff}
                           onVideoStalled={() => negotiatePeer(userId, { iceRestart: true })}

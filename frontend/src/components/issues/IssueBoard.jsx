@@ -28,6 +28,7 @@ const BOARD_COLUMNS = [
 
 const IssueBoard = ({
   issues = [],
+  visibleColumnKeys = [],
   updatingId = "",
   canEditIssue = false,
   canChangeStatus = false,
@@ -41,12 +42,21 @@ const IssueBoard = ({
 
   const columns = useMemo(
     () =>
-      BOARD_COLUMNS.map((column) => ({
+      BOARD_COLUMNS.filter(
+        (column) => !visibleColumnKeys.length || visibleColumnKeys.includes(column.key)
+      ).map((column) => ({
         ...column,
         items: issues.filter((issue) => getIssueWorkflowLane(issue.status) === column.key),
       })),
-    [issues]
+    [issues, visibleColumnKeys]
   );
+
+  const boardGridClassName =
+    columns.length === 1
+      ? "grid gap-4"
+      : columns.length === 2
+        ? "grid gap-4 xl:grid-cols-2"
+        : "grid gap-4 xl:grid-cols-3";
 
   const handleStatusChange = async (issueId, nextStatus) => {
     if (!issueId || !nextStatus || typeof onStatusChange !== "function") {
@@ -86,7 +96,7 @@ const IssueBoard = ({
   return (
     <Card className="overflow-hidden border-white/70 bg-white/92 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
       <CardContent className="p-4">
-        <div className="grid gap-4 xl:grid-cols-3">
+        <div className={boardGridClassName}>
           {columns.map((column) => (
             <IssueColumn
               key={column.key}

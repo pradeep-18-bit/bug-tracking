@@ -23,6 +23,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useChatStore } from "@/lib/chatStore";
 import { getRoleNavigation } from "@/lib/roles";
 import { cn, getInitials } from "@/lib/utils";
+import NotificationButton from "./NotificationButton";
 import UserProfileDropdown from "./UserProfileDropdown";
 
 const iconMap = {
@@ -129,6 +130,7 @@ const Navbar = () => {
           </nav>
 
           <div className="relative z-[100] ml-auto hidden items-center gap-2 overflow-visible lg:flex">
+            <NotificationButton user={user} />
             <UserProfileDropdown />
           </div>
 
@@ -222,6 +224,9 @@ const Navbar = () => {
 
                 {/* User info with quick actions */}
                 <div className="space-y-2.5">
+                  <div className="flex justify-end">
+                    <NotificationButton user={user} />
+                  </div>
                   <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm">
                     <Avatar className="h-10 w-10 shrink-0 ring-2 ring-blue-100">
                       <AvatarFallback className="font-bold bg-gradient-to-br from-blue-500 to-blue-600 text-white">

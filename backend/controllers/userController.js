@@ -119,6 +119,20 @@ const sendInvitationEmail = async ({ email, role, temporaryPassword, workspaceId
   });
 };
 
+const getInvitationEmailFailureMessage = (error) => {
+  const responseText = String(error?.response || error?.message || "");
+
+  if (error?.code === "EAUTH" || responseText.includes("535")) {
+    return "Invitation email could not be sent because the saved SMTP username or password is invalid. The user account was created; share the temporary password manually.";
+  }
+
+  if (error?.code === "ENOTFOUND" || error?.code === "EAI_AGAIN") {
+    return "Invitation email could not be sent because the SMTP host could not be reached. The user account was created; share the temporary password manually.";
+  }
+
+  return "Invitation email could not be sent right now. The user account was created; share the temporary password manually.";
+};
+
 const ensureAdminCanChangeRole = async ({ user, role, workspaceId }) => {
   if (user.role === ROLE_ADMIN && role !== ROLE_ADMIN) {
     const adminCount = await User.countDocuments({
@@ -175,6 +189,8 @@ const inviteUser = asyncHandler(async (req, res) => {
   }
 
   const { temporaryPassword, user } = await createInvitedUser({ email, role, workspaceId });
+  let emailSent = false;
+  let warning = "";
 
   try {
     await sendInvitationEmail({
@@ -183,13 +199,26 @@ const inviteUser = asyncHandler(async (req, res) => {
       temporaryPassword,
       workspaceId,
     });
+    emailSent = true;
   } catch (error) {
-    await User.deleteOne({ _id: user._id, workspaceId });
-    throw error;
+    warning = getInvitationEmailFailureMessage(error);
+    console.error("[users] Invitation email failed", {
+      userId: String(user._id),
+      email,
+      workspaceId,
+      message: error?.message || "",
+      code: error?.code || "",
+      response: error?.response || "",
+    });
   }
 
   res.status(201).json({
-    message: "User invited successfully and temporary password sent by email",
+    message: emailSent
+      ? "User invited successfully and temporary password sent by email"
+      : "User account created, but the invitation email was not sent",
+    warning: warning || undefined,
+    emailSent,
+    temporaryPassword: emailSent ? undefined : temporaryPassword,
     invitedUser: serializeInvitedUser(user),
   });
 });
