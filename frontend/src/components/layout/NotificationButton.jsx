@@ -155,7 +155,7 @@ const NotificationButton = ({ user }) => {
       </button>
 
       {isOpen ? (
-        <div className="absolute right-0 top-[calc(100%+0.65rem)] z-[120] w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_70px_-32px_rgba(15,23,42,0.5)]">
+        <div className="fixed right-3 top-[calc(var(--app-navbar-height)+0.6rem)] z-[120] w-[calc(100vw-1.5rem)] max-w-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_70px_-32px_rgba(15,23,42,0.5)] sm:right-4 sm:w-[min(360px,calc(100vw-2rem))]">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-bold text-slate-950">Notifications</p>
