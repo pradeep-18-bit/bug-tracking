@@ -4151,6 +4151,21 @@ const updateIssue = asyncHandler(async (req, res) => {
     });
   }
 
+  if (!isBugType(issue.type)) {
+    const assignedChanged = meaningfulChangeEntries.some(
+      (entry) => entry.field === "assignee"
+    );
+
+    if (assignedChanged) {
+      await notifyIssueEvent({
+        issue,
+        eventType: "assignment",
+        actorId: req.user._id,
+        oldAssigneeId: previousAssigneeId,
+      });
+    }
+  }
+
   if (isBugType(issue.type) && meaningfulChangeEntries.length) {
     const statusChanged = Boolean(statusChangeEntry);
     const priorityChanged = meaningfulChangeEntries.some((entry) => entry.field === "priority");

@@ -903,6 +903,28 @@ const removeProjectMember = asyncHandler(async (req, res) => {
     throw new Error("Member is not directly assigned to this project");
   }
 
+  const removedUserId = new mongoose.Types.ObjectId(req.params.userId);
+  await Issue.updateMany(
+    {
+      projectId: project._id,
+      $or: [
+        { assignee: removedUserId },
+        { assignedDeveloperId: removedUserId },
+        { "bugDetails.developerLead": removedUserId },
+      ],
+    },
+    {
+      $set: {
+        assignee: null,
+        assignedDeveloperId: null,
+        assignedDeveloperName: "",
+        "bugDetails.developerLead": null,
+        updatedAt: new Date(),
+        updatedBy: req.user._id,
+      },
+    }
+  );
+
   res.status(200).json({
     message: "Member removed from the project",
     ...(await buildProjectResponse(project._id)),

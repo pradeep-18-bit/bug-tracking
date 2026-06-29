@@ -58,14 +58,12 @@ import {
   sortIssues,
 } from "@/lib/issues";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
-import { readStoredSession } from "@/lib/session";
 import { useAuth } from "@/hooks/use-auth";
 import {
   getDeveloperBugBucketQueryFilters,
   getDeveloperBugBucketQueryKey,
   removeIssueFromBucketCaches,
 } from "@/lib/bug-workflow-cache";
-import { getChatSocket } from "@/lib/socket";
 import IssueDetailsDialog from "@/components/issues/IssueDetailsDialog";
 import NotificationCard from "@/components/dashboard/NotificationCard";
 import EmptyState from "@/components/shared/EmptyState";
@@ -1504,33 +1502,6 @@ const DeveloperDashboardPage = () => {
     queryFn: fetchUnreadNotificationCount,
     enabled: Boolean(user?._id),
   });
-
-  useEffect(() => {
-    const session = readStoredSession();
-    const token = session?.token;
-    const socket = getChatSocket(token);
-
-    if (!socket || !user?._id) return;
-
-    if (!socket.connected) {
-      socket.connect();
-    }
-
-    const handleNewNotification = (notification) => {
-      queryClient.setQueryData(["issues", "notifications", user._id], (old = []) => {
-        return [notification, ...old].slice(0, 20);
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["issues", "notifications", "unread-count", user._id],
-      });
-    };
-
-    socket.on("notification_received", handleNewNotification);
-
-    return () => {
-      socket.off("notification_received", handleNewNotification);
-    };
-  }, [user?._id, queryClient]);
 
   const allIssues = useMemo(() => (Array.isArray(issues) ? issues : []), [issues]);
   const bucketIssues = useMemo(
