@@ -347,8 +347,21 @@ const UserSettingsPage = () => {
   const inviteMutation = useMutation({
     mutationFn: inviteUser,
     onSuccess: (data) => {
-      setInviteFeedback(data.message || "User invited successfully");
-      setRecentInvite(data.invitedUser || null);
+      setInviteFeedback(
+        [data.message || "User invited successfully", data.warning]
+          .filter(Boolean)
+          .join(" ")
+      );
+      setRecentInvite(
+        data.invitedUser
+          ? {
+              ...data.invitedUser,
+              emailSent: data.emailSent !== false,
+              temporaryPassword: data.temporaryPassword || "",
+              warning: data.warning || "",
+            }
+          : null
+      );
       setInviteEmail("");
       queryClient.invalidateQueries({ queryKey: ["managed-users"] });
       queryClient.invalidateQueries({ queryKey: ["users"] });
