@@ -58,13 +58,23 @@ const callLog = (message, details = null) => {
   console.log(`[Call] ${message}`, details);
 };
 
+const configuredTurnUrl = import.meta.env.VITE_TURN_URL || "";
+const turnUrls = configuredTurnUrl
+  ? [
+      configuredTurnUrl,
+      ...(configuredTurnUrl.includes("transport=udp")
+        ? [configuredTurnUrl.replace("transport=udp", "transport=tcp")]
+        : []),
+    ]
+  : [];
+
 const rtcConfig = {
   iceServers: [
     { urls: import.meta.env.VITE_STUN_URL || "stun:stun.l.google.com:19302" },
-    ...(import.meta.env.VITE_TURN_URL
+    ...(turnUrls.length
       ? [
           {
-            urls: import.meta.env.VITE_TURN_URL,
+            urls: turnUrls,
             username: import.meta.env.VITE_TURN_USERNAME || "",
             credential: import.meta.env.VITE_TURN_CREDENTIAL || "",
           },
@@ -640,6 +650,22 @@ export const CallProvider = ({ children }) => {
     ({ callId, targetUserId, stream }) => {
       const normalizedTargetId = String(targetUserId);
       const existingPeer = peersRef.current.get(normalizedTargetId);
+      const addLocalTracks = (peer) => {
+        stream?.getTracks().filter(isLiveTrack).forEach((track) => {
+          const outboundTrack =
+            track.kind === "video" ? outboundVideoTrackRef.current || track : track;
+          if (peer.getSenders().some((sender) => sender.track?.id === outboundTrack.id)) {
+            return;
+          }
+          callLog("adding local track to peer", {
+            targetUserId: normalizedTargetId,
+            kind: outboundTrack.kind,
+            readyState: outboundTrack.readyState,
+            enabled: outboundTrack.enabled,
+          });
+          peer.addTrack(outboundTrack, stream);
+        });
+      };
 
       if (existingPeer && existingPeer.connectionState !== "closed") {
         callLog("reusing existing peer connection", {
@@ -648,6 +674,7 @@ export const CallProvider = ({ children }) => {
           connectionState: existingPeer.connectionState,
           iceConnectionState: existingPeer.iceConnectionState,
         });
+        addLocalTracks(existingPeer);
         return existingPeer;
       }
 
@@ -662,20 +689,7 @@ export const CallProvider = ({ children }) => {
       const peer = new RTCPeerConnection(rtcConfig);
       const nextRemoteStream = new MediaStream();
       updateRemoteStream(normalizedTargetId, nextRemoteStream);
-      stream?.getTracks().filter(isLiveTrack).forEach((track) => {
-        const outboundTrack =
-          track.kind === "video" ? outboundVideoTrackRef.current || track : track;
-        if (peer.getSenders().some((sender) => sender.track?.id === outboundTrack.id)) {
-          return;
-        }
-        callLog("adding local track to peer", {
-          targetUserId: normalizedTargetId,
-          kind: outboundTrack.kind,
-          readyState: outboundTrack.readyState,
-          enabled: outboundTrack.enabled,
-        });
-        peer.addTrack(outboundTrack, stream);
-      });
+      addLocalTracks(peer);
       peer.ontrack = (event) => {
         callLog("track received", {
           fromUserId: normalizedTargetId,
@@ -814,7 +828,6 @@ export const CallProvider = ({ children }) => {
           connectionState: peer.connectionState,
           iceConnectionState: peer.iceConnectionState,
         });
-        negotiatePeer(normalizedTargetId);
       };
       peer.onsignalingstatechange = () => {
         callLog("signalingState changed", {
@@ -946,6 +959,7 @@ export const CallProvider = ({ children }) => {
       status: incomingCall.scope === "group" ? "lobby" : "connecting",
       peer: incomingCall.caller,
     };
+    activeCallRef.current = nextCall;
     setActiveCall(nextCall);
     setIncomingCall(null);
 
@@ -1183,6 +1197,12 @@ export const CallProvider = ({ children }) => {
 
     const handleIncomingCall = (call) => {
       setIncomingCall(call);
+      if (call.scope !== "group") {
+        createPeer({
+          callId: call.callId,
+          targetUserId: getId(call.caller),
+        });
+      }
       stopRingtoneRef.current?.();
       stopRingtoneRef.current = playRingtone();
       notifyIncomingCall(call);
@@ -1194,6 +1214,12 @@ export const CallProvider = ({ children }) => {
         peer: call.receiver,
         startedAt: call.startTime || (call.scope === "group" ? new Date().toISOString() : null),
       });
+      if (call.scope !== "group") {
+        createPeer({
+          callId: call.callId,
+          targetUserId: getId(call.receiver),
+        });
+      }
       if (call.scope === "group") {
         setChannelCalls((current) => ({
           ...current,
