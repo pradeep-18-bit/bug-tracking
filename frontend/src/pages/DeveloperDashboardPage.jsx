@@ -676,6 +676,7 @@ const ProjectPanel = ({ projects, issues, onOpenProject }) => {
             total: projectIssues.length,
           };
         })
+        .filter((project) => project.total > 0)
         .sort((left, right) => right.active - left.active || right.critical - left.critical),
     [issues, projects]
   );
