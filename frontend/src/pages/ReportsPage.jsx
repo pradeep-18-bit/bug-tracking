@@ -1717,16 +1717,6 @@ const OrganizationReportsDashboard = () => {
     ].filter((row) => row.value > 0),
     [bugMetrics.closed, bugMetrics.open, bugMetrics.readyForQa, bugMetrics.total, taskMetrics.active, taskMetrics.completed, taskMetrics.total]
   );
-  const ganttRows = useMemo(
-    () =>
-      taskAttentionRows.concat(bugAttentionRows).slice(0, 10).map((issue, index) => ({
-        id: issue._id,
-        name: issue.title || issue.issueId || `Item ${index + 1}`,
-        offset: index * 5,
-        duration: issue.storyPoints ? Math.min(Number(issue.storyPoints) * 8, 70) : 18 + index * 3,
-      })),
-    [bugAttentionRows, taskAttentionRows]
-  );
   const bugLifecycleRows = [
     {
       key: "open",
@@ -1772,6 +1762,16 @@ const OrganizationReportsDashboard = () => {
         })
         .slice(0, 6),
     [bugIssues]
+  );
+  const ganttRows = useMemo(
+    () =>
+      taskAttentionRows.concat(bugAttentionRows).slice(0, 10).map((issue, index) => ({
+        id: issue._id,
+        name: issue.title || issue.issueId || `Item ${index + 1}`,
+        offset: index * 5,
+        duration: issue.storyPoints ? Math.min(Number(issue.storyPoints) * 8, 70) : 18 + index * 3,
+      })),
+    [bugAttentionRows, taskAttentionRows]
   );
 
   if (import.meta.env.DEV) {
