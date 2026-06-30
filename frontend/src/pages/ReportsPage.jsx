@@ -2834,54 +2834,204 @@ const JiraSection = ({ children, defaultOpen = true, title }) => {
   );
 };
 
-const JiraLineChart = ({ data = [], lines = [{ key: "completed", color: "#2563eb" }], onDrill }) => (
+const JIRA_CHART_WIDTH = 640;
+const JIRA_CHART_HEIGHT = 280;
+const JIRA_CHART_PADDING = { top: 18, right: 22, bottom: 42, left: 42 };
+const JIRA_CHART_PLOT_WIDTH =
+  JIRA_CHART_WIDTH - JIRA_CHART_PADDING.left - JIRA_CHART_PADDING.right;
+const JIRA_CHART_PLOT_HEIGHT =
+  JIRA_CHART_HEIGHT - JIRA_CHART_PADDING.top - JIRA_CHART_PADDING.bottom;
+
+const getChartLabel = (row, index) => row?.label || row?.name || `Point ${index + 1}`;
+const getChartMax = (data = [], keys = []) =>
+  Math.max(1, ...data.flatMap((row) => keys.map((key) => toNumber(row?.[key]))));
+const getChartX = (index, length) =>
+  JIRA_CHART_PADDING.left +
+  (length > 1 ? (index / (length - 1)) * JIRA_CHART_PLOT_WIDTH : JIRA_CHART_PLOT_WIDTH / 2);
+const getChartY = (value, max) =>
+  JIRA_CHART_PADDING.top + JIRA_CHART_PLOT_HEIGHT - (toNumber(value) / max) * JIRA_CHART_PLOT_HEIGHT;
+const getLinePoints = (data, key, max) =>
+  data.map((row, index) => ({
+    label: getChartLabel(row, index),
+    row,
+    value: toNumber(row?.[key]),
+    x: getChartX(index, data.length),
+    y: getChartY(row?.[key], max),
+  }));
+
+const JiraChartShell = ({ children, data, emptyIcon: EmptyIcon, emptyTitle }) => (
   <ChartFrame height={280}>
     {data.length ? (
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} onClick={(event) => event?.activePayload?.[0]?.payload && onDrill?.(event.activePayload[0].payload)}>
-          <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-          <Tooltip contentStyle={chartTooltipStyle} />
-          {lines.map((line) => (
-            <Area
-              dataKey={line.key}
-              fill={line.fill || line.color}
-              fillOpacity={0.14}
-              isAnimationActive={false}
-              key={line.key}
-              stroke={line.color}
-              strokeWidth={2}
-              type="monotone"
-            />
-          ))}
-        </AreaChart>
-      </ResponsiveContainer>
+      <div className="h-full w-full rounded-md border border-slate-100 bg-white px-1 py-2">
+        {children}
+      </div>
     ) : (
-      <AnalyticsEmptyState className="min-h-[260px]" icon={AreaChartIcon} title="No chart data" description="Create work items or adjust filters to populate this report." />
+      <AnalyticsEmptyState
+        className="min-h-[260px]"
+        icon={EmptyIcon}
+        title={emptyTitle}
+        description="Create work items or adjust filters to populate this report."
+      />
     )}
   </ChartFrame>
 );
 
-const JiraBarChart = ({ data = [], bars = [{ key: "value", color: "#2563eb" }], onDrill }) => (
-  <ChartFrame height={280}>
-    {data.length ? (
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} onClick={(event) => event?.activePayload?.[0]?.payload && onDrill?.(event.activePayload[0].payload)}>
-          <CartesianGrid stroke={CHART_GRID_COLOR} vertical={false} />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-          <Tooltip contentStyle={chartTooltipStyle} />
-          {bars.map((bar) => (
-            <Bar dataKey={bar.key} fill={bar.color} isAnimationActive={false} key={bar.key} radius={[4, 4, 0, 0]} />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
-    ) : (
-      <AnalyticsEmptyState className="min-h-[260px]" icon={BarChart3} title="No chart data" description="Create work items or adjust filters to populate this report." />
-    )}
-  </ChartFrame>
+const JiraChartLegend = ({ items = [] }) => (
+  <div className="mt-2 flex flex-wrap gap-3 px-2 text-xs font-medium text-slate-500">
+    {items.map((item) => (
+      <span className="inline-flex items-center gap-1.5" key={item.key}>
+        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+        {item.label || item.key}
+      </span>
+    ))}
+  </div>
 );
+
+const JiraChartSvg = ({ children, data, max }) => {
+  const tickValues = [max, Math.round(max / 2), 0];
+
+  return (
+    <svg
+      className="block h-[236px] w-full overflow-visible"
+      preserveAspectRatio="none"
+      role="img"
+      viewBox={`0 0 ${JIRA_CHART_WIDTH} ${JIRA_CHART_HEIGHT}`}
+    >
+      {tickValues.map((tick) => {
+        const y = getChartY(tick, max);
+
+        return (
+          <g key={tick}>
+            <line
+              stroke={CHART_GRID_COLOR}
+              strokeDasharray="4 6"
+              strokeWidth="1"
+              x1={JIRA_CHART_PADDING.left}
+              x2={JIRA_CHART_WIDTH - JIRA_CHART_PADDING.right}
+              y1={y}
+              y2={y}
+            />
+            <text fill="#64748b" fontSize="11" textAnchor="end" x="34" y={y + 4}>
+              {tick}
+            </text>
+          </g>
+        );
+      })}
+      <line
+        stroke="#cbd5e1"
+        strokeWidth="1.5"
+        x1={JIRA_CHART_PADDING.left}
+        x2={JIRA_CHART_WIDTH - JIRA_CHART_PADDING.right}
+        y1={JIRA_CHART_HEIGHT - JIRA_CHART_PADDING.bottom}
+        y2={JIRA_CHART_HEIGHT - JIRA_CHART_PADDING.bottom}
+      />
+      {data.map((row, index) => {
+        if (data.length > 8 && index % Math.ceil(data.length / 7) !== 0 && index !== data.length - 1) {
+          return null;
+        }
+
+        return (
+          <text
+            fill="#64748b"
+            fontSize="10"
+            key={`${getChartLabel(row, index)}-${index}`}
+            textAnchor="middle"
+            x={getChartX(index, data.length)}
+            y={JIRA_CHART_HEIGHT - 16}
+          >
+            {getChartLabel(row, index).slice(5) || getChartLabel(row, index)}
+          </text>
+        );
+      })}
+      {children}
+    </svg>
+  );
+};
+
+const JiraLineChart = ({ data = [], lines = [{ key: "completed", color: "#2563eb" }], onDrill }) => {
+  const max = getChartMax(data, lines.map((line) => line.key));
+
+  return (
+    <JiraChartShell data={data} emptyIcon={AreaChartIcon} emptyTitle="No chart data">
+      <JiraChartSvg data={data} max={max}>
+        {lines.map((line) => {
+          const points = getLinePoints(data, line.key, max);
+          const path = points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
+          const areaPath = [
+            `M ${points[0]?.x || JIRA_CHART_PADDING.left} ${JIRA_CHART_HEIGHT - JIRA_CHART_PADDING.bottom}`,
+            ...points.map((point) => `L ${point.x} ${point.y}`),
+            `L ${points.at(-1)?.x || JIRA_CHART_PADDING.left} ${JIRA_CHART_HEIGHT - JIRA_CHART_PADDING.bottom} Z`,
+          ].join(" ");
+
+          return (
+            <g key={line.key}>
+              <path d={areaPath} fill={line.fill || line.color} fillOpacity="0.12" />
+              <path d={path} fill="none" stroke={line.color} strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
+              {points.map((point) => (
+                <circle
+                  className={onDrill ? "cursor-pointer" : ""}
+                  cx={point.x}
+                  cy={point.y}
+                  fill="#fff"
+                  key={`${line.key}-${point.label}`}
+                  onClick={() => onDrill?.(point.row)}
+                  r="4.5"
+                  stroke={line.color}
+                  strokeWidth="2.5"
+                >
+                  <title>{`${point.label}: ${line.label || line.key} ${point.value}`}</title>
+                </circle>
+              ))}
+            </g>
+          );
+        })}
+      </JiraChartSvg>
+      <JiraChartLegend items={lines} />
+    </JiraChartShell>
+  );
+};
+
+const JiraBarChart = ({ data = [], bars = [{ key: "value", color: "#2563eb" }], onDrill }) => {
+  const max = getChartMax(data, bars.map((bar) => bar.key));
+  const groupWidth = JIRA_CHART_PLOT_WIDTH / Math.max(data.length, 1);
+  const barWidth = Math.max(6, Math.min(28, groupWidth / (bars.length + 1.2)));
+
+  return (
+    <JiraChartShell data={data} emptyIcon={BarChart3} emptyTitle="No chart data">
+      <JiraChartSvg data={data} max={max}>
+        {data.map((row, rowIndex) =>
+          bars.map((bar, barIndex) => {
+            const value = toNumber(row?.[bar.key]);
+            const height = (value / max) * JIRA_CHART_PLOT_HEIGHT;
+            const x =
+              JIRA_CHART_PADDING.left +
+              rowIndex * groupWidth +
+              (groupWidth - barWidth * bars.length) / 2 +
+              barIndex * barWidth;
+            const y = JIRA_CHART_HEIGHT - JIRA_CHART_PADDING.bottom - height;
+
+            return (
+              <rect
+                className={onDrill ? "cursor-pointer" : ""}
+                fill={bar.color}
+                height={height}
+                key={`${getChartLabel(row, rowIndex)}-${bar.key}`}
+                onClick={() => onDrill?.(row)}
+                rx="5"
+                width={Math.max(4, barWidth - 3)}
+                x={x}
+                y={y}
+              >
+                <title>{`${getChartLabel(row, rowIndex)}: ${bar.label || bar.key} ${value}`}</title>
+              </rect>
+            );
+          })
+        )}
+      </JiraChartSvg>
+      <JiraChartLegend items={bars} />
+    </JiraChartShell>
+  );
+};
 
 const JiraDrilldown = ({ rows = [], title, onClear }) => (
   <JiraPanel title={title || "Drill-down"}>
