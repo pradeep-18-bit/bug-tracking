@@ -79,6 +79,7 @@ const buildInitialState = ({
   defaultProjectId,
   defaultTeamId,
   defaultType,
+  defaultParentStoryId = "",
 }) => {
   const projectId = resolveProjectSelection(defaultProjectId, projects);
   const project = findProjectById(projects, projectId);
@@ -97,7 +98,7 @@ const buildInitialState = ({
     sprintId: "",
     dueAt: "",
     dependsOnIssueId: "",
-    parentStoryId: "",
+    parentStoryId: defaultParentStoryId,
     storyPoints: "",
     acceptanceCriteria: "",
     definitionOfDone: "",
@@ -373,6 +374,7 @@ const IssueCreateDialog = ({
   defaultProjectId = "",
   defaultTeamId = "",
   defaultType = "Task",
+  defaultParentStoryId = "",
   lockType = false,
   isPending = false,
   onSubmit,
@@ -388,6 +390,7 @@ const IssueCreateDialog = ({
       defaultProjectId,
       defaultTeamId,
       defaultType: resolvedDefaultType,
+      defaultParentStoryId,
     })
   );
   const [assignEntireTeam, setAssignEntireTeam] = useState(false);
@@ -644,12 +647,20 @@ const IssueCreateDialog = ({
         defaultProjectId,
         defaultTeamId,
         defaultType: resolvedDefaultType,
+        defaultParentStoryId,
       })
     );
     setAssignEntireTeam(false);
     setIsSequenceSubmitting(false);
     setError("");
-  }, [defaultProjectId, defaultTeamId, open, projects, resolvedDefaultType]);
+  }, [
+    defaultParentStoryId,
+    defaultProjectId,
+    defaultTeamId,
+    open,
+    projects,
+    resolvedDefaultType,
+  ]);
 
   useEffect(() => {
     const nextTeamId = availableTeams.some(

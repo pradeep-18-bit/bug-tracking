@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  Bug,
-  CheckSquare2,
-  ChevronDown,
-  ChevronRight,
   GripVertical,
   MoreHorizontal,
   UserCircle2,
@@ -263,7 +259,6 @@ const IssuePlanningCard = ({
   onSelectIssue,
   onMoveIssue,
 }) => {
-  const [expanded, setExpanded] = useState(false);
   const assignee = resolveIssueAssignee(issue);
   const sprintOptions = useMemo(
     () =>
@@ -274,7 +269,6 @@ const IssuePlanningCard = ({
   );
   const currentSprintId = getSprintId(issue?.sprintId);
   const issueKey = getIssueDisplayKey(issue);
-  const children = Array.isArray(issue?.children) ? issue.children : [];
   const progress = issue?.storyProgress || {};
 
   return (
@@ -324,25 +318,6 @@ const IssuePlanningCard = ({
 
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0 rounded-lg text-slate-500"
-              disabled={!children.length}
-              aria-label={expanded ? "Collapse Story" : "Expand Story"}
-              aria-expanded={expanded}
-              onClick={(event) => {
-                event.stopPropagation();
-                setExpanded((current) => !current);
-              }}
-            >
-              {expanded ? (
-                <ChevronDown className="h-4 w-4" />
-              ) : (
-                <ChevronRight className="h-4 w-4" />
-              )}
-            </Button>
             <button
               type="button"
               onClick={() => onSelectIssue?.(issue)}
@@ -448,42 +423,6 @@ const IssuePlanningCard = ({
               {Number(progress.resolvedBugCount || 0)}/{Number(progress.bugCount || 0)} bugs
             </span>
           </div>
-
-          {expanded && children.length ? (
-            <div className="mt-2 divide-y divide-slate-100 border-t border-slate-200/80">
-              {children.map((child) => {
-                const ChildIcon = child.type === "Bug" ? Bug : CheckSquare2;
-
-                return (
-                  <button
-                    key={child._id}
-                    type="button"
-                    className="flex w-full items-center gap-2 px-1 py-2 text-left hover:bg-slate-50"
-                    onClick={() => onSelectIssue?.(child)}
-                  >
-                    <ChildIcon
-                      className={cn(
-                        "h-3.5 w-3.5 shrink-0",
-                        child.type === "Bug" ? "text-rose-500" : "text-blue-500"
-                      )}
-                    />
-                    <span className="shrink-0 font-mono text-[10px] text-slate-500">
-                      {getIssueDisplayKey(child)}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700">
-                      {child.title}
-                    </span>
-                    <Badge
-                      variant={getIssueStatusVariant(child.status)}
-                      className="h-5 px-1.5 py-0 text-[9px]"
-                    >
-                      {getIssueStatusLabel(child.status)}
-                    </Badge>
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
         </div>
       </div>
     </article>

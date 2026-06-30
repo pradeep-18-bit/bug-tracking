@@ -450,6 +450,12 @@ export const fetchIssues = async (filters = {}) => {
   return response.data;
 };
 
+export const fetchStories = async (filters = {}) => {
+  const params = buildParams(normalizeIssueFilters(filters));
+  const response = await api.get("/issues/stories", { params });
+  return response.data;
+};
+
 export const fetchIssueStats = async (filters = {}) => {
   const params = buildParams(normalizeIssueFilters(filters));
   const response = await api.get("/issues/stats", {

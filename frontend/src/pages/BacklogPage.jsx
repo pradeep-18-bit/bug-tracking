@@ -315,14 +315,6 @@ const findIssueById = (boardState, issueId) => {
     return backlogIssue;
   }
 
-  const backlogChild = boardState.backlogIssues
-    .flatMap((story) => story.children || [])
-    .find((issue) => String(issue._id) === String(issueId));
-
-  if (backlogChild) {
-    return backlogChild;
-  }
-
   for (const section of boardState.sprintSections) {
     const sprintIssue = section.issues.find(
       (issue) => String(issue._id) === String(issueId)
@@ -332,13 +324,6 @@ const findIssueById = (boardState, issueId) => {
       return sprintIssue;
     }
 
-    const sprintChild = section.issues
-      .flatMap((story) => story.children || [])
-      .find((issue) => String(issue._id) === String(issueId));
-
-    if (sprintChild) {
-      return sprintChild;
-    }
   }
 
   return null;
@@ -347,7 +332,7 @@ const findIssueById = (boardState, issueId) => {
 const getAllBoardIssues = (boardState) => [
   ...boardState.backlogIssues,
   ...boardState.sprintSections.flatMap((section) => section.issues),
-].flatMap((story) => [story, ...(story.children || [])]);
+];
 
 const moveIssueLocally = ({ boardState, issueId, destinationSprintId = "", overIssueId = "" }) => {
   const nextState = {

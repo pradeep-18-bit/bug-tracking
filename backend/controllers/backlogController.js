@@ -281,7 +281,6 @@ const getBacklogBoard = asyncHandler(async (req, res) => {
 
       return {
         ...story,
-        children,
         storyProgress: calculateStoryProgress(children),
       };
     });
@@ -320,12 +319,6 @@ const getBacklogBoard = asyncHandler(async (req, res) => {
     })),
     backlogIssues,
     sprintSections,
-    legacyUnparentedIssues: serializedIssues.filter(
-      (issue) =>
-        issue.type !== ISSUE_TYPES.STORY &&
-        !issue?.parentStoryId?._id &&
-        !issue?.parentStoryId
-    ),
     summary: {
       totalVisibleIssues: visibleIssueIds.size,
       backlogIssueCount: backlogIssues.length,

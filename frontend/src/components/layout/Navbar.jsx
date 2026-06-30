@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   BarChart3,
   Activity,
+  BookOpen,
   Bug,
   FolderKanban,
   KanbanSquare,
@@ -31,6 +32,7 @@ const iconMap = {
   projects: FolderKanban,
   teams: Users2,
   backlog: Layers3,
+  stories: BookOpen,
   issues: KanbanSquare,
   bugs: Bug,
   tasks: ListTodo,
@@ -100,7 +102,7 @@ const Navbar = () => {
             />
           </NavLink>
 
-          <nav className="hidden items-center gap-1.5 lg:flex xl:gap-2">
+          <nav className="hidden items-center gap-1 xl:flex">
             {navigation.map((item) => {
               const Icon = iconMap[item.icon] || LayoutDashboard;
 
@@ -129,13 +131,13 @@ const Navbar = () => {
             })}
           </nav>
 
-          <div className="relative z-[100] ml-auto hidden items-center gap-2 overflow-visible lg:flex">
+          <div className="relative z-[100] ml-auto hidden items-center gap-2 overflow-visible xl:flex">
             <NotificationButton user={user} />
             <UserProfileDropdown />
           </div>
 
           <Button
-            className="ml-auto shrink-0 lg:hidden"
+            className="ml-auto shrink-0 xl:hidden"
             variant="outline"
             size="icon"
             type="button"
@@ -156,7 +158,7 @@ const Navbar = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm lg:hidden"
+              className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm xl:hidden"
               onClick={() => setIsMenuOpen(false)}
             />
 
@@ -166,7 +168,7 @@ const Navbar = () => {
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", stiffness: 350, damping: 35 }}
-              className="fixed right-0 top-0 z-[9999] flex h-screen w-[80%] max-w-[320px] flex-col border-l border-slate-200 bg-white shadow-2xl lg:hidden"
+              className="fixed right-0 top-0 z-[9999] flex h-screen w-[80%] max-w-[320px] flex-col border-l border-slate-200 bg-white shadow-2xl xl:hidden"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Drawer header with close button */}

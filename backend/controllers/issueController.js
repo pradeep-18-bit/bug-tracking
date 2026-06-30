@@ -49,6 +49,7 @@ const {
 } = require("../utils/issueTypes");
 const {
   STORY_STATUS,
+  calculateStoryProgress,
   isStoryType,
 } = require("../utils/storyWorkflow");
 const { getNextPlanningOrder } = require("../utils/planningOrder");
@@ -2144,6 +2145,83 @@ const getIssues = asyncHandler(async (req, res) => {
   res.status(200).json(serializeIssues(issues));
 });
 
+const getStories = asyncHandler(async (req, res) => {
+  const accessibleProjectIds = await getAccessibleProjectIds(req.user);
+  const query = {
+    ...ACTIVE_ISSUE_QUERY,
+    type: ISSUE_TYPES.STORY,
+    projectId: { $in: accessibleProjectIds },
+  };
+
+  if (req.query.projectId && req.query.projectId !== "all") {
+    if (!mongoose.isValidObjectId(req.query.projectId)) {
+      res.status(400);
+      throw new Error("Invalid project id filter");
+    }
+
+    if (
+      !accessibleProjectIds.some(
+        (projectId) => String(projectId) === String(req.query.projectId)
+      )
+    ) {
+      res.status(403);
+      throw new Error("You do not have access to that project");
+    }
+
+    query.projectId = req.query.projectId;
+  }
+
+  if (req.query.search?.trim()) {
+    const searchExpression = new RegExp(
+      escapeRegExp(req.query.search.trim()),
+      "i"
+    );
+    query.$or = [
+      { displayBugId: searchExpression },
+      { title: searchExpression },
+    ];
+  }
+
+  const stories = await populateIssueQuery(
+    Issue.find(query).sort({ updatedAt: -1, createdAt: -1 })
+  );
+  const storyIds = stories.map((story) => story._id);
+  const children = storyIds.length
+    ? await populateIssueQuery(
+        Issue.find({
+          ...ACTIVE_ISSUE_QUERY,
+          parentStoryId: { $in: storyIds },
+          type: {
+            $in: [ISSUE_TYPES.TASK, ISSUE_TYPES.SUB_TASK, ISSUE_TYPES.BUG],
+          },
+        }).sort({ createdAt: -1 })
+      )
+    : [];
+  const serializedChildren = serializeIssues(children);
+  const childrenByStory = serializedChildren.reduce((map, child) => {
+    const storyId = String(child?.parentStoryId?._id || child?.parentStoryId || "");
+    map.set(storyId, [...(map.get(storyId) || []), child]);
+    return map;
+  }, new Map());
+
+  res.status(200).json(
+    serializeIssues(stories).map((story) => {
+      const storyChildren = childrenByStory.get(String(story._id)) || [];
+      const storyProgress = calculateStoryProgress(storyChildren);
+
+      return {
+        ...story,
+        children: storyChildren,
+        storyProgress,
+        openBugCount: Math.max(
+          0,
+          storyProgress.bugCount - storyProgress.resolvedBugCount
+        ),
+      };
+    })
+  );
+});
+
 const getIssueStats = asyncHandler(async (req, res) => {
   const query = await buildIssueQueryFromRequest(req, res);
   const issues = await Issue.find(query)
@@ -3078,6 +3156,11 @@ const createIssue = asyncHandler(async (req, res) => {
   }
 
   const parentStory = parentStoryResult.story;
+
+  if (req.user.role === ROLE_DEVELOPER && !parentStory) {
+    res.status(400);
+    throw new Error("Developers must create Tasks from inside a Story");
+  }
 
   if (
     req.user.role === ROLE_DEVELOPER &&
@@ -4709,6 +4792,7 @@ const markAllNotificationsRead = asyncHandler(async (req, res) => {
 
 module.exports = {
   getIssues,
+  getStories,
   getIssueStats,
   getMyReportedBugs,
   getMyIssues,
