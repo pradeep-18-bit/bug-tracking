@@ -62,19 +62,16 @@ const createDefaultFilters = () => ({
   teamId: "all",
   assigneeId: "all",
   epicId: "all",
+  sprintId: "all",
+  priority: "all",
+  status: "all",
   search: "",
   dateFrom: "",
   dateTo: "",
   includeCompletedSprints: false,
 });
 
-const BACKLOG_PLANNING_TYPE_KEYS = new Set([
-  "TASK",
-  "STORY",
-  "FEATURE",
-  "ENHANCEMENT",
-  "EPIC",
-]);
+const BACKLOG_PLANNING_TYPE_KEYS = new Set(["STORY"]);
 
 const normalizeBacklogIssueType = (value = "") =>
   String(value || "")
@@ -135,6 +132,28 @@ const issueMatchesBacklogFilters = (issue, filters) => {
     filters.assigneeId !== "all" &&
     resolveBacklogAssigneeId(issue) !== String(filters.assigneeId)
   ) {
+    return false;
+  }
+
+  const sprintId = String(issue?.sprintId?._id || issue?.sprintId || "");
+
+  if (filters.sprintId === "backlog" && sprintId) {
+    return false;
+  }
+
+  if (
+    filters.sprintId !== "all" &&
+    filters.sprintId !== "backlog" &&
+    sprintId !== String(filters.sprintId)
+  ) {
+    return false;
+  }
+
+  if (filters.priority !== "all" && issue.priority !== filters.priority) {
+    return false;
+  }
+
+  if (filters.status !== "all" && issue.status !== filters.status) {
     return false;
   }
 
@@ -296,6 +315,14 @@ const findIssueById = (boardState, issueId) => {
     return backlogIssue;
   }
 
+  const backlogChild = boardState.backlogIssues
+    .flatMap((story) => story.children || [])
+    .find((issue) => String(issue._id) === String(issueId));
+
+  if (backlogChild) {
+    return backlogChild;
+  }
+
   for (const section of boardState.sprintSections) {
     const sprintIssue = section.issues.find(
       (issue) => String(issue._id) === String(issueId)
@@ -303,6 +330,14 @@ const findIssueById = (boardState, issueId) => {
 
     if (sprintIssue) {
       return sprintIssue;
+    }
+
+    const sprintChild = section.issues
+      .flatMap((story) => story.children || [])
+      .find((issue) => String(issue._id) === String(issueId));
+
+    if (sprintChild) {
+      return sprintChild;
     }
   }
 
@@ -312,7 +347,7 @@ const findIssueById = (boardState, issueId) => {
 const getAllBoardIssues = (boardState) => [
   ...boardState.backlogIssues,
   ...boardState.sprintSections.flatMap((section) => section.issues),
-].filter(isBacklogPlanningIssue);
+].flatMap((story) => [story, ...(story.children || [])]);
 
 const moveIssueLocally = ({ boardState, issueId, destinationSprintId = "", overIssueId = "" }) => {
   const nextState = {
@@ -461,6 +496,9 @@ const BacklogPage = () => {
       teamId: "all",
       assigneeId: "all",
       epicId: "all",
+      sprintId: "all",
+      priority: "all",
+      status: "all",
     }));
   }, [filters.projectId, isProjectsLoading, projects]);
 
@@ -846,6 +884,9 @@ const BacklogPage = () => {
           teamId: "all",
           assigneeId: "all",
           epicId: "all",
+          sprintId: "all",
+          priority: "all",
+          status: "all",
         };
       });
       return;
@@ -1030,6 +1071,7 @@ const BacklogPage = () => {
         teams={availableTeams}
         members={availableMembers}
         epics={backlogData?.epics || []}
+        sprints={(backlogData?.sprintSections || []).map((section) => section.sprint)}
         permissions={permissions}
         selectedEpic={selectedEpic}
         onChange={handleFilterChange}
@@ -1296,6 +1338,12 @@ const BacklogPage = () => {
             payload,
           })
         }
+        onUpdateIssue={(id, payload) =>
+          updateStatusMutation.mutateAsync({
+            id,
+            payload,
+          })
+        }
         onUpdateStatus={(id, status) =>
           updateStatusMutation.mutateAsync({
             id,
@@ -1316,6 +1364,7 @@ const BacklogPage = () => {
         }
         initialEpic={epicDialogState.epic}
         issues={planningIssues}
+        members={availableMembers}
         isPending={
           createEpicMutation.isPending || updateEpicMutation.isPending || isEpicSubmitting
         }

@@ -18,7 +18,7 @@ import {
   getIssueStatusLabel,
   getIssueStatusVariant,
   getIssueTypeVariant,
-  ISSUE_WORKFLOW_STATUS_OPTIONS,
+  getWorkflowStatusOptionsForIssue,
   resolveIssueAssigneeId,
 } from "@/lib/issues";
 import { getProjectTeamMembers } from "@/lib/project-teams";
@@ -48,6 +48,15 @@ const createPlanningDraft = (issue) => ({
       : String(issue.storyPoints),
 });
 
+const createStoryDraft = (issue) => ({
+  acceptanceCriteria: Array.isArray(issue?.acceptanceCriteria)
+    ? issue.acceptanceCriteria.map((criterion) => ({ ...criterion }))
+    : [],
+  definitionOfDone: issue?.definitionOfDone || "",
+  labels: Array.isArray(issue?.labels) ? issue.labels.join(", ") : "",
+  timeEstimateMinutes: issue?.timeEstimateMinutes || 0,
+});
+
 const IssueDetailsDrawer = ({
   issue,
   open,
@@ -57,6 +66,7 @@ const IssueDetailsDrawer = ({
   sprints = [],
   permissions = {},
   onUpdatePlanning,
+  onUpdateIssue,
   onUpdateStatus,
   isPlanningPending = false,
   isStatusPending = false,
@@ -64,6 +74,7 @@ const IssueDetailsDrawer = ({
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [planningDraft, setPlanningDraft] = useState(createPlanningDraft(issue));
+  const [storyDraft, setStoryDraft] = useState(createStoryDraft(issue));
   const [commentText, setCommentText] = useState("");
   const [worklogDraft, setWorklogDraft] = useState({
     minutes: "",
@@ -84,6 +95,7 @@ const IssueDetailsDrawer = ({
     }
 
     setPlanningDraft(createPlanningDraft(issue));
+    setStoryDraft(createStoryDraft(issue));
     setSuggestionDraft({
       priority: issue.priority || "High",
       reason: "",
@@ -233,6 +245,106 @@ const IssueDetailsDrawer = ({
                 </p>
               </div>
             </div>
+
+            {issue.type === "Story" ? (
+              <form
+                className="space-y-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
+                onSubmit={async (event) => {
+                  event.preventDefault();
+
+                  try {
+                    setError("");
+                    await onUpdateIssue(issue._id, {
+                      acceptanceCriteria: storyDraft.acceptanceCriteria,
+                      definitionOfDone: storyDraft.definitionOfDone,
+                      labels: storyDraft.labels
+                        .split(",")
+                        .map((label) => label.trim())
+                        .filter(Boolean),
+                      timeEstimateMinutes: Number(storyDraft.timeEstimateMinutes || 0),
+                    });
+                    setFeedback("Story delivery criteria updated.");
+                  } catch (submitError) {
+                    setError(
+                      submitError.response?.data?.message ||
+                        "Unable to update Story criteria."
+                    );
+                  }
+                }}
+              >
+                <p className="text-sm font-semibold text-slate-950">Story Delivery</p>
+                <label className="block space-y-2">
+                  <span className="text-xs uppercase tracking-[0.22em] text-slate-500">
+                    Definition of Done
+                  </span>
+                  <Textarea
+                    value={storyDraft.definitionOfDone}
+                    onChange={(event) =>
+                      setStoryDraft((current) => ({
+                        ...current,
+                        definitionOfDone: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <div className="space-y-2">
+                  <span className="text-xs uppercase tracking-[0.22em] text-slate-500">
+                    Acceptance Criteria
+                  </span>
+                  {storyDraft.acceptanceCriteria.map((criterion, index) => (
+                    <label
+                      key={criterion._id || `${criterion.text}-${index}`}
+                      className="flex items-start gap-3 rounded-xl border border-slate-200 px-3 py-2"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4"
+                        checked={Boolean(criterion.completed)}
+                        onChange={(event) =>
+                          setStoryDraft((current) => ({
+                            ...current,
+                            acceptanceCriteria: current.acceptanceCriteria.map(
+                              (item, itemIndex) =>
+                                itemIndex === index
+                                  ? { ...item, completed: event.target.checked }
+                                  : item
+                            ),
+                          }))
+                        }
+                      />
+                      <span className="text-sm text-slate-700">{criterion.text}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Input
+                    value={storyDraft.labels}
+                    placeholder="Labels, comma separated"
+                    onChange={(event) =>
+                      setStoryDraft((current) => ({
+                        ...current,
+                        labels: event.target.value,
+                      }))
+                    }
+                  />
+                  <Input
+                    type="number"
+                    min="0"
+                    value={storyDraft.timeEstimateMinutes}
+                    placeholder="Estimate in minutes"
+                    onChange={(event) =>
+                      setStoryDraft((current) => ({
+                        ...current,
+                        timeEstimateMinutes: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <Button type="submit" disabled={!canUpdateStatus || isPlanningPending}>
+                  Save Story
+                </Button>
+              </form>
+            ) : null}
 
             <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-3">
@@ -438,7 +550,7 @@ const IssueDetailsDrawer = ({
                     }
                   }}
                 >
-                  {ISSUE_WORKFLOW_STATUS_OPTIONS.map((option) => (
+                  {getWorkflowStatusOptionsForIssue(issue).map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>

@@ -18,6 +18,10 @@ const {
   sendIssueEmail,
 } = require("../services/emailService");
 const { scheduleIssueStateNotifications } = require("../services/sprintNotificationService");
+const {
+  syncStoryProgress,
+  validateStoryCompletion,
+} = require("../services/storyProgressService");
 const { emitBugWorkflowEvent } = require("../socket");
 const { notifyIssueEvent } = require("../services/notificationService");
 const asyncHandler = require("../utils/asyncHandler");
@@ -43,6 +47,11 @@ const {
   getCanonicalIssueType,
   isValidIssueType,
 } = require("../utils/issueTypes");
+const {
+  STORY_STATUS,
+  isStoryChildType,
+  isStoryType,
+} = require("../utils/storyWorkflow");
 const { getNextPlanningOrder } = require("../utils/planningOrder");
 const {
   COMPLETED_STATUS_QUERY_VALUES,
@@ -1304,6 +1313,52 @@ const ensureDependencyIssueForProject = async ({
   return {
     dependencyIssue,
   };
+};
+
+const ensureParentStoryForProject = async ({
+  parentStoryId,
+  projectId,
+  required = false,
+}) => {
+  if (!parentStoryId) {
+    return required
+      ? {
+          error: {
+            status: 400,
+            message: "Tasks and Bugs require a parent Story",
+          },
+        }
+      : { story: null };
+  }
+
+  if (!mongoose.isValidObjectId(parentStoryId)) {
+    return {
+      error: {
+        status: 400,
+        message: "Invalid parent Story id",
+      },
+    };
+  }
+
+  const story = await Issue.findOne({
+    _id: parentStoryId,
+    projectId,
+    type: ISSUE_TYPES.STORY,
+    isDeleted: { $ne: true },
+  })
+    .select("_id projectId teamId epicId sprintId assignee status")
+    .lean();
+
+  if (!story) {
+    return {
+      error: {
+        status: 404,
+        message: "Parent Story could not be found in the selected project",
+      },
+    };
+  }
+
+  return { story };
 };
 
 const ensureEpicForProject = async ({ epicId, projectId, requireActive = false }) => {
@@ -2927,6 +2982,8 @@ const createIssue = asyncHandler(async (req, res) => {
     sprintId,
     dueAt,
     dependsOnIssueId,
+    parentStoryId,
+    parentTaskId,
   } = req.body;
   const assigneeId = resolveAssigneeInput(req.body);
   const hasEpicInput = hasOwnField(req.body, "epicId");
@@ -2935,6 +2992,8 @@ const createIssue = asyncHandler(async (req, res) => {
   const normalizedType =
     req.user.role === ROLE_TESTER ? ISSUE_TYPES.BUG : getCanonicalIssueType(type, ISSUE_TYPES.TASK);
   const isBug = normalizedType === ISSUE_TYPES.BUG;
+  const isStory = normalizedType === ISSUE_TYPES.STORY;
+  const isStoryChild = isStoryChildType(normalizedType);
   const assignLater =
     isBug &&
     Boolean(getBugPayloadValue(req.body, "addToBucket", ["assignLater", "bucket"]));
@@ -2946,7 +3005,7 @@ const createIssue = asyncHandler(async (req, res) => {
         payload: req.body,
         currentStatus: BUG_STATUS.NEW,
       })
-    : status;
+    : status || (isStory ? STORY_STATUS.DRAFT : ISSUE_STATUS.TODO);
   const statusResult = parseIssueStatusInput(
     requestedStatus,
     isBug ? BUG_STATUS.NEW : ISSUE_STATUS.TODO
@@ -2982,9 +3041,12 @@ const createIssue = asyncHandler(async (req, res) => {
     throw new Error(`Type must be ${ISSUE_TYPE_VALUES.join(", ")}`);
   }
 
-  if (req.user.role === "Developer") {
+  if (
+    req.user.role === ROLE_DEVELOPER &&
+    ![ISSUE_TYPES.TASK, ISSUE_TYPES.SUB_TASK].includes(normalizedType)
+  ) {
     res.status(403);
-    throw new Error("Developers cannot create new issues");
+    throw new Error("Developers can create Tasks and Sub-tasks under assigned Stories");
   }
 
   if (req.user.role === "Tester" && normalizedType !== ISSUE_TYPES.BUG) {
@@ -3013,6 +3075,36 @@ const createIssue = asyncHandler(async (req, res) => {
   if (!project) {
     res.status(403);
     throw new Error("You do not have access to that project");
+  }
+
+  const parentStoryResult = await ensureParentStoryForProject({
+    parentStoryId,
+    projectId: project._id,
+    required: isStoryChild,
+  });
+
+  if (parentStoryResult.error) {
+    res.status(parentStoryResult.error.status);
+    throw new Error(parentStoryResult.error.message);
+  }
+
+  const parentStory = parentStoryResult.story;
+
+  if (
+    req.user.role === ROLE_DEVELOPER &&
+    String(parentStory?.assignee || "") !== String(req.user._id)
+  ) {
+    res.status(403);
+    throw new Error("Developers can only add Tasks to Stories assigned to them");
+  }
+
+  if (
+    parentStory?.teamId &&
+    teamId &&
+    String(parentStory.teamId) !== String(teamId)
+  ) {
+    res.status(400);
+    throw new Error("Task and Bug team must match the parent Story team");
   }
 
   const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
@@ -3100,13 +3192,13 @@ const createIssue = asyncHandler(async (req, res) => {
       status: "ACTIVE",
     });
 
-    if (activeEpicCount > 0 && !epicId) {
+    if (activeEpicCount > 0 && !epicId && !parentStory?.epicId) {
       res.status(400);
       throw new Error("Epic is required for projects that contain epics");
     }
 
     epicResult = await ensureEpicForProject({
-      epicId: epicId || null,
+      epicId: parentStory?.epicId || epicId || null,
       projectId: project._id,
       requireActive: true,
     });
@@ -3117,7 +3209,7 @@ const createIssue = asyncHandler(async (req, res) => {
     }
 
     sprintResult = await ensureSprintForIssue({
-      sprintId: sprintId || null,
+      sprintId: parentStory?.sprintId || sprintId || null,
       projectId: project._id,
       teamId,
     });
@@ -3233,10 +3325,28 @@ const createIssue = asyncHandler(async (req, res) => {
     testerOwnerName: forcedTesterOwnerName,
     projectId,
     teamId,
-    epicId: epicResult.epic?._id || null,
-    sprintId: sprintResult.sprint?._id || null,
+    epicId: parentStory?.epicId || epicResult.epic?._id || null,
+    sprintId: parentStory?.sprintId || sprintResult.sprint?._id || null,
     dueAt: dueAtResult.value,
     dependsOnIssueId: dependsOnIssueId || null,
+    dependencyIds: Array.isArray(req.body.dependencyIds) ? req.body.dependencyIds : [],
+    parentStoryId: parentStory?._id || null,
+    parentTaskId: parentTaskId || null,
+    storyPoints: req.body.storyPoints ?? null,
+    acceptanceCriteria: Array.isArray(req.body.acceptanceCriteria)
+      ? req.body.acceptanceCriteria
+      : [],
+    definitionOfDone: req.body.definitionOfDone || "",
+    labels: Array.isArray(req.body.labels) ? req.body.labels : [],
+    timeEstimateMinutes: Number(req.body.timeEstimateMinutes || 0),
+    remainingEstimateMinutes: Number(
+      req.body.remainingEstimateMinutes ?? req.body.timeEstimateMinutes ?? 0
+    ),
+    checklist: Array.isArray(req.body.checklist) ? req.body.checklist : [],
+    linkedBranches: Array.isArray(req.body.linkedBranches) ? req.body.linkedBranches : [],
+    linkedPullRequests: Array.isArray(req.body.linkedPullRequests)
+      ? req.body.linkedPullRequests
+      : [],
     bugDetails,
     planningOrder,
     startedAt: isInProgressIssueStatus(statusResult.value) ? new Date() : null,
@@ -3257,6 +3367,10 @@ const createIssue = asyncHandler(async (req, res) => {
   });
 
   await populateIssueDocument(issue);
+
+  if (parentStory?._id) {
+    await syncStoryProgress(parentStory._id);
+  }
 
   console.log("Bug saved", {
     bugId: issue.displayBugId || issue._id,
@@ -3443,6 +3557,18 @@ const updateIssue = asyncHandler(async (req, res) => {
           "assignee",
           "dueAt",
           "dependsOnIssueId",
+          "dependencyIds",
+          "parentStoryId",
+          "parentTaskId",
+          "storyPoints",
+          "acceptanceCriteria",
+          "definitionOfDone",
+          "labels",
+          "timeEstimateMinutes",
+          "remainingEstimateMinutes",
+          "checklist",
+          "linkedBranches",
+          "linkedPullRequests",
           "bugDetails",
           "severity",
           "testerOwnerId",
@@ -3473,6 +3599,16 @@ const updateIssue = asyncHandler(async (req, res) => {
             "stepsToReproduce",
             "expectedResult",
             "actualResult",
+          ]
+      : isStoryType(issue.type)
+        ? [
+            "status",
+            "acceptanceCriteria",
+            "definitionOfDone",
+            "labels",
+            "timeEstimateMinutes",
+            "remainingEstimateMinutes",
+            "comment",
           ]
       : [
           "status",
@@ -3514,6 +3650,9 @@ const updateIssue = asyncHandler(async (req, res) => {
 
   const workspaceId = normalizeWorkspaceId(req.user.workspaceId);
   const previousSprintId = issue.sprintId ? String(issue.sprintId) : "";
+  const previousParentStoryId = issue.parentStoryId
+    ? String(issue.parentStoryId)
+    : "";
   const previousAssigneeId = issue.assignee ? String(issue.assignee) : "";
   const previousBugDeveloperId = isBugType(issue.type)
     ? getUserIdString(issue.bugDetails?.developerLead)
@@ -3661,6 +3800,7 @@ const updateIssue = asyncHandler(async (req, res) => {
   const hasAssigneeChange = hasAssigneeInput(req.body);
   const hasDueAtChange = hasOwnField(req.body, "dueAt");
   const hasDependencyChange = hasOwnField(req.body, "dependsOnIssueId");
+  const hasParentStoryChange = hasOwnField(req.body, "parentStoryId");
   const nextTeamId = hasTeamChange ? req.body.teamId || null : issue.teamId || null;
   const nextEpicId =
     hasEpicChange || req.body.projectId
@@ -3676,6 +3816,9 @@ const updateIssue = asyncHandler(async (req, res) => {
   const nextDependsOnIssueId = hasDependencyChange
     ? req.body.dependsOnIssueId || null
     : issue.dependsOnIssueId || null;
+  const nextParentStoryId = hasParentStoryChange
+    ? req.body.parentStoryId || null
+    : issue.parentStoryId || null;
   const hasProjectChange =
     Boolean(req.body.projectId) && String(req.body.projectId) !== String(issue.projectId || "");
   const isTeamChanged =
@@ -3901,6 +4044,39 @@ const updateIssue = asyncHandler(async (req, res) => {
     }
   }
 
+  const isConvertingToStoryChild =
+    !isStoryChildType(issue.type) && isStoryChildType(nextType);
+
+  if (
+    hasParentStoryChange ||
+    isConvertingToStoryChild ||
+    (hasProjectChange && Boolean(nextParentStoryId)) ||
+    Boolean(issue.parentStoryId)
+  ) {
+    const parentStoryResult = await ensureParentStoryForProject({
+      parentStoryId: nextParentStoryId,
+      projectId: targetProject?._id || issue.projectId,
+      required:
+        isConvertingToStoryChild ||
+        hasParentStoryChange ||
+        Boolean(issue.parentStoryId),
+    });
+
+    if (parentStoryResult.error) {
+      res.status(parentStoryResult.error.status);
+      throw new Error(parentStoryResult.error.message);
+    }
+
+    if (
+      parentStoryResult.story?.teamId &&
+      nextTeamId &&
+      String(parentStoryResult.story.teamId) !== String(nextTeamId)
+    ) {
+      res.status(400);
+      throw new Error("Task and Bug team must match the parent Story team");
+    }
+  }
+
   if (hasTeamChange) {
     changeEntries.push({
       field: "teamId",
@@ -3957,6 +4133,44 @@ const updateIssue = asyncHandler(async (req, res) => {
     });
     issue.dependsOnIssueId = nextDependsOnIssueId;
   }
+
+  if (hasParentStoryChange) {
+    changeEntries.push({
+      field: "parentStoryId",
+      fromValue: issue.parentStoryId || null,
+      toValue: nextParentStoryId || null,
+    });
+    issue.parentStoryId = nextParentStoryId;
+  }
+
+  const structuredFields = [
+    "dependencyIds",
+    "acceptanceCriteria",
+    "labels",
+    "checklist",
+    "linkedBranches",
+    "linkedPullRequests",
+  ];
+  const scalarDeliveryFields = [
+    "definitionOfDone",
+    "storyPoints",
+    "timeEstimateMinutes",
+    "remainingEstimateMinutes",
+    "parentTaskId",
+  ];
+
+  [...structuredFields, ...scalarDeliveryFields].forEach((field) => {
+    if (!hasOwnField(req.body, field)) {
+      return;
+    }
+
+    changeEntries.push({
+      field,
+      fromValue: issue[field],
+      toValue: req.body[field],
+    });
+    issue[field] = req.body[field];
+  });
 
   if (nextIsBug && nextBugDetails) {
     const previousBugDetails = serializeBugDetails(issue.bugDetails || {});
@@ -4063,7 +4277,22 @@ const updateIssue = asyncHandler(async (req, res) => {
     }
   }
 
+  const storyCompletionBlocker = await validateStoryCompletion(issue);
+
+  if (storyCompletionBlocker) {
+    res.status(409);
+    throw new Error(storyCompletionBlocker);
+  }
+
   await issue.save();
+
+  const storyIdsToSync = new Set(
+    [previousParentStoryId, issue.parentStoryId ? String(issue.parentStoryId) : ""].filter(
+      Boolean
+    )
+  );
+
+  await Promise.all(Array.from(storyIdsToSync).map(syncStoryProgress));
   await populateIssueDocument(issue);
 
   console.log("Bug saved", {

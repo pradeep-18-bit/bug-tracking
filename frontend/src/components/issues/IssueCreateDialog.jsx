@@ -21,6 +21,7 @@ import {
 } from "@/lib/issues";
 import {
   fetchEpics,
+  fetchIssues,
   fetchProjectTeams,
   fetchSprints,
   logTeamSelectionDebug,
@@ -99,6 +100,12 @@ const buildInitialState = ({
     sprintId: "",
     dueAt: "",
     dependsOnIssueId: "",
+    parentStoryId: "",
+    storyPoints: "",
+    acceptanceCriteria: "",
+    definitionOfDone: "",
+    labels: "",
+    timeEstimateMinutes: "",
     bugDetails: {
       severity: "",
       testerOwnerId: "",
@@ -429,6 +436,12 @@ const IssueCreateDialog = ({
     enabled: open && canManagePlanningFields && Boolean(selectedProjectId),
     refetchOnMount: "always",
   });
+  const { data: projectStoriesData = [] } = useQuery({
+    queryKey: ["project-stories", selectedProjectId],
+    queryFn: () => fetchIssues({ projectId: selectedProjectId, type: "Story" }),
+    enabled: open && Boolean(selectedProjectId),
+    refetchOnMount: "always",
+  });
   const selectedProjectTeams = useMemo(
     () => getProjectTeams(selectedProject),
     [selectedProject]
@@ -513,6 +526,31 @@ const IssueCreateDialog = ({
       ) || null,
     [dependencyOptions, formData.dependsOnIssueId]
   );
+  const storyOptions = useMemo(
+    () =>
+      [...projectStoriesData, ...availableIssues]
+        .filter(
+          (issue, index, issues) =>
+            issues.findIndex(
+              (candidate) => String(candidate._id) === String(issue._id)
+            ) === index
+        )
+        .filter(
+          (issue) =>
+            issue.type === "Story" &&
+            resolveIssueProjectId(issue) === String(formData.projectId)
+        )
+        .map(buildDependencyOption),
+    [availableIssues, formData.projectId, projectStoriesData]
+  );
+  const selectedStoryOption = useMemo(
+    () =>
+      storyOptions.find(
+        (story) => story.value === String(formData.parentStoryId)
+      ) || null,
+    [formData.parentStoryId, storyOptions]
+  );
+  const requiresParentStory = ["Task", "Sub-task", "Bug"].includes(formData.type);
   const activeEpicOptions = useMemo(
     () =>
       (Array.isArray(projectEpicsData) ? projectEpicsData : [])
@@ -701,8 +739,25 @@ const IssueCreateDialog = ({
     setFormData((current) => ({
       ...current,
       dependsOnIssueId: "",
+      parentStoryId: "",
     }));
   }, [dependencyOptions, formData.dependsOnIssueId]);
+
+  useEffect(() => {
+    if (
+      !formData.parentStoryId ||
+      storyOptions.some(
+        (story) => story.value === String(formData.parentStoryId)
+      )
+    ) {
+      return;
+    }
+
+    setFormData((current) => ({
+      ...current,
+      parentStoryId: "",
+    }));
+  }, [formData.parentStoryId, storyOptions]);
 
   useEffect(() => {
     if (
@@ -812,6 +867,14 @@ const IssueCreateDialog = ({
       return;
     }
 
+    if (
+      requiresParentStory &&
+      !storyOptions.some((story) => story.value === String(formData.parentStoryId))
+    ) {
+      setError("Choose a parent Story for every Task or Bug.");
+      return;
+    }
+
     if (canManagePlanningFields) {
       if (activeEpicOptions.length && !formData.epicId) {
         setError("Epic is required for this project.");
@@ -867,7 +930,32 @@ const IssueCreateDialog = ({
       type: formData.type,
       dueAt: formData.dueAt || null,
       dependsOnIssueId: formData.dependsOnIssueId || null,
-      status: isBugType ? ISSUE_STATUS.NEW : ISSUE_STATUS.TODO,
+      parentStoryId: formData.parentStoryId || null,
+      status:
+        isBugType
+          ? ISSUE_STATUS.NEW
+          : formData.type === "Story"
+            ? ISSUE_STATUS.DRAFT
+            : ISSUE_STATUS.TODO,
+      storyPoints:
+        formData.type === "Story" && formData.storyPoints !== ""
+          ? Number(formData.storyPoints)
+          : null,
+      acceptanceCriteria:
+        formData.type === "Story"
+          ? formData.acceptanceCriteria
+              .split("\n")
+              .map((text) => text.trim())
+              .filter(Boolean)
+              .map((text) => ({ text, completed: false }))
+          : [],
+      definitionOfDone:
+        formData.type === "Story" ? formData.definitionOfDone.trim() : "",
+      labels:
+        formData.type === "Story"
+          ? formData.labels.split(",").map((label) => label.trim()).filter(Boolean)
+          : [],
+      timeEstimateMinutes: Number(formData.timeEstimateMinutes || 0),
       ...(canManagePlanningFields
         ? {
             epicId: formData.epicId || null,
@@ -1194,6 +1282,73 @@ const IssueCreateDialog = ({
               />
             </div>
 
+            {formData.type === "Story" ? (
+              <div className="grid gap-3 rounded-[24px] border border-blue-100 bg-blue-50/40 p-3.5 md:grid-cols-2">
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Acceptance Criteria
+                  </span>
+                  <Textarea
+                    className="min-h-[112px] rounded-[18px] border-slate-200 bg-white"
+                    value={formData.acceptanceCriteria}
+                    onChange={(event) =>
+                      setFormData((current) => ({
+                        ...current,
+                        acceptanceCriteria: event.target.value,
+                      }))
+                    }
+                    placeholder="One criterion per line"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Definition of Done
+                  </span>
+                  <Textarea
+                    className="min-h-[112px] rounded-[18px] border-slate-200 bg-white"
+                    value={formData.definitionOfDone}
+                    onChange={(event) =>
+                      setFormData((current) => ({
+                        ...current,
+                        definitionOfDone: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Story Points
+                  </span>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={formData.storyPoints}
+                    onChange={(event) =>
+                      setFormData((current) => ({
+                        ...current,
+                        storyPoints: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Labels
+                  </span>
+                  <Input
+                    value={formData.labels}
+                    onChange={(event) =>
+                      setFormData((current) => ({
+                        ...current,
+                        labels: event.target.value,
+                      }))
+                    }
+                    placeholder="frontend, release"
+                  />
+                </label>
+              </div>
+            ) : null}
+
             {isBugType ? (
               <div className="rounded-[24px] border border-rose-100 bg-rose-50/50 p-3.5">
                 <div className="grid gap-3 md:grid-cols-3">
@@ -1455,7 +1610,9 @@ const IssueCreateDialog = ({
                         status:
                           event.target.value === "Bug"
                             ? ISSUE_STATUS.NEW
-                            : ISSUE_STATUS.TODO,
+                            : event.target.value === "Story"
+                              ? ISSUE_STATUS.DRAFT
+                              : ISSUE_STATUS.TODO,
                         priority:
                           event.target.value === "Bug" && current.priority === "Low"
                             ? "High"
@@ -1473,6 +1630,38 @@ const IssueCreateDialog = ({
                 </label>
               </div>
             </div>
+
+            {requiresParentStory ? (
+              <div className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Parent Story
+                </span>
+                <Select
+                  options={storyOptions}
+                  value={selectedStoryOption}
+                  onChange={(option) => {
+                    const story = option?.issue;
+
+                    setFormData((current) => ({
+                      ...current,
+                      parentStoryId: option?.value || "",
+                      teamId: story?.teamId?._id || story?.teamId || current.teamId,
+                      epicId: story?.epicId?._id || story?.epicId || current.epicId,
+                      sprintId:
+                        story?.sprintId?._id || story?.sprintId || current.sprintId,
+                    }));
+                  }}
+                  styles={issueSelectStyles}
+                  formatOptionLabel={formatDependencyLabel}
+                  isSearchable
+                  isDisabled={!formData.projectId || isSubmitPending}
+                  menuPortalTarget={menuPortalTarget}
+                  {...baseSelectProps}
+                  placeholder="Select parent Story"
+                  noOptionsMessage={() => "Create a Story in this project first."}
+                />
+              </div>
+            ) : null}
 
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-1.5">

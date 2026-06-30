@@ -32,7 +32,12 @@ import {
   getSuggestedTeamForCategory,
 } from "@/lib/issues";
 import BugCategorySelect from "@/components/issues/BugCategorySelect";
-import { fetchModuleOwnerships, fetchProjectTeams, logTeamSelectionDebug } from "@/lib/api";
+import {
+  fetchIssues,
+  fetchModuleOwnerships,
+  fetchProjectTeams,
+  logTeamSelectionDebug,
+} from "@/lib/api";
 import {
   findProjectById,
   getProjectMembers,
@@ -110,6 +115,7 @@ const buildInitialState = ({
     projectId,
     teamId,
     assigneeId,
+    parentStoryId: "",
     bugDetails: {
       moduleName: "",
       category: "",
@@ -188,6 +194,11 @@ const IssueComposer = ({
     queryKey: ["module-ownerships"],
     queryFn: fetchModuleOwnerships,
     enabled: isTesterBugReport,
+  });
+  const { data: projectStories = [] } = useQuery({
+    queryKey: ["project-stories", selectedProjectId],
+    queryFn: () => fetchIssues({ projectId: selectedProjectId, type: "Story" }),
+    enabled: Boolean(selectedProjectId),
   });
   const selectedProjectTeams = useMemo(
     () => getProjectTeams(selectedProject),
@@ -417,6 +428,7 @@ const IssueComposer = ({
             defaultAssigneeKey
           ),
           assigneeId: "",
+          parentStoryId: "",
           bugDetails: {
             ...current.bugDetails,
             testerOwnerId: defaultAssigneeKey,
@@ -506,6 +518,14 @@ const IssueComposer = ({
       return;
     }
 
+    if (
+      ["Task", "Sub-task", "Bug"].includes(formData.type) &&
+      !formData.parentStoryId
+    ) {
+      setError("Select a parent Story before creating this work item.");
+      return;
+    }
+
     if (submitBlockedMessage) {
       setError(submitBlockedMessage);
       return;
@@ -549,6 +569,7 @@ const IssueComposer = ({
         priority: formData.priority,
         projectId: formData.projectId,
         teamId: formData.teamId,
+        parentStoryId: formData.parentStoryId || null,
         assigneeId: (isTesterBugReport && !formData.bugDetails.developerLeadId)
           ? null
           : isTesterBugReport
@@ -638,6 +659,37 @@ const IssueComposer = ({
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
           {submitBlockedMessage}
         </div>
+      ) : null}
+
+      {["Task", "Sub-task", "Bug"].includes(formData.type) ? (
+        <label className={isTesterBugReport ? testerFieldGroupClass : "space-y-2"}>
+          <span className={isTesterBugReport ? testerFieldLabelClass : "text-sm font-medium text-gray-700"}>
+            Parent Story
+          </span>
+          <select
+            className={isTesterBugReport ? testerSelectClass : "field-select"}
+            value={formData.parentStoryId}
+            onChange={(event) => {
+              const story = projectStories.find(
+                (candidate) => String(candidate._id) === event.target.value
+              );
+
+              setFormData((current) => ({
+                ...current,
+                parentStoryId: event.target.value,
+                teamId: story?.teamId?._id || story?.teamId || current.teamId,
+              }));
+            }}
+            disabled={!formData.projectId}
+          >
+            <option value="">Select parent Story</option>
+            {projectStories.map((story) => (
+              <option key={story._id} value={story._id}>
+                {story.displayBugId || story.issueKey || "Story"} - {story.title}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : null}
 
       {!isTesterBugReport ? (
