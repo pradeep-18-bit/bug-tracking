@@ -1098,7 +1098,7 @@ const DeveloperReportsDashboard = ({ user }) => {
 
   return (
     <div className="space-y-6">
-      <div className="sticky top-0 z-30 rounded-[18px] border border-white/65 bg-slate-50/95 p-3 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.45)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/92">
+      <div className="rounded-[18px] border border-white/65 bg-slate-50/95 p-3 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.45)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/92">
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_0.8fr_0.8fr_auto]">
             <select
               className={developerFilterControlClass}
