@@ -509,35 +509,34 @@ const RoleRatingCard = ({ metrics, title = "My Performance Rating" }) => {
   const stars = Math.max(1, Math.min(5, Math.round(metrics.score / 20)));
 
   return (
-    <div className="flex min-h-16 min-w-[260px] flex-1 items-center gap-3 rounded-[22px] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.96),rgba(30,64,175,0.92),rgba(8,145,178,0.86))] px-4 py-3 text-white shadow-[0_18px_42px_-26px_rgba(37,99,235,0.85)] backdrop-blur-xl sm:max-w-[420px]">
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/12 text-amber-300">
-        <Trophy className="h-5 w-5" />
+    <div className="flex min-h-11 min-w-[250px] flex-1 items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur-xl transition hover:border-blue-200 hover:shadow-md sm:max-w-[360px]">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-amber-100 bg-amber-50 text-amber-600">
+        <Trophy className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate text-xs font-bold uppercase tracking-[0.18em] text-blue-100">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
               {title}
             </p>
-            <p className="mt-0.5 text-sm font-semibold text-white">
+            <p className="truncate text-sm font-semibold text-slate-950">
               {ratingLabel(metrics.score)} · {metrics.score}/100
             </p>
           </div>
-          <div className="flex shrink-0 gap-0.5 text-amber-300">
-            {Array.from({ length: 5 }).map((_, index) => (
-              <Star
-                className={cn("h-3.5 w-3.5", index < stars ? "fill-current" : "opacity-30")}
-                key={index}
-              />
-            ))}
+          <div className="flex shrink-0 items-center gap-1">
+            <span className="text-xs font-bold text-slate-700">{stars}/5</span>
+            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
           </div>
         </div>
-        <div className="mt-2 grid grid-cols-3 gap-2 text-center text-[11px]">
+        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px]">
           {metrics.items.map((item) => (
-            <div className="rounded-xl bg-white/12 px-2 py-1.5" key={item.label}>
-              <p className="font-bold text-white">{item.value}</p>
-              <p className="truncate text-blue-100">{item.label}</p>
-            </div>
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-500"
+              key={item.label}
+            >
+              <span className="font-semibold text-slate-800">{item.value}</span>
+              {item.label}
+            </span>
           ))}
         </div>
       </div>
