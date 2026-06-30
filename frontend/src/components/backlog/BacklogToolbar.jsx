@@ -82,7 +82,7 @@ const BacklogToolbar = ({
   }, [advancedOpen]);
 
   return (
-    <Card className="overflow-visible border-white/70 bg-white/90 shadow-[0_14px_42px_-34px_rgba(15,23,42,0.42)] backdrop-blur-xl">
+    <Card className="relative z-[70] overflow-visible border-white/70 bg-white/90 shadow-[0_14px_42px_-34px_rgba(15,23,42,0.42)] backdrop-blur-xl">
       <CardContent className="space-y-2.5 p-3 sm:p-4">
         <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap items-center gap-2">
