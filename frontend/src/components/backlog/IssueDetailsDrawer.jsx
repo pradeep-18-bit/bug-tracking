@@ -634,8 +634,10 @@ const IssueDetailsDrawer = ({
           </section>
 
           <section className="space-y-5">
-            <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-950">Discussion</p>
+            <details open className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-950">
+                Discussion
+              </summary>
               <form
                 className="mt-4 space-y-3"
                 onSubmit={async (event) => {
@@ -702,10 +704,12 @@ const IssueDetailsDrawer = ({
                   </div>
                 )}
               </div>
-            </div>
+            </details>
 
-            <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-950">Attachments</p>
+            <details className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-950">
+                Attachments
+              </summary>
               <div className="mt-4 flex flex-col gap-3">
                 <Input
                   type="file"
@@ -762,10 +766,12 @@ const IssueDetailsDrawer = ({
                   </div>
                 )}
               </div>
-            </div>
+            </details>
 
-            <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-950">Work Log</p>
+            <details className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-950">
+                Work Log
+              </summary>
               <form
                 className="mt-4 space-y-4"
                 onSubmit={async (event) => {
@@ -854,10 +860,12 @@ const IssueDetailsDrawer = ({
                   </div>
                 )}
               </div>
-            </div>
+            </details>
 
-            <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-950">History</p>
+            <details className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-950">
+                History
+              </summary>
               <div className="mt-4 space-y-3">
                 {history.length ? (
                   history.map((entry) => (
@@ -890,7 +898,7 @@ const IssueDetailsDrawer = ({
                   </div>
                 )}
               </div>
-            </div>
+            </details>
           </section>
         </div>
 

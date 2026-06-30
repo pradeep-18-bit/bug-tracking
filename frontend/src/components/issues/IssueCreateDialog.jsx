@@ -9,11 +9,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   BUG_PRIORITY_OPTIONS,
-  BUG_SEVERITY_OPTIONS,
-  BUG_STATUS_OPTIONS,
   ISSUE_STATUS,
   ISSUE_TYPE_OPTIONS,
   getIssueDisplayKey,
@@ -396,7 +393,6 @@ const IssueCreateDialog = ({
   const [assignEntireTeam, setAssignEntireTeam] = useState(false);
   const [isSequenceSubmitting, setIsSequenceSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [attachmentFiles, setAttachmentFiles] = useState([]);
   const { role } = useAuth();
   const canManagePlanningFields = hasAdminPanelAccess(role);
 
@@ -653,7 +649,6 @@ const IssueCreateDialog = ({
     setAssignEntireTeam(false);
     setIsSequenceSubmitting(false);
     setError("");
-    setAttachmentFiles([]);
   }, [defaultProjectId, defaultTeamId, open, projects, resolvedDefaultType]);
 
   useEffect(() => {
@@ -858,16 +853,6 @@ const IssueCreateDialog = ({
     }
 
     if (
-      formData.dependsOnIssueId &&
-      !dependencyOptions.some(
-        (issue) => issue.value === String(formData.dependsOnIssueId)
-      )
-    ) {
-      setError("Choose a dependency from the selected project.");
-      return;
-    }
-
-    if (
       requiresParentStory &&
       !storyOptions.some((story) => story.value === String(formData.parentStoryId))
     ) {
@@ -904,32 +889,21 @@ const IssueCreateDialog = ({
     }
 
     if (isBugType) {
-      if (!formData.bugDetails.severity || !formData.priority) {
-        setError("Severity and priority are required for bugs.");
-        return;
-      }
-
-      if (
-        !formData.bugDetails.stepsToReproduce.trim() ||
-        !formData.bugDetails.expectedResult.trim() ||
-        !formData.bugDetails.actualResult.trim()
-      ) {
-        setError(
-          "Steps to Reproduce, Expected Result, and Actual Result are required for bugs."
-        );
+      if (!formData.priority) {
+        setError("Priority is required for bugs.");
         return;
       }
     }
 
     const basePayload = {
       title: formData.title.trim(),
-      description: formData.description.trim(),
+      description: "",
       projectId: formData.projectId,
       teamId: formData.teamId,
       priority: formData.priority,
       type: formData.type,
-      dueAt: formData.dueAt || null,
-      dependsOnIssueId: formData.dependsOnIssueId || null,
+      dueAt: null,
+      dependsOnIssueId: null,
       parentStoryId: formData.parentStoryId || null,
       status:
         isBugType
@@ -937,25 +911,11 @@ const IssueCreateDialog = ({
           : formData.type === "Story"
             ? ISSUE_STATUS.DRAFT
             : ISSUE_STATUS.TODO,
-      storyPoints:
-        formData.type === "Story" && formData.storyPoints !== ""
-          ? Number(formData.storyPoints)
-          : null,
-      acceptanceCriteria:
-        formData.type === "Story"
-          ? formData.acceptanceCriteria
-              .split("\n")
-              .map((text) => text.trim())
-              .filter(Boolean)
-              .map((text) => ({ text, completed: false }))
-          : [],
-      definitionOfDone:
-        formData.type === "Story" ? formData.definitionOfDone.trim() : "",
-      labels:
-        formData.type === "Story"
-          ? formData.labels.split(",").map((label) => label.trim()).filter(Boolean)
-          : [],
-      timeEstimateMinutes: Number(formData.timeEstimateMinutes || 0),
+      storyPoints: null,
+      acceptanceCriteria: [],
+      definitionOfDone: "",
+      labels: [],
+      timeEstimateMinutes: 0,
       ...(canManagePlanningFields
         ? {
             epicId: formData.epicId || null,
@@ -965,12 +925,12 @@ const IssueCreateDialog = ({
       ...(isBugType
         ? {
             bugDetails: {
-              severity: formData.bugDetails.severity,
+              severity: formData.bugDetails.severity || "Major",
               testerOwnerId: formData.bugDetails.testerOwnerId || null,
               developerLeadId: formData.bugDetails.developerLeadId || null,
-              stepsToReproduce: formData.bugDetails.stepsToReproduce.trim(),
-              expectedResult: formData.bugDetails.expectedResult.trim(),
-              actualResult: formData.bugDetails.actualResult.trim(),
+              stepsToReproduce: "",
+              expectedResult: "",
+              actualResult: "",
             },
           }
         : {}),
@@ -995,22 +955,7 @@ const IssueCreateDialog = ({
       setIsSequenceSubmitting(payloads.length > 1);
 
       for (const payload of payloads) {
-        const createdIssue = await onSubmit(payload);
-
-        if (
-          isBugType &&
-          attachmentFiles.length &&
-          createdIssue?._id &&
-          typeof onUploadAttachment === "function"
-        ) {
-          for (const file of attachmentFiles) {
-            await onUploadAttachment({
-              issueId: createdIssue._id,
-              file,
-            });
-          }
-        }
-
+        await onSubmit(payload);
         createdCount += 1;
       }
 
@@ -1035,7 +980,7 @@ const IssueCreateDialog = ({
         <div className="max-h-[90vh] overflow-y-auto overflow-x-visible">
           <DialogHeader className="sticky top-0 z-20 border-b border-slate-200/80 bg-white px-5 py-3.5 sm:px-6">
             <DialogTitle className="text-2xl tracking-tight text-slate-950">
-              Assign task
+              Create work item
             </DialogTitle>
           </DialogHeader>
 
@@ -1266,335 +1211,30 @@ const IssueCreateDialog = ({
               </div>
             ) : null}
 
-            <div className="space-y-1.5">
-              <SectionLabel title="Description" />
-              <Textarea
-                className="min-h-[112px] rounded-[22px] border-slate-200 shadow-none focus-visible:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-500/10"
-                value={formData.description}
-                onChange={(event) =>
-                  setFormData((current) => ({
-                    ...current,
-                    description: event.target.value,
-                  }))
-                }
-                placeholder="Add context, acceptance notes, or implementation details."
-                disabled={isSubmitPending}
-              />
-            </div>
-
-            {formData.type === "Story" ? (
-              <div className="grid gap-3 rounded-[24px] border border-blue-100 bg-blue-50/40 p-3.5 md:grid-cols-2">
-                <label className="space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Acceptance Criteria
-                  </span>
-                  <Textarea
-                    className="min-h-[112px] rounded-[18px] border-slate-200 bg-white"
-                    value={formData.acceptanceCriteria}
-                    onChange={(event) =>
-                      setFormData((current) => ({
-                        ...current,
-                        acceptanceCriteria: event.target.value,
-                      }))
-                    }
-                    placeholder="One criterion per line"
-                  />
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Definition of Done
-                  </span>
-                  <Textarea
-                    className="min-h-[112px] rounded-[18px] border-slate-200 bg-white"
-                    value={formData.definitionOfDone}
-                    onChange={(event) =>
-                      setFormData((current) => ({
-                        ...current,
-                        definitionOfDone: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Story Points
-                  </span>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={formData.storyPoints}
-                    onChange={(event) =>
-                      setFormData((current) => ({
-                        ...current,
-                        storyPoints: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Labels
-                  </span>
-                  <Input
-                    value={formData.labels}
-                    onChange={(event) =>
-                      setFormData((current) => ({
-                        ...current,
-                        labels: event.target.value,
-                      }))
-                    }
-                    placeholder="frontend, release"
-                  />
-                </label>
-              </div>
-            ) : null}
-
-            {isBugType ? (
-              <div className="rounded-[24px] border border-rose-100 bg-rose-50/50 p-3.5">
-                <div className="grid gap-3 md:grid-cols-3">
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                      Severity
-                    </span>
-                    <select
-                      className="field-select rounded-2xl"
-                      value={formData.bugDetails.severity}
-                      onChange={(event) =>
-                        setFormData((current) => ({
-                          ...current,
-                          bugDetails: {
-                            ...current.bugDetails,
-                            severity: event.target.value,
-                          },
-                        }))
-                      }
-                      disabled={isSubmitPending}
-                    >
-                      <option value="">Select severity</option>
-                      {BUG_SEVERITY_OPTIONS.map((severity) => (
-                        <option key={severity} value={severity}>
-                          {severity}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                      Priority
-                    </span>
-                    <select
-                      className="field-select rounded-2xl"
-                      value={formData.priority}
-                      onChange={(event) =>
-                        setFormData((current) => ({
-                          ...current,
-                          priority: event.target.value,
-                        }))
-                      }
-                      disabled={isSubmitPending}
-                    >
-                      {BUG_PRIORITY_OPTIONS.map((priorityOption) => (
-                        <option key={priorityOption} value={priorityOption}>
-                          {priorityOption}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                      Status
-                    </span>
-                    <select
-                      className="field-select rounded-2xl"
-                      value={formData.status}
-                      onChange={(event) =>
-                        setFormData((current) => ({
-                          ...current,
-                          status: event.target.value,
-                        }))
-                      }
-                      disabled
-                    >
-                      {BUG_STATUS_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                      Tester / QA Owner
-                    </span>
-                    <select
-                      className="field-select rounded-2xl"
-                      value={formData.bugDetails.testerOwnerId}
-                      onChange={(event) =>
-                        setFormData((current) => ({
-                          ...current,
-                          bugDetails: {
-                            ...current.bugDetails,
-                            testerOwnerId: event.target.value,
-                          },
-                        }))
-                      }
-                      disabled={!formData.teamId || isSubmitPending}
-                    >
-                      <option value="">Unassigned</option>
-                      {qaOwnerOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                      Developer / Dev Lead
-                    </span>
-                    <select
-                      className="field-select rounded-2xl"
-                      value={formData.bugDetails.developerLeadId}
-                      onChange={(event) =>
-                        setFormData((current) => ({
-                          ...current,
-                          bugDetails: {
-                            ...current.bugDetails,
-                            developerLeadId: event.target.value,
-                          },
-                        }))
-                      }
-                      disabled={!formData.teamId || isSubmitPending}
-                    >
-                      <option value="">Unassigned</option>
-                      {developerLeadOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="mt-3 grid gap-3">
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                      Steps to Reproduce
-                    </span>
-                    <Textarea
-                      className="min-h-[96px] rounded-[22px] border-slate-200 bg-white shadow-none focus-visible:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-500/10"
-                      value={formData.bugDetails.stepsToReproduce}
-                      onChange={(event) =>
-                        setFormData((current) => ({
-                          ...current,
-                          bugDetails: {
-                            ...current.bugDetails,
-                            stepsToReproduce: event.target.value,
-                          },
-                        }))
-                      }
-                      disabled={isSubmitPending}
-                    />
-                  </label>
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <label className="space-y-1.5">
-                      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                        Expected Result
-                      </span>
-                      <Textarea
-                        className="min-h-[88px] rounded-[22px] border-slate-200 bg-white shadow-none focus-visible:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-500/10"
-                        value={formData.bugDetails.expectedResult}
-                        onChange={(event) =>
-                          setFormData((current) => ({
-                            ...current,
-                            bugDetails: {
-                              ...current.bugDetails,
-                              expectedResult: event.target.value,
-                            },
-                          }))
-                        }
-                        disabled={isSubmitPending}
-                      />
-                    </label>
-
-                    <label className="space-y-1.5">
-                      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                        Actual Result
-                      </span>
-                      <Textarea
-                        className="min-h-[88px] rounded-[22px] border-slate-200 bg-white shadow-none focus-visible:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-500/10"
-                        value={formData.bugDetails.actualResult}
-                        onChange={(event) =>
-                          setFormData((current) => ({
-                            ...current,
-                            bugDetails: {
-                              ...current.bugDetails,
-                              actualResult: event.target.value,
-                            },
-                          }))
-                        }
-                        disabled={isSubmitPending}
-                      />
-                    </label>
-                  </div>
-
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                      Attachments
-                    </span>
-                    <Input
-                      type="file"
-                      multiple
-                      className="h-12 rounded-2xl border-slate-200 bg-white shadow-none file:mr-3 file:rounded-xl file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700"
-                      onChange={(event) =>
-                        setAttachmentFiles(Array.from(event.target.files || []))
-                      }
-                      disabled={isSubmitPending}
-                    />
-                    {attachmentFiles.length ? (
-                      <p className="text-xs text-slate-500">
-                        {attachmentFiles.length} file
-                        {attachmentFiles.length === 1 ? "" : "s"} selected
-                      </p>
-                    ) : null}
-                  </label>
-                </div>
-              </div>
-            ) : null}
-
             <div className="border-t border-slate-200/80 pt-3">
-              <div className={`grid gap-3 ${isBugType ? "md:grid-cols-1" : "md:grid-cols-2"}`}>
-                {!isBugType ? (
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                      Priority
-                    </span>
-                    <select
-                      className="field-select rounded-2xl"
-                      value={formData.priority}
-                      onChange={(event) =>
-                        setFormData((current) => ({
-                          ...current,
-                          priority: event.target.value,
-                        }))
-                      }
-                      disabled={isSubmitPending}
-                    >
-                      {ISSUE_PRIORITIES.map((priority) => (
-                        <option key={priority} value={priority}>
-                          {priority}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Priority
+                  </span>
+                  <select
+                    className="field-select rounded-2xl"
+                    value={formData.priority}
+                    onChange={(event) =>
+                      setFormData((current) => ({
+                        ...current,
+                        priority: event.target.value,
+                      }))
+                    }
+                    disabled={isSubmitPending}
+                  >
+                    {(isBugType ? BUG_PRIORITY_OPTIONS : ISSUE_PRIORITIES).map((priority) => (
+                      <option key={priority} value={priority}>
+                        {priority}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
                 <label className="space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
@@ -1663,54 +1303,6 @@ const IssueCreateDialog = ({
               </div>
             ) : null}
 
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="space-y-1.5">
-                <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Due Date
-                </span>
-                <Input
-                  type="datetime-local"
-                  className="h-12 rounded-2xl border-slate-200 shadow-none focus-visible:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-500/10"
-                  value={formData.dueAt}
-                  onChange={(event) =>
-                    setFormData((current) => ({
-                      ...current,
-                      dueAt: event.target.value,
-                    }))
-                  }
-                  disabled={isSubmitPending}
-                />
-              </label>
-
-              <div className="space-y-1.5">
-                <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Dependency
-                </span>
-                <Select
-                  options={dependencyOptions}
-                  value={selectedDependencyOption}
-                  onChange={(option) =>
-                    setFormData((current) => ({
-                      ...current,
-                      dependsOnIssueId: option?.value || "",
-                    }))
-                  }
-                  styles={issueSelectStyles}
-                  formatOptionLabel={formatDependencyLabel}
-                  isClearable
-                  isDisabled={!formData.projectId || isSubmitPending}
-                  menuPortalTarget={menuPortalTarget}
-                  {...baseSelectProps}
-                  placeholder="No dependency"
-                  noOptionsMessage={() =>
-                    formData.projectId
-                      ? "No work items available in this project."
-                      : "Select a project first."
-                  }
-                />
-              </div>
-            </div>
-
             {error ? (
               <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-700">
                 {error}
@@ -1730,7 +1322,7 @@ const IssueCreateDialog = ({
                 type="submit"
                 disabled={isSubmitPending || Boolean(blockedMessage)}
               >
-                {isSubmitPending ? "Creating..." : "Assign task"}
+                {isSubmitPending ? "Creating..." : "Create"}
               </Button>
             </div>
           </form>

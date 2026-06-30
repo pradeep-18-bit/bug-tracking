@@ -541,19 +541,8 @@ const IssueComposer = ({
         return;
       }
 
-      if (!formData.bugDetails.severity || !formData.priority) {
-        setError("Severity and priority are required for bugs.");
-        return;
-      }
-
-      if (
-        !formData.bugDetails.stepsToReproduce.trim() ||
-        !formData.bugDetails.expectedResult.trim() ||
-        !formData.bugDetails.actualResult.trim()
-      ) {
-        setError(
-          "Steps to Reproduce, Expected Result, and Actual Result are required for bugs."
-        );
+      if (!formData.priority) {
+        setError("Priority is required for bugs.");
         return;
       }
     }
@@ -563,7 +552,7 @@ const IssueComposer = ({
 
       const createdIssue = await onSubmit({
         title: formData.title.trim(),
-        description: formData.description.trim(),
+        description: "",
         type: formData.type,
         status: isBugType ? ISSUE_STATUS.NEW : formData.status,
         priority: formData.priority,
@@ -589,36 +578,20 @@ const IssueComposer = ({
                 addToBucket: Boolean(formData.bugDetails.addToBucket),
                 sendToTriage: Boolean(formData.bugDetails.sendToTriage),
                 estimatedEffort: formData.bugDetails.estimatedEffort,
-                severity: formData.bugDetails.severity,
+                severity: formData.bugDetails.severity || "Major",
                 testerOwnerId: isTesterBugReport
                   ? defaultAssigneeKey || null
                   : formData.bugDetails.testerOwnerId || null,
                 developerLeadId: (formData.bugDetails.addToBucket || formData.bugDetails.sendToTriage)
                   ? null
                   : formData.bugDetails.developerLeadId || null,
-                stepsToReproduce: formData.bugDetails.stepsToReproduce.trim(),
-                expectedResult: formData.bugDetails.expectedResult.trim(),
-                actualResult: formData.bugDetails.actualResult.trim(),
+                stepsToReproduce: "",
+                expectedResult: "",
+                actualResult: "",
               },
             }
           : {}),
       });
-
-      if (
-        includeAttachments &&
-        attachmentFiles.length &&
-        createdIssue?._id &&
-        typeof onUploadAttachment === "function"
-      ) {
-        setIsUploadingAttachments(true);
-
-        for (const file of attachmentFiles) {
-          await onUploadAttachment({
-            issueId: createdIssue._id,
-            file,
-          });
-        }
-      }
 
       setFormData(
         buildInitialState({
