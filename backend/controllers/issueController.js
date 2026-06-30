@@ -49,7 +49,6 @@ const {
 } = require("../utils/issueTypes");
 const {
   STORY_STATUS,
-  isStoryChildType,
   isStoryType,
 } = require("../utils/storyWorkflow");
 const { getNextPlanningOrder } = require("../utils/planningOrder");
@@ -1318,17 +1317,9 @@ const ensureDependencyIssueForProject = async ({
 const ensureParentStoryForProject = async ({
   parentStoryId,
   projectId,
-  required = false,
 }) => {
   if (!parentStoryId) {
-    return required
-      ? {
-          error: {
-            status: 400,
-            message: "Tasks and Bugs require a parent Story",
-          },
-        }
-      : { story: null };
+    return { story: null };
   }
 
   if (!mongoose.isValidObjectId(parentStoryId)) {
@@ -2993,7 +2984,6 @@ const createIssue = asyncHandler(async (req, res) => {
     req.user.role === ROLE_TESTER ? ISSUE_TYPES.BUG : getCanonicalIssueType(type, ISSUE_TYPES.TASK);
   const isBug = normalizedType === ISSUE_TYPES.BUG;
   const isStory = normalizedType === ISSUE_TYPES.STORY;
-  const isStoryChild = isStoryChildType(normalizedType);
   const assignLater =
     isBug &&
     Boolean(getBugPayloadValue(req.body, "addToBucket", ["assignLater", "bucket"]));
@@ -3080,7 +3070,6 @@ const createIssue = asyncHandler(async (req, res) => {
   const parentStoryResult = await ensureParentStoryForProject({
     parentStoryId,
     projectId: project._id,
-    required: isStoryChild,
   });
 
   if (parentStoryResult.error) {
@@ -3092,6 +3081,7 @@ const createIssue = asyncHandler(async (req, res) => {
 
   if (
     req.user.role === ROLE_DEVELOPER &&
+    parentStory &&
     String(parentStory?.assignee || "") !== String(req.user._id)
   ) {
     res.status(403);
@@ -4044,22 +4034,14 @@ const updateIssue = asyncHandler(async (req, res) => {
     }
   }
 
-  const isConvertingToStoryChild =
-    !isStoryChildType(issue.type) && isStoryChildType(nextType);
-
   if (
     hasParentStoryChange ||
-    isConvertingToStoryChild ||
     (hasProjectChange && Boolean(nextParentStoryId)) ||
     Boolean(issue.parentStoryId)
   ) {
     const parentStoryResult = await ensureParentStoryForProject({
       parentStoryId: nextParentStoryId,
       projectId: targetProject?._id || issue.projectId,
-      required:
-        isConvertingToStoryChild ||
-        hasParentStoryChange ||
-        Boolean(issue.parentStoryId),
     });
 
     if (parentStoryResult.error) {

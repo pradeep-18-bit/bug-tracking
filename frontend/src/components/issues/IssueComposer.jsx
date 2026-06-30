@@ -518,14 +518,6 @@ const IssueComposer = ({
       return;
     }
 
-    if (
-      ["Task", "Sub-task", "Bug"].includes(formData.type) &&
-      !formData.parentStoryId
-    ) {
-      setError("Select a parent Story before creating this work item.");
-      return;
-    }
-
     if (submitBlockedMessage) {
       setError(submitBlockedMessage);
       return;
@@ -637,7 +629,7 @@ const IssueComposer = ({
       {["Task", "Sub-task", "Bug"].includes(formData.type) ? (
         <label className={isTesterBugReport ? testerFieldGroupClass : "space-y-2"}>
           <span className={isTesterBugReport ? testerFieldLabelClass : "text-sm font-medium text-gray-700"}>
-            Parent Story
+            Parent Story (Optional)
           </span>
           <select
             className={isTesterBugReport ? testerSelectClass : "field-select"}
@@ -655,7 +647,7 @@ const IssueComposer = ({
             }}
             disabled={!formData.projectId}
           >
-            <option value="">Select parent Story</option>
+            <option value="">No parent Story</option>
             {projectStories.map((story) => (
               <option key={story._id} value={story._id}>
                 {story.displayBugId || story.issueKey || "Story"} - {story.title}

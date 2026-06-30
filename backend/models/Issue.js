@@ -10,7 +10,6 @@ const {
   getCanonicalIssueType,
 } = require("../utils/issueTypes");
 const { BUG_SEVERITY_VALUES } = require("../utils/bugLifecycle");
-const { isStoryChildType } = require("../utils/storyWorkflow");
 
 const { Schema, model, models } = mongoose;
 
@@ -240,12 +239,6 @@ const issueSchema = new Schema(
       ref: "Issue",
       default: null,
       index: true,
-      required: [
-        function requireParentStoryForNewWork() {
-          return this.isNew && isStoryChildType(this.type);
-        },
-        "Tasks and Bugs require a parent Story",
-      ],
     },
     parentTaskId: {
       type: mongoose.Schema.Types.ObjectId,

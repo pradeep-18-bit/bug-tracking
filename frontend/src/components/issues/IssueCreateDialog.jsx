@@ -546,7 +546,7 @@ const IssueCreateDialog = ({
       ) || null,
     [formData.parentStoryId, storyOptions]
   );
-  const requiresParentStory = ["Task", "Sub-task", "Bug"].includes(formData.type);
+  const supportsParentStory = ["Task", "Sub-task", "Bug"].includes(formData.type);
   const activeEpicOptions = useMemo(
     () =>
       (Array.isArray(projectEpicsData) ? projectEpicsData : [])
@@ -849,14 +849,6 @@ const IssueCreateDialog = ({
       )
     ) {
       setError("Choose an assignee from the selected team.");
-      return;
-    }
-
-    if (
-      requiresParentStory &&
-      !storyOptions.some((story) => story.value === String(formData.parentStoryId))
-    ) {
-      setError("Choose a parent Story for every Task or Bug.");
       return;
     }
 
@@ -1271,10 +1263,10 @@ const IssueCreateDialog = ({
               </div>
             </div>
 
-            {requiresParentStory ? (
+            {supportsParentStory ? (
               <div className="space-y-1.5">
                 <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Parent Story
+                  Parent Story (Optional)
                 </span>
                 <Select
                   options={storyOptions}
@@ -1294,11 +1286,12 @@ const IssueCreateDialog = ({
                   styles={issueSelectStyles}
                   formatOptionLabel={formatDependencyLabel}
                   isSearchable
+                  isClearable
                   isDisabled={!formData.projectId || isSubmitPending}
                   menuPortalTarget={menuPortalTarget}
                   {...baseSelectProps}
-                  placeholder="Select parent Story"
-                  noOptionsMessage={() => "Create a Story in this project first."}
+                  placeholder="No parent Story"
+                  noOptionsMessage={() => "No Stories found in this project."}
                 />
               </div>
             ) : null}
