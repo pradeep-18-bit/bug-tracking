@@ -537,6 +537,15 @@ const IssueComposer = ({
         setError("Priority is required for bugs.");
         return;
       }
+
+      if (
+        !formData.bugDetails.stepsToReproduce.trim() ||
+        !formData.bugDetails.expectedResult.trim() ||
+        !formData.bugDetails.actualResult.trim()
+      ) {
+        setError("Steps to Reproduce, Expected Result, and Actual Result are required for bugs.");
+        return;
+      }
     }
 
     try {
@@ -577,9 +586,9 @@ const IssueComposer = ({
                 developerLeadId: (formData.bugDetails.addToBucket || formData.bugDetails.sendToTriage)
                   ? null
                   : formData.bugDetails.developerLeadId || null,
-                stepsToReproduce: "",
-                expectedResult: "",
-                actualResult: "",
+                stepsToReproduce: formData.bugDetails.stepsToReproduce.trim(),
+                expectedResult: formData.bugDetails.expectedResult.trim(),
+                actualResult: formData.bugDetails.actualResult.trim(),
               },
             }
           : {}),
