@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   BUG_PRIORITY_OPTIONS,
   ISSUE_STATUS,
@@ -593,6 +594,7 @@ const IssueCreateDialog = ({
     [formData.sprintId, sprintOptions]
   );
   const isBugType = formData.type === "Bug";
+  const isStoryType = formData.type === "Story";
   const qaOwnerOptions = useMemo(
     () =>
       projectMemberOptions.filter((option) => option.role === "Tester").length
@@ -902,7 +904,7 @@ const IssueCreateDialog = ({
 
     const basePayload = {
       title: formData.title.trim(),
-      description: "",
+      description: isStoryType ? formData.description.trim() : "",
       projectId: formData.projectId,
       teamId: formData.teamId,
       priority: formData.priority,
@@ -1037,6 +1039,24 @@ const IssueCreateDialog = ({
               </label>
             </div>
 
+            {isStoryType ? (
+              <label className="block space-y-1.5">
+                <span className="text-sm font-semibold text-slate-900">Description</span>
+                <Textarea
+                  className="min-h-[96px] rounded-2xl border-slate-200 text-sm shadow-none focus-visible:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-500/10"
+                  value={formData.description}
+                  onChange={(event) =>
+                    setFormData((current) => ({
+                      ...current,
+                      description: event.target.value,
+                    }))
+                  }
+                  placeholder="Add context, user value, acceptance notes, or scope details"
+                  disabled={isSubmitPending}
+                />
+              </label>
+            ) : null}
+
             <div className="rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-3 sm:p-3.5 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.35)]">
               <div className="space-y-3">
                 <SectionLabel
@@ -1073,6 +1093,33 @@ const IssueCreateDialog = ({
                       {...baseSelectProps}
                       placeholder="Select team"
                     />
+
+                    <label className="mt-2.5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-sm text-amber-900">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500/30"
+                        checked={assignToQueue}
+                        disabled={!formData.teamId || assignEntireTeam || isSubmitPending}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setAssignToQueue(checked);
+                          if (checked) {
+                            setFormData((current) => ({
+                              ...current,
+                              assigneeId: "",
+                            }));
+                          }
+                        }}
+                      />
+                      <span className="space-y-1">
+                        <span className="block font-medium text-amber-950">
+                          Add to Work Queue
+                        </span>
+                        <span className="block text-amber-800/80">
+                          Developers can pick this up later from the shared queue.
+                        </span>
+                      </span>
+                    </label>
                   </div>
 
                   <div className="space-y-2.5">
@@ -1133,33 +1180,6 @@ const IssueCreateDialog = ({
                           </span>
                           <span className="block text-slate-500">
                             When enabled, this creates one work item for each teammate.
-                          </span>
-                        </span>
-                      </label>
-
-                      <label className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-sm text-amber-900">
-                        <input
-                          type="checkbox"
-                          className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500/30"
-                          checked={assignToQueue}
-                          disabled={!formData.teamId || assignEntireTeam || isSubmitPending}
-                          onChange={(event) => {
-                            const checked = event.target.checked;
-                            setAssignToQueue(checked);
-                            if (checked) {
-                              setFormData((current) => ({
-                                ...current,
-                                assigneeId: "",
-                              }));
-                            }
-                          }}
-                        />
-                        <span className="space-y-1">
-                          <span className="block font-medium text-amber-950">
-                            Add to Work Queue
-                          </span>
-                          <span className="block text-amber-800/80">
-                            Developers can pick this up later from the shared queue.
                           </span>
                         </span>
                       </label>
