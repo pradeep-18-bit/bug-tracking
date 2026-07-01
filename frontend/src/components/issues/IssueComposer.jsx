@@ -859,7 +859,7 @@ const IssueComposer = ({
                   />
                   <span className="min-w-0">
                     <span className="block text-[13px] font-semibold leading-4 text-slate-800">
-                      Add to Bucket
+                      Add to Work Queue
                     </span>
                     <span className="block text-xs leading-4 text-slate-500">
                       Assign later

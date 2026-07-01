@@ -9,10 +9,12 @@ import {
   MessageSquare,
   Paperclip,
   Plus,
+  Trash2,
 } from "lucide-react";
 import {
   createComment,
   createIssue,
+  deleteIssue,
   downloadAttachment,
   fetchComments,
   fetchIssueAttachments,
@@ -88,6 +90,7 @@ const StoryDetails = ({ story, projects, stories, onBack, onChanged }) => {
   const canCreateTask =
     ADMIN_PANEL_ROLES.includes(role) || [ROLE_DEVELOPER, ROLE_TEAM_LEAD].includes(role);
   const canCreateBug = ADMIN_PANEL_ROLES.includes(role) || role === ROLE_TESTER;
+  const canDeleteStory = ADMIN_PANEL_ROLES.includes(role);
 
   const { data: comments = [], isLoading: commentsLoading } = useQuery({
     queryKey: ["comments", story._id, "story"],
@@ -122,6 +125,16 @@ const StoryDetails = ({ story, projects, stories, onBack, onChanged }) => {
       onChanged();
     },
   });
+  const deleteMutation = useMutation({
+    mutationFn: deleteIssue,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["stories"] });
+      await queryClient.invalidateQueries({ queryKey: ["issues"] });
+      await queryClient.invalidateQueries({ queryKey: ["backlog"] });
+      onChanged();
+      onBack();
+    },
+  });
   const commentMutation = useMutation({
     mutationFn: createComment,
     onSuccess: () => {
@@ -149,6 +162,23 @@ const StoryDetails = ({ story, projects, stories, onBack, onChanged }) => {
         <Button type="button" size="sm" variant="outline" onClick={() => setCreateType("Bug")}>
           <Bug className="h-4 w-4" />
           Bug
+        </Button>
+      ) : null}
+      {canDeleteStory ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+          disabled={deleteMutation.isPending}
+          onClick={() => {
+            if (window.confirm("Delete this Story? This will remove it from active Story lists.")) {
+              deleteMutation.mutate(story._id);
+            }
+          }}
+        >
+          <Trash2 className="h-4 w-4" />
+          {deleteMutation.isPending ? "Deleting..." : "Delete Story"}
         </Button>
       ) : null}
     </div>

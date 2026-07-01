@@ -394,6 +394,7 @@ const IssueCreateDialog = ({
     })
   );
   const [assignEntireTeam, setAssignEntireTeam] = useState(false);
+  const [assignToQueue, setAssignToQueue] = useState(false);
   const [isSequenceSubmitting, setIsSequenceSubmitting] = useState(false);
   const [error, setError] = useState("");
   const { role } = useAuth();
@@ -651,6 +652,7 @@ const IssueCreateDialog = ({
       })
     );
     setAssignEntireTeam(false);
+    setAssignToQueue(false);
     setIsSequenceSubmitting(false);
     setError("");
   }, [
@@ -794,7 +796,7 @@ const IssueCreateDialog = ({
   }, [formData.sprintId, sprintOptions]);
 
   useEffect(() => {
-    if (!assignEntireTeam) {
+    if (!assignEntireTeam && !assignToQueue) {
       return;
     }
 
@@ -802,7 +804,7 @@ const IssueCreateDialog = ({
       ...current,
       assigneeId: "",
     }));
-  }, [assignEntireTeam]);
+  }, [assignEntireTeam, assignToQueue]);
 
   const blockedMessage = useMemo(() => {
     if (!projects.length) {
@@ -919,6 +921,7 @@ const IssueCreateDialog = ({
       definitionOfDone: "",
       labels: [],
       timeEstimateMinutes: 0,
+      addToBucket: assignToQueue,
       ...(canManagePlanningFields
         ? {
             epicId: formData.epicId || null,
@@ -930,13 +933,18 @@ const IssueCreateDialog = ({
             bugDetails: {
               severity: formData.bugDetails.severity || "Major",
               testerOwnerId: formData.bugDetails.testerOwnerId || null,
-              developerLeadId: formData.bugDetails.developerLeadId || null,
+              developerLeadId: assignToQueue ? null : formData.bugDetails.developerLeadId || null,
+              addToBucket: assignToQueue,
               stepsToReproduce: "",
               expectedResult: "",
               actualResult: "",
             },
           }
-        : {}),
+        : {
+            bugDetails: {
+              addToBucket: assignToQueue,
+            },
+          }),
     };
 
     const payloads = assignEntireTeam
@@ -947,7 +955,7 @@ const IssueCreateDialog = ({
       : [
           {
             ...basePayload,
-            assigneeId: formData.assigneeId || null,
+            assigneeId: assignToQueue ? null : formData.assigneeId || null,
           },
         ];
 
@@ -1092,13 +1100,15 @@ const IssueCreateDialog = ({
                           formatOptionLabel={formatAssigneeOptionLabel}
                           isClearable
                           isDisabled={
-                            !formData.teamId || assignEntireTeam || isSubmitPending
+                            !formData.teamId || assignEntireTeam || assignToQueue || isSubmitPending
                           }
                           menuPortalTarget={menuPortalTarget}
                           {...baseSelectProps}
                           placeholder={
                             assignEntireTeam
                               ? "Disabled while team-wide assignment is enabled"
+                              : assignToQueue
+                                ? "Disabled while work queue is enabled"
                               : "Select assignee"
                           }
                           noOptionsMessage={() =>
@@ -1114,7 +1124,7 @@ const IssueCreateDialog = ({
                           type="checkbox"
                           className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30"
                           checked={assignEntireTeam}
-                          disabled={!formData.teamId || isSubmitPending}
+                          disabled={!formData.teamId || assignToQueue || isSubmitPending}
                           onChange={(event) => setAssignEntireTeam(event.target.checked)}
                         />
                         <span className="space-y-1">
@@ -1123,6 +1133,33 @@ const IssueCreateDialog = ({
                           </span>
                           <span className="block text-slate-500">
                             When enabled, this creates one work item for each teammate.
+                          </span>
+                        </span>
+                      </label>
+
+                      <label className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-sm text-amber-900">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500/30"
+                          checked={assignToQueue}
+                          disabled={!formData.teamId || assignEntireTeam || isSubmitPending}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            setAssignToQueue(checked);
+                            if (checked) {
+                              setFormData((current) => ({
+                                ...current,
+                                assigneeId: "",
+                              }));
+                            }
+                          }}
+                        />
+                        <span className="space-y-1">
+                          <span className="block font-medium text-amber-950">
+                            Add to Work Queue
+                          </span>
+                          <span className="block text-amber-800/80">
+                            Developers can pick this up later from the shared queue.
                           </span>
                         </span>
                       </label>

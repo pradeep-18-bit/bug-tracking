@@ -13,16 +13,23 @@ import {
   getIssuePriorityVariant,
   getIssueStatusLabel,
 } from "@/lib/issues";
+import { cn } from "@/lib/utils";
 
 const StoryCard = ({ story, onClick }) => {
   const progress = story.storyProgress || {};
   const progressPercent = Number(progress.percent || 0);
+  const isQueued = Boolean(story.bugDetails?.addToBucket);
 
   return (
     <button
       type="button"
       onClick={() => onClick(story)}
-      className="group min-w-0 rounded-lg border border-blue-200/80 bg-blue-50/75 p-4 text-left shadow-[0_14px_34px_-28px_rgba(37,99,235,0.55)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:shadow-[0_20px_42px_-28px_rgba(37,99,235,0.62)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      className={cn(
+        "group min-w-0 rounded-lg border p-4 text-left backdrop-blur-xl transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+        isQueued
+          ? "border-amber-300/90 bg-amber-50/85 shadow-[0_14px_34px_-28px_rgba(217,119,6,0.58)] hover:border-amber-400 hover:bg-amber-50 hover:shadow-[0_20px_42px_-28px_rgba(217,119,6,0.66)]"
+          : "border-blue-200/80 bg-blue-50/75 shadow-[0_14px_34px_-28px_rgba(37,99,235,0.55)] hover:border-blue-300 hover:bg-blue-50 hover:shadow-[0_20px_42px_-28px_rgba(37,99,235,0.62)]"
+      )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -64,6 +71,11 @@ const StoryCard = ({ story, onClick }) => {
         <span className="rounded-md border border-blue-200 bg-white/75 px-2 py-1 font-medium text-slate-700">
           {story.storyPoints ?? 0} points
         </span>
+        {isQueued ? (
+          <span className="rounded-md border border-amber-300 bg-white/80 px-2 py-1 font-medium text-amber-800">
+            Work Queue
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-4">

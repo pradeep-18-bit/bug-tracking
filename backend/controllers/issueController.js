@@ -2294,7 +2294,7 @@ const getMyIssues = asyncHandler(async (req, res) => {
 const getBugBucket = asyncHandler(async (req, res) => {
   if (!isDevRole(req.user?.role) && !isLeadRole(req.user?.role)) {
     res.status(403);
-    throw new Error("Only developers and leads can view the bug bucket");
+    throw new Error("Only developers and leads can view the work queue");
   }
 
   const [accessibleProjectIds, userTeamIds] = await Promise.all([
@@ -2357,8 +2357,13 @@ const getBugBucket = asyncHandler(async (req, res) => {
   });
   Object.assign(query, ACTIVE_ISSUE_QUERY);
   const requestFilters = summarizeBugQueryFilters(req);
-  const [totalBugsInDatabase, matchingQueueCount] = await Promise.all([
-    Issue.countDocuments({ ...ACTIVE_ISSUE_QUERY, type: ISSUE_TYPES.BUG }),
+  const [totalQueueItemsInDatabase, matchingQueueCount] = await Promise.all([
+    Issue.countDocuments({
+      ...ACTIVE_ISSUE_QUERY,
+      type: {
+        $in: [ISSUE_TYPES.BUG, ISSUE_TYPES.STORY],
+      },
+    }),
     Issue.countDocuments(query),
   ]);
 
@@ -2402,9 +2407,9 @@ const getBugBucket = asyncHandler(async (req, res) => {
   logBugWorkflowQuery("developer-queue", {
     userId: String(req.user?.id || req.user?._id || ""),
     role: req.user?.role || "",
-    totalBugsInDatabase,
-    bugsMatchingQueueQuery: matchingQueueCount,
-    bugsReturned: issues.length,
+    totalQueueItemsInDatabase,
+    workItemsMatchingQueueQuery: matchingQueueCount,
+    workItemsReturned: issues.length,
     accessibleProjectCount: accessibleProjectIds.length,
     userTeamCount: userTeamIds.length,
     queueStatuses: AVAILABLE_BUG_QUEUE_STATUSES,
@@ -2418,7 +2423,7 @@ const getBugBucket = asyncHandler(async (req, res) => {
       ...issue,
       pickupEligibility: pickupEligibilityByIssueId.get(String(issue._id)) || {
         canPick: false,
-        reason: "You can only pick bugs when one of your teams is attached to this project.",
+        reason: "You can only pick work when one of your teams is attached to this project.",
         userTeamIds: [],
         projectTeamIds: [],
         matchingTeamIds: [],
@@ -2433,7 +2438,7 @@ const getBugBucket = asyncHandler(async (req, res) => {
 const pickIssue = asyncHandler(async (req, res) => {
   if (!isDevRole(req.user?.role) && !isLeadRole(req.user?.role)) {
     res.status(403);
-    throw new Error("Only developers and leads can pick bugs");
+    throw new Error("Only developers and leads can pick work");
   }
 
   if (!mongoose.isValidObjectId(req.params.id)) {
@@ -2448,9 +2453,12 @@ const pickIssue = asyncHandler(async (req, res) => {
     throw new Error("Issue not found");
   }
 
-  if (!isBugType(existingIssue.type)) {
+  const isBug = isBugType(existingIssue.type);
+  const isStory = isStoryType(existingIssue.type);
+
+  if (!isBug && !isStory) {
     res.status(400);
-    throw new Error("Only bugs can be picked from the bucket");
+    throw new Error("Only bugs and Stories can be picked from the work queue");
   }
 
   const [project, userTeamIds] = await Promise.all([
@@ -2463,7 +2471,7 @@ const pickIssue = asyncHandler(async (req, res) => {
 
   if (!project && !hasTeamAccess && !isLeadRole(req.user?.role)) {
     res.status(403);
-    throw new Error("You do not have access to this bug");
+    throw new Error("You do not have access to this work item");
   }
 
   const pickupEligibility = await getBugPickupProjectEligibility({
@@ -2478,9 +2486,11 @@ const pickIssue = asyncHandler(async (req, res) => {
     throw new Error(pickupEligibility.reason);
   }
 
-  const previousStatus = getBugStatusForIssueStatus(existingIssue.status);
+  const previousStatus = existingIssue.status;
+  const nextStatus = isBug ? BUG_STATUS.IN_PROGRESS : ISSUE_STATUS.IN_PROGRESS;
+  const pickAction = isBug ? "BUG_PICKED" : "STORY_PICKED";
 
-  console.log("Picking bug", {
+  console.log("Picking work item", {
     id: existingIssue._id,
     userId: req.user._id,
   });
@@ -2488,31 +2498,45 @@ const pickIssue = asyncHandler(async (req, res) => {
   const pickedIssue = await Issue.findOneAndUpdate(
     {
       _id: existingIssue._id,
-      type: ISSUE_TYPES.BUG,
       assignee: null,
-      assignedDeveloperId: null,
-      "bugDetails.developerLead": null,
-      status: {
-        $in: AVAILABLE_BUG_QUEUE_STATUSES,
-      },
+      ...(isBug
+        ? {
+            type: ISSUE_TYPES.BUG,
+            assignedDeveloperId: null,
+            "bugDetails.developerLead": null,
+            status: {
+              $in: AVAILABLE_BUG_QUEUE_STATUSES,
+            },
+          }
+        : {
+            type: ISSUE_TYPES.STORY,
+            "bugDetails.addToBucket": true,
+            status: {
+              $nin: [ISSUE_STATUS.DONE, ISSUE_STATUS.CLOSED],
+            },
+          }),
     },
     {
       $set: {
         assignee: req.user._id,
-        assignedDeveloperId: req.user._id,
-        assignedDeveloperName: req.user.name || req.user.email || "Assigned developer",
-        "bugDetails.developerLead": req.user._id,
+        ...(isBug
+          ? {
+              assignedDeveloperId: req.user._id,
+              assignedDeveloperName: req.user.name || req.user.email || "Assigned developer",
+              "bugDetails.developerLead": req.user._id,
+            }
+          : {}),
         "bugDetails.addToBucket": false,
-        status: BUG_STATUS.IN_PROGRESS,
+        status: nextStatus,
         updatedAt: new Date(),
         updatedBy: req.user._id,
         startedAt: new Date(),
       },
       $push: {
         activityLogs: buildActivityLogEntry({
-          action: "BUG_PICKED",
+          action: pickAction,
           from: previousStatus,
-          to: BUG_STATUS.IN_PROGRESS,
+          to: nextStatus,
           by: req.user,
         }),
       },
@@ -2524,13 +2548,14 @@ const pickIssue = asyncHandler(async (req, res) => {
 
   if (!pickedIssue) {
     res.status(409);
-    throw new Error("This bug was already picked or is no longer available");
+    throw new Error("This work item was already picked or is no longer available");
   }
 
   await populateIssueDocument(pickedIssue);
 
-  console.log("Bug picked and saved", {
-    bugId: pickedIssue.displayBugId || pickedIssue._id,
+  console.log("Work item picked and saved", {
+    issueId: pickedIssue.displayBugId || pickedIssue._id,
+    type: pickedIssue.type,
     status: pickedIssue.status,
     bugDetails: pickedIssue.bugDetails,
     assignedTo: pickedIssue.assignee,
@@ -2541,10 +2566,10 @@ const pickIssue = asyncHandler(async (req, res) => {
       issueId: pickedIssue._id,
       projectId: pickedIssue.projectId,
       actorId: req.user._id,
-      eventType: "BUG_STATUS_CHANGED",
+      eventType: isBug ? "BUG_STATUS_CHANGED" : "ISSUE_UPDATED",
       field: "status",
       fromValue: previousStatus,
-      toValue: BUG_STATUS.IN_PROGRESS,
+      toValue: nextStatus,
       meta: {
         title: pickedIssue.title,
         action: "self_pick",
@@ -2565,20 +2590,22 @@ const pickIssue = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  const emailNotification = await sendBugAssignmentNotification({
-    issue: pickedIssue,
-    actorUser: req.user,
-    workspaceId: normalizeWorkspaceId(project.workspaceId || req.user.workspaceId),
-  });
+  const emailNotification = isBug
+    ? await sendBugAssignmentNotification({
+        issue: pickedIssue,
+        actorUser: req.user,
+        workspaceId: normalizeWorkspaceId(project.workspaceId || req.user.workspaceId),
+      })
+    : null;
 
   await emitIssueWorkflowChange({
     issue: pickedIssue,
     req,
-    eventName: "BugPicked",
-    action: "BUG_PICKED",
+    eventName: isBug ? "BugPicked" : "StoryPicked",
+    action: pickAction,
     meta: {
       fromStatus: previousStatus,
-      toStatus: BUG_STATUS.IN_PROGRESS,
+      toStatus: nextStatus,
     },
   });
 
@@ -3063,7 +3090,7 @@ const createIssue = asyncHandler(async (req, res) => {
   const isBug = normalizedType === ISSUE_TYPES.BUG;
   const isStory = normalizedType === ISSUE_TYPES.STORY;
   const assignLater =
-    isBug &&
+    (isBug || isStory) &&
     Boolean(getBugPayloadValue(req.body, "addToBucket", ["assignLater", "bucket"]));
   const sendToTriage =
     isBug && (Boolean(req.body.sendToTriage) || Boolean(req.body.bugDetails?.sendToTriage));
@@ -3307,7 +3334,11 @@ const createIssue = asyncHandler(async (req, res) => {
         developerLead: (assignLater || sendToTriage) ? null : assigneeId || null,
         addToBucket: assignLater,
       })
-    : {};
+    : isStory
+      ? buildBugDetailsDraft(req.body, {}, {
+          addToBucket: assignLater,
+        })
+      : {};
   let bugAssignmentDeveloperUser = null;
 
   if (isBug) {
@@ -4559,6 +4590,7 @@ const deleteIssue = asyncHandler(async (req, res) => {
   const userId = getUserIdString(req.user);
   const reporterId = getUserIdString(issue.reporter);
   const isBug = isBugType(issue.type);
+  const isStory = isStoryType(issue.type);
   const isUserAdmin = req.user.role === ROLE_ADMIN;
   const isUserManager = req.user.role === ROLE_MANAGER;
   const isUserTester = req.user.role === ROLE_TESTER;
@@ -4566,7 +4598,9 @@ const deleteIssue = asyncHandler(async (req, res) => {
   const isReportedAndUnpicked = isBug && isBugReportedAndUnpicked(issue);
 
   const canDelete =
-    isUserAdmin || (isBug && isUserManager) || (isUserTester && isTesterOwnerOfBug && isReportedAndUnpicked);
+    isUserAdmin ||
+    ((isBug || isStory) && isUserManager) ||
+    (isUserTester && isTesterOwnerOfBug && isReportedAndUnpicked);
 
   console.log("DELETE BUG DEBUG", {
     issueId: String(issue._id),
@@ -4574,6 +4608,7 @@ const deleteIssue = asyncHandler(async (req, res) => {
     loggedInUser: userId,
     role: req.user.role,
     isBug,
+    isStory,
     isUserAdmin,
     isUserManager,
     isUserTester,
@@ -4589,12 +4624,14 @@ const deleteIssue = asyncHandler(async (req, res) => {
     }
 
     res.status(403);
-    throw new Error("You are not authorized to delete this bug");
+    throw new Error("You are not authorized to delete this work item");
   }
 
   const deletedAt = new Date();
-  const bugId = issue.displayBugId || String(issue._id);
-  const deleteMessage = `Bug deleted by ${req.user.name || req.user.email || "Unknown user"} on ${deletedAt.toISOString()}`;
+  const issueId = issue.displayBugId || String(issue._id);
+  const issueLabel = isStory ? "Story" : isBug ? "Bug" : "Work item";
+  const deleteAction = isBug ? "BUG_DELETED" : isStory ? "STORY_DELETED" : "ISSUE_DELETED";
+  const deleteMessage = `${issueLabel} deleted by ${req.user.name || req.user.email || "Unknown user"} on ${deletedAt.toISOString()}`;
 
   issue.isDeleted = true;
   issue.deletedAt = deletedAt;
@@ -4604,13 +4641,13 @@ const deleteIssue = asyncHandler(async (req, res) => {
   issue.activityLogs = issue.activityLogs || [];
   issue.activityLogs.push(
     buildActivityLogEntry({
-      action: "BUG_DELETED",
+      action: deleteAction,
       from: issue.status,
       to: "DELETED",
       by: req.user,
       time: deletedAt,
       meta: {
-        bugId,
+        issueId,
         title: issue.title,
         creatorId: reporterId,
         creatorName: issue.reporterName || "",
@@ -4627,12 +4664,12 @@ const deleteIssue = asyncHandler(async (req, res) => {
     issueId: issue._id,
     projectId: issue.projectId,
     actorId: req.user._id,
-    eventType: "BUG_DELETED",
+    eventType: deleteAction,
     field: "isDeleted",
     fromValue: false,
     toValue: true,
     meta: {
-      bugId,
+      issueId,
       title: issue.title,
       creatorId: reporterId,
       creatorName: issue.reporterName || "",
@@ -4645,12 +4682,12 @@ const deleteIssue = asyncHandler(async (req, res) => {
   await emitIssueWorkflowChange({
     issue,
     req,
-    eventName: "BugDeleted",
-    action: "BUG_DELETED",
+    eventName: isBug ? "BugDeleted" : isStory ? "StoryDeleted" : "IssueDeleted",
+    action: deleteAction,
     meta: {
       deletedAt,
       deletedBy: userId,
-      bugId,
+      issueId,
     },
   });
 

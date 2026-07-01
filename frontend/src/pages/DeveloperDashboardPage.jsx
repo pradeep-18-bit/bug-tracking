@@ -1032,9 +1032,9 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
             </p>
             <CardTitle className="flex items-center gap-2 text-2xl tracking-tight text-slate-950">
               <FolderKanban className="h-6 w-6 text-cyan-600" />
-              Available Bugs Queue
+              Work Queue
             </CardTitle>
-            <CardDescription>Pickup-ready bugs waiting for developer ownership.</CardDescription>
+            <CardDescription>Pickup-ready work waiting for developer ownership.</CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Pill className="h-8 border-cyan-200 bg-cyan-50 px-3 text-cyan-700">
@@ -1047,7 +1047,7 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
               onClick={onViewAllBugs}
             >
               <FolderKanban className="h-3.5 w-3.5" />
-              View All Bugs
+              View Queue
             </Button>
           </div>
         </div>
@@ -1066,7 +1066,7 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
                 <span>ID</span>
                 <span>Title</span>
                 <span>Module / Page</span>
-                <span>Bug Type</span>
+                <span>Type</span>
                 <span>Severity</span>
                 <span className="text-right">Action</span>
               </div>
@@ -1074,16 +1074,19 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
                 {sortedIssues.map((issue) => {
                   const canPick = issue.canPick !== false && issue.pickupEligibility?.canPick !== false;
                   const pickDisabled = pickingId === issue._id || !canPick;
-                  const pickLabel = pickingId === issue._id ? "Picking" : canPick ? "Pick Bug" : "Not Eligible";
+                  const isStory = issue.type === "Story";
+                  const pickLabel = pickingId === issue._id ? "Picking" : canPick ? `Pick ${isStory ? "Story" : "Bug"}` : "Not Eligible";
                   const severity = getBugSeverity(issue);
                   const bugDetails = resolveBugDetails(issue);
-                  const moduleName = bugDetails?.moduleName || "General";
-                  const category = bugDetails?.category || "Bug";
+                  const moduleName = isStory ? issue.projectId?.name || "Story" : bugDetails?.moduleName || "General";
+                  const category = isStory ? "Story" : bugDetails?.category || "Bug";
 
                   return (
                     <article
                       key={issue._id}
-                      className="grid gap-2 px-3 py-2.5 transition hover:bg-cyan-50/50 md:grid-cols-[108px_minmax(220px,1fr)_150px_140px_108px_172px] md:items-center md:gap-3 md:py-1.5"
+                      className={`grid gap-2 px-3 py-2.5 transition md:grid-cols-[108px_minmax(220px,1fr)_150px_140px_108px_172px] md:items-center md:gap-3 md:py-1.5 ${
+                        isStory ? "bg-amber-50/70 hover:bg-amber-50" : "hover:bg-cyan-50/50"
+                      }`}
                     >
                       <button
                         className="truncate text-left font-mono text-xs font-semibold text-slate-500"
@@ -1146,13 +1149,13 @@ const BugBucketPanel = ({ issues, isLoading, onOpenIssue, onPickIssue, onViewAll
             </div>
 
             <p className="border-t border-cyan-100/80 pt-3 text-xs font-medium text-slate-500">
-              Showing all {sortedIssues.length} available bugs
+              Showing all {sortedIssues.length} available work items
             </p>
           </>
         ) : (
           <EmptyState
-            title="No bugs in the bucket"
-            description="Unassigned tester bugs will appear here when they are added to the developer queue."
+            title="No work in the queue"
+            description="Unassigned bugs and Stories will appear here when they are added to the developer queue."
             icon={<FolderKanban className="h-5 w-5" />}
           />
         )}

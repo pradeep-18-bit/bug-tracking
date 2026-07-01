@@ -65,6 +65,25 @@ const Navbar = () => {
   }, [location.pathname]);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 1024px)");
+    const closeDesktopMenu = (event) => {
+      if (event.matches) {
+        setIsMenuOpen(false);
+      }
+    };
+
+    closeDesktopMenu(mediaQuery);
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", closeDesktopMenu);
+      return () => mediaQuery.removeEventListener("change", closeDesktopMenu);
+    }
+
+    mediaQuery.addListener(closeDesktopMenu);
+    return () => mediaQuery.removeListener(closeDesktopMenu);
+  }, []);
+
+  useEffect(() => {
     if (!user || hasLoadedConversations) {
       return;
     }
@@ -102,7 +121,7 @@ const Navbar = () => {
             />
           </NavLink>
 
-          <nav className="hidden items-center gap-1 xl:flex">
+          <nav className="hidden items-center gap-1 lg:flex">
             {navigation.map((item) => {
               const Icon = iconMap[item.icon] || LayoutDashboard;
 
@@ -131,13 +150,13 @@ const Navbar = () => {
             })}
           </nav>
 
-          <div className="relative z-[100] ml-auto hidden items-center gap-2 overflow-visible xl:flex">
+          <div className="relative z-[100] ml-auto hidden items-center gap-2 overflow-visible lg:flex">
             <NotificationButton user={user} />
             <UserProfileDropdown />
           </div>
 
           <Button
-            className="ml-auto shrink-0 xl:hidden"
+            className="ml-auto shrink-0 lg:hidden"
             variant="outline"
             size="icon"
             type="button"
@@ -158,7 +177,7 @@ const Navbar = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm xl:hidden"
+              className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm lg:hidden"
               onClick={() => setIsMenuOpen(false)}
             />
 
@@ -168,7 +187,7 @@ const Navbar = () => {
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", stiffness: 350, damping: 35 }}
-              className="fixed right-0 top-0 z-[9999] flex h-screen w-[80%] max-w-[320px] flex-col border-l border-slate-200 bg-white shadow-2xl xl:hidden"
+              className="fixed right-0 top-0 z-[9999] flex h-screen w-[80%] max-w-[320px] flex-col border-l border-slate-200 bg-white shadow-2xl lg:hidden"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Drawer header with close button */}
